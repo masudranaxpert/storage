@@ -177,7 +177,10 @@ func SweepStaleScratch(scratchDir string, maxAge time.Duration) (removed []strin
 		}
 		dir := filepath.Join(scratchDir, e.Name())
 		info, err := e.Info()
-		if err != nil || info.ModTime().After(cutoff) {
+		if err != nil {
+			continue
+		}
+		if maxAge > 0 && info.ModTime().After(cutoff) {
 			continue
 		}
 		if os.RemoveAll(dir) == nil {

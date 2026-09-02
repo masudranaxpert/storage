@@ -122,6 +122,21 @@ func (a *Agent) loadRoots() {
 	a.rootMu.Unlock()
 }
 
+// resolveTargetDir maps a storage directory or disk mount (e.g. /mnt/hdd or /data)
+// into the dedicated media directory (e.g. /mnt/hdd/stream/media) so media files
+// never pollute the root of a partition.
+func (a *Agent) resolveTargetDir(dir string) string {
+	if dir == "" || dir == "." || strings.Contains(dir, "..") {
+		return a.MediaDir
+	}
+	dir = filepath.Clean(dir)
+	slashDir := filepath.ToSlash(dir)
+	if strings.HasSuffix(slashDir, "/stream/media") || strings.HasSuffix(slashDir, "/media") {
+		return dir
+	}
+	return filepath.Join(dir, "stream", "media")
+}
+
 // resolveMediaPath maps a request sub-path onto the primary media dir first,
 // then any registered block roots. Returns "" when nothing matches.
 func (a *Agent) resolveMediaPath(cleanSubPath string) string {
@@ -129,10 +144,14 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 		return ""
 	}
 	a.rootMu.RLock()
-	roots := make([]string, 0, len(a.extraRoots)+1)
+	roots := make([]string, 0, len(a.extraRoots)*2+2)
 	roots = append(roots, a.MediaDir)
 	for dir := range a.extraRoots {
 		roots = append(roots, dir)
+		resolved := a.resolveTargetDir(dir)
+		if resolved != dir {
+			roots = append(roots, resolved)
+		}
 	}
 	a.rootMu.RUnlock()
 
@@ -397,23 +416,23 @@ func (a *Agent) Start(ctx context.Context) error {
 	_ = os.MkdirAll(a.ScratchDir, 0755)
 	a.loadRoots() // tier-block roots placed before this run stay streamable
 
-	// Garbage-collect scratch folders left behind by crashed jobs, then keep
-	// sweeping hourly.
+	// Garbage-collect scratch folders immediately on boot (orphaned from previous runs),
+	// then keep sweeping every 15 minutes.
 	go func() {
-		sweep := func() {
-			if removed := media.SweepStaleScratch(a.ScratchDir, 24*time.Hour); len(removed) > 0 {
+		sweep := func(maxAge time.Duration) {
+			if removed := media.SweepStaleScratch(a.ScratchDir, maxAge); len(removed) > 0 {
 				fmt.Printf("[Agent %s] 🧹 swept %d stale scratch folder(s)\n", a.NodeID, len(removed))
 			}
 		}
-		sweep()
-		t := time.NewTicker(time.Hour)
+		sweep(0) // On boot: any existing folder in scratch is an orphan from a crashed/interrupted run
+		t := time.NewTicker(15 * time.Minute)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				sweep()
+				sweep(1 * time.Hour)
 			}
 		}
 	}()
@@ -498,14 +517,11 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		if filename == "" {
 			filename = "video.mp4"
 		}
-		targetDir := filepath.Clean(req.TargetDir)
-		if targetDir == "" || targetDir == "." || strings.Contains(targetDir, "..") {
-			targetDir = a.MediaDir
-		}
+		targetDir := a.resolveTargetDir(req.TargetDir)
 
 		var final *TransferTarget
 		if req.FinalNodeID != "" && req.FinalNodeID != a.NodeID && req.FinalAddr != "" {
-			if dir := filepath.Clean(req.FinalDir); dir != "" && dir != "." && !strings.Contains(dir, "..") {
+			if dir := a.resolveTargetDir(req.FinalDir); dir != "" && dir != "." && !strings.Contains(dir, "..") {
 				final = &TransferTarget{NodeID: req.FinalNodeID, Dir: dir, Addr: req.FinalAddr}
 			}
 		}
@@ -537,15 +553,12 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		if filename == "" {
 			filename = "video.mp4"
 		}
-		targetDir := filepath.Clean(r.URL.Query().Get("dir"))
-		if targetDir == "" || targetDir == "." || strings.Contains(targetDir, "..") {
-			targetDir = a.MediaDir
-		}
+		targetDir := a.resolveTargetDir(r.URL.Query().Get("dir"))
 
 		var final *TransferTarget
 		if fin := r.URL.Query().Get("final_node_id"); fin != "" && fin != a.NodeID {
 			addr := r.URL.Query().Get("final_addr")
-			dir := filepath.Clean(r.URL.Query().Get("final_dir"))
+			dir := a.resolveTargetDir(r.URL.Query().Get("final_dir"))
 			if addr != "" && dir != "" && dir != "." && !strings.Contains(dir, "..") {
 				final = &TransferTarget{NodeID: fin, Dir: dir, Addr: addr}
 			}
@@ -599,7 +612,8 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "invalid key", http.StatusBadRequest)
 			return
 		}
-		dir := filepath.Clean(r.URL.Query().Get("dir"))
+		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
+		dir := a.resolveTargetDir(rawDir)
 		if dir == "" || dir == "." || strings.HasPrefix(dir, "..") || strings.Contains(dir, "..") {
 			http.Error(w, "dir required", http.StatusBadRequest)
 			return
@@ -609,6 +623,9 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		if err := os.RemoveAll(dest); err != nil { // stale partial from a retry
 			http.Error(w, "cleanup failed: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if rawDir != dir {
+			_ = os.RemoveAll(filepath.Join(rawDir, key))
 		}
 		// Slow relay links: give this request its own long read deadline,
 		// independent of the server-wide streaming timeout.
@@ -643,19 +660,19 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			return
 		}
 		key := r.URL.Query().Get("key")
-		dir := filepath.Clean(r.URL.Query().Get("dir"))
+		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
+		dir := a.resolveTargetDir(rawDir)
 		if key == "" || dir == "" || dir == "." || strings.Contains(dir, "..") {
 			http.Error(w, "key and dir required", http.StatusBadRequest)
 			return
 		}
 		target := filepath.Join(dir, key)
-		if !strings.HasPrefix(target, dir) {
-			http.Error(w, "forbidden", http.StatusForbidden)
-			return
+		_ = os.RemoveAll(target)
+		if rawDir != dir {
+			_ = os.RemoveAll(filepath.Join(rawDir, key))
 		}
-		if err := os.RemoveAll(target); err != nil {
-			http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
-			return
+		if a.ScratchDir != "" {
+			_ = os.RemoveAll(filepath.Join(a.ScratchDir, key))
 		}
 		w.Write([]byte(`{"status":"deleted"}`))
 	})
@@ -834,6 +851,12 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		return
 	}
 
+	if final != nil {
+		defer func() {
+			_ = os.RemoveAll(folder.BaseDir)
+		}()
+	}
+
 	if srcURL != "" {
 		report("downloading", 0, "Starting", "", nil)
 		dlProgress := func(pct float64, speed string) {
@@ -968,6 +991,7 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 	report("transferring", 90.5, "Starting transfer to "+final.NodeID, "", nil)
 
 	pipeR, pipeW := io.Pipe()
+	defer pipeR.Close()
 	go func() {
 		err := media.PackFolder(pipeW, baseDir)
 		pipeW.CloseWithError(err) // nil error → plain EOF for the reader
