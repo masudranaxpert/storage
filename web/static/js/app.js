@@ -1138,12 +1138,39 @@ function handleUserInputChange(val) {
     }
 }
 
+async function waitForProvisionedNode(nodeName, host, { timeoutMs = 180000, intervalMs = 2000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    const wantName = (nodeName || '').trim();
+    while (Date.now() < deadline) {
+        try {
+            const nodesRes = await fetch('/api/nodes');
+            if (nodesRes.ok) {
+                const nodesData = await nodesRes.json();
+                const list = Array.isArray(nodesData) ? nodesData : (nodesData.nodes || []);
+                const found = list.some(n => {
+                    const m = n.metrics || {};
+                    const id = m.node_id || '';
+                    const ips = m.ips || [];
+                    const hostname = m.hostname || '';
+                    if (wantName && id === wantName) return true;
+                    if (host && ips.includes(host)) return true;
+                    if (host && hostname.includes(host)) return true;
+                    return false;
+                });
+                if (found) return true;
+            }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, intervalMs));
+    }
+    return false;
+}
+
 async function handleProvisionSubmit(e) {
     e.preventDefault();
     const host = document.getElementById('vps-input-host').value.trim();
     const user = document.getElementById('vps-input-user').value.trim() || 'root';
     const password = document.getElementById('vps-input-password').value;
-    const name = document.getElementById('vps-input-name').value.trim();
+    const name = document.getElementById('vps-input-name').value.trim() || `vps-${host.replace(/\./g, '-')}`;
 
     const isCustomPort = document.getElementById('toggle-custom-port')?.checked;
     const port = isCustomPort ? (parseInt(document.getElementById('vps-input-port')?.value) || 22) : 22;
@@ -1157,7 +1184,10 @@ async function handleProvisionSubmit(e) {
     logBox.style.display = 'block';
     submitBtn.disabled = true;
     submitText.innerText = 'Provisioning in progress...';
-    logContent.innerHTML = `<div style="color:var(--orange-primary);">Initiating SSH connection to ${host}:${port} as user ${user}...</div>`;
+    logContent.innerHTML = `
+        <div style="color:var(--orange-primary);">SSH to ${host}:${port} as ${user}...</div>
+        <div style="color:var(--text-secondary);margin-top:4px;">Installing tools can take 1–3 minutes. Keep this window open.</div>
+    `;
 
     const payload = {
         host: host,
@@ -1169,6 +1199,18 @@ async function handleProvisionSubmit(e) {
         advertise_addr: host,
         coordinator_url: `${window.location.protocol}//${window.location.host}`
     };
+
+    const finishSuccess = (extraHtml = '') => {
+        logContent.innerHTML = `<div style="color:var(--status-online);font-weight:bold;">VPS <strong>${name}</strong> joined the cluster.</div>${extraHtml}`;
+        submitText.innerText = 'Completed!';
+        setTimeout(() => {
+            closeAddVPSModal();
+            fetchClusterTelemetry();
+        }, 1500);
+    };
+
+    // Parallel watcher: SSH provision often outlives the browser HTTP wait.
+    const joinedPromise = waitForProvisionedNode(name, host);
 
     try {
         const res = await fetch('/api/nodes/provision', {
@@ -1183,46 +1225,28 @@ async function handleProvisionSubmit(e) {
             data = { error: raw || res.statusText || 'Provisioning failed' };
         }
         if (res.ok) {
-            let logHtml = (data.logs || []).map(l => `<div style="color:var(--status-online);">&#10003; ${l}</div>`).join('');
-            logHtml += `<div style="color:var(--status-online);font-weight:bold;margin-top:8px;">&#127881; Successfully joined cluster as ${data.node_name}!</div>`;
-            if (data.advertise_addr) {
-                logHtml += `<div>Advertise addr (peering): <strong>${data.advertise_addr}</strong></div>`;
-            }
-            logContent.innerHTML = logHtml;
-            submitText.innerText = 'Completed!';
-            setTimeout(() => {
-                closeAddVPSModal();
-                fetchClusterTelemetry();
-            }, 2500);
-        } else {
-            let errLogs = (data.result?.logs || []).map(l => `<div>${l}</div>`).join('');
-            logContent.innerHTML = `${errLogs}<div style="color:var(--status-offline);font-weight:bold;margin-top:8px;">&#10007; Error: ${data.error || 'Provisioning failed'}</div>`;
-            submitBtn.disabled = false;
-            submitText.innerText = 'Retry Provisioning';
+            const logs = (data.logs || []).map(l => `<div style="color:var(--status-online);">${l}</div>`).join('');
+            finishSuccess(logs);
+            return;
         }
-    } catch (err) {
-        // Graceful check: Verify if the node was successfully provisioned despite client connection drop
-        try {
-            await new Promise(r => setTimeout(r, 1200));
-            const nodesRes = await fetch('/api/nodes');
-            if (nodesRes.ok) {
-                const nodesData = await nodesRes.json();
-                const found = (nodesData || []).some(n => 
-                    n.metrics.node_id === name || (n.metrics.ips || []).includes(host) || n.metrics.hostname.includes(host)
-                );
-                if (found) {
-                    logContent.innerHTML = `<div style="color:var(--status-online);font-weight:bold;">&#127881; VPS ${name || host} successfully joined the cluster!</div>`;
-                    submitText.innerText = 'Completed!';
-                    setTimeout(() => {
-                        closeAddVPSModal();
-                        fetchClusterTelemetry();
-                    }, 2000);
-                    return;
-                }
-            }
-        } catch (_) {}
 
-        logContent.innerHTML += `<div style="color:var(--status-offline);margin-top:6px;">Network/Server error: ${err.message}</div>`;
+        // HTTP error — still might have joined (partial success / late heartbeat).
+        if (await waitForProvisionedNode(name, host, { timeoutMs: 45000 })) {
+            finishSuccess(`<div style="color:var(--text-secondary);margin-top:6px;">Joined after a slow provision response.</div>`);
+            return;
+        }
+        const errLogs = (data.result?.logs || []).map(l => `<div>${l}</div>`).join('');
+        logContent.innerHTML = `${errLogs}<div style="color:var(--status-offline);font-weight:bold;margin-top:8px;">Error: ${data.error || 'Provisioning failed'}</div>`;
+        submitBtn.disabled = false;
+        submitText.innerText = 'Retry Provisioning';
+    } catch (err) {
+        logContent.innerHTML += `<div style="color:var(--text-secondary);margin-top:6px;">Browser lost the long HTTP response (${err.message}). Checking if the node joined...</div>`;
+        const joined = await joinedPromise;
+        if (joined || await waitForProvisionedNode(name, host, { timeoutMs: 60000 })) {
+            finishSuccess(`<div style="color:var(--text-secondary);margin-top:6px;">Node is online (provision finished on server).</div>`);
+            return;
+        }
+        logContent.innerHTML += `<div style="color:var(--status-offline);margin-top:6px;">Could not confirm join. Check Nodes page or retry.</div>`;
         submitBtn.disabled = false;
         submitText.innerText = 'Retry Provisioning';
     }
