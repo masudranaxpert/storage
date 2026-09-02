@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -459,21 +461,49 @@ func uploadData(client *ssh.Client, data []byte, remotePath, user, password stri
 	return nil
 }
 
-// GetOrBuildLinuxBinary returns the cached or compiled stream-linux-amd64 binary bytes
+// GetOrBuildLinuxBinary returns cached or freshly cross-compiled stream agent bytes
+// for Linux amd64 VPS nodes. Prefers an existing binary so Docker/air hosts without
+// `go` on PATH can still provision.
 func GetOrBuildLinuxBinary() ([]byte, error) {
-	binPath := "stream-linux-amd64"
-
-	// Auto cross-compile on demand
-	cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", binPath, "./cmd/stream")
-	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		if data, readErr := os.ReadFile(binPath); readErr == nil && len(data) > 0 {
+	candidates := linuxBinaryCandidates()
+	for _, binPath := range candidates {
+		if data, err := os.ReadFile(binPath); err == nil && len(data) > 0 {
 			return data, nil
 		}
-		return nil, fmt.Errorf("failed to build linux binary: %v (%s)", err, string(out))
 	}
 
-	return os.ReadFile(binPath)
+	outPath := "stream-linux-amd64"
+	cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", outPath, "./cmd/stream")
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return nil, fmt.Errorf("no stream-linux-amd64 cache and go build failed: %v (%s)", err, string(out))
+	}
+	return os.ReadFile(outPath)
+}
+
+func linuxBinaryCandidates() []string {
+	var paths []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		paths = append(paths, p)
+	}
+	add("stream-linux-amd64")
+	add(filepath.Join(".", "stream-linux-amd64"))
+	add("/app/stream-linux-amd64")
+	add("/usr/local/bin/stream-linux-amd64")
+	// Same linux amd64 binary as the coordinator process inside Docker.
+	add("/usr/local/bin/stream")
+	if exe, err := os.Executable(); err == nil {
+		dir := filepath.Dir(exe)
+		add(filepath.Join(dir, "stream-linux-amd64"))
+		// When coordinator itself is linux/amd64, reuse it for agents.
+		if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+			add(exe)
+		}
+	}
+	return paths
 }
 
 // ResolveCoordinatorURL resolves localhost/loopback to a LAN/public IP the VPS can dial.

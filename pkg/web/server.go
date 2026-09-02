@@ -1028,7 +1028,11 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 	binData, err := provision.GetOrBuildLinuxBinary()
 	if err != nil {
 		fmt.Printf("[Server] ❌ Failed to build/get Linux binary: %v\n", err)
-		http.Error(w, fmt.Sprintf("binary error: %v", err), http.StatusInternalServerError)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error": fmt.Sprintf("binary error: %v", err),
+		})
 		return
 	}
 

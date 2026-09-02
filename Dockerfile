@@ -4,7 +4,7 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /out/stream ./cmd/stream
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /out/stream ./cmd/stream
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -13,6 +13,8 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY --from=builder /out/stream /usr/local/bin/stream
+# Cached agent binary for SSH provision (image has no Go toolchain).
+COPY --from=builder /out/stream /app/stream-linux-amd64
 COPY web /app/web
 
 EXPOSE 1212 9090

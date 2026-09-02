@@ -1177,7 +1177,11 @@ async function handleProvisionSubmit(e) {
             body: JSON.stringify(payload)
         });
 
-        const data = await res.json();
+        const raw = await res.text();
+        let data = {};
+        try { data = raw ? JSON.parse(raw) : {}; } catch (_) {
+            data = { error: raw || res.statusText || 'Provisioning failed' };
+        }
         if (res.ok) {
             let logHtml = (data.logs || []).map(l => `<div style="color:var(--status-online);">&#10003; ${l}</div>`).join('');
             logHtml += `<div style="color:var(--status-online);font-weight:bold;margin-top:8px;">&#127881; Successfully joined cluster as ${data.node_name}!</div>`;
