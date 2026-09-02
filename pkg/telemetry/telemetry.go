@@ -54,10 +54,11 @@ type CPUStat struct {
 	UsedPercent float64 `json:"used_percent"`
 }
 
-// NodeCapabilities holds information on installed streaming tools (ffmpeg, aria2c, etc.)
+// NodeCapabilities holds information on installed streaming tools (ffmpeg, aria2c, rclone, etc.)
 type NodeCapabilities struct {
 	HasFFmpeg bool   `json:"has_ffmpeg"`
 	HasAria2c bool   `json:"has_aria2c"`
+	HasRclone bool   `json:"has_rclone"`
 	AgentPort int    `json:"agent_port"`
 	Version   string `json:"version"`
 }
@@ -83,7 +84,7 @@ type NodeMetrics struct {
 // CurrentVersion defines the latest build version of the Stream Mesh platform.
 // Bump this whenever the wire/agent behavior changes: agents running older
 // versions self-upgrade when their reported version differs from this value.
-const CurrentVersion = "v1.5.0"
+const CurrentVersion = "v1.6.0"
 
 func Collect(nodeID string) (*NodeMetrics, error) {
 	hostInfo, err := host.Info()
@@ -119,6 +120,10 @@ func Collect(nodeID string) (*NodeMetrics, error) {
 	if p, err := exec.LookPath("aria2c"); err == nil && p != "" {
 		hasAria2c = true
 	}
+	hasRclone := false
+	if p, err := exec.LookPath("rclone"); err == nil && p != "" {
+		hasRclone = true
+	}
 
 	return &NodeMetrics{
 		NodeID:    nodeID,
@@ -142,6 +147,7 @@ func Collect(nodeID string) (*NodeMetrics, error) {
 		Capabilities: NodeCapabilities{
 			HasFFmpeg: hasFFmpeg,
 			HasAria2c: hasAria2c,
+			HasRclone: hasRclone,
 			AgentPort: 2052,
 			Version:   CurrentVersion,
 		},

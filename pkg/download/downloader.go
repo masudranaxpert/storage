@@ -1,4 +1,4 @@
-package ingest
+﻿package download
 
 import (
 	"bufio"
@@ -108,7 +108,7 @@ func downloadWithAria2(ctx context.Context, srcURL, dstPath string, onProgress P
 				}
 				if etaMatches := etaRegex.FindStringSubmatch(line); len(etaMatches) >= 2 {
 					if speedStr != "" {
-						speedStr += fmt.Sprintf(" • ETA: %s", etaMatches[1])
+						speedStr += fmt.Sprintf(" â€¢ ETA: %s", etaMatches[1])
 					} else {
 						speedStr = fmt.Sprintf("ETA: %s", etaMatches[1])
 					}
@@ -241,3 +241,4 @@ func formatSpeed(bytesPerSec float64) string {
 	}
 	return fmt.Sprintf("%.1f MB/s", bytesPerSec/(1024*1024))
 }
+

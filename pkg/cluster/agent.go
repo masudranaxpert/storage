@@ -19,9 +19,10 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/disk"
-	"stream/pkg/ingest"
+	"stream/pkg/download"
 	"stream/pkg/media"
 	"stream/pkg/telemetry"
+	"stream/pkg/tools"
 )
 
 var (
@@ -229,8 +230,33 @@ func NewAgent(nodeID, coordinatorURL string, interval time.Duration, listenPort 
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-		transferClient: &http.Client{
-			Timeout: 2 * time.Hour, // folder pushes over slow relay links can take a while
+		transferClient: newTransferHTTPClient(),
+	}
+}
+
+// newTransferHTTPClient builds an HTTP client tuned for bulk node→node tar
+// pushes: large buffers, no gzip, long timeouts. Parallel streams (later) are
+// still needed to fully fill high-RTT WAN links — this only removes local
+// client-side throttling.
+func newTransferHTTPClient() *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+	return &http.Client{
+		Timeout: 2 * time.Hour,
+		Transport: &http.Transport{
+			Proxy:                 http.ProxyFromEnvironment,
+			DialContext:           dialer.DialContext,
+			ForceAttemptHTTP2:     false, // one long HTTP/1.1 upload stream
+			MaxIdleConns:          32,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   20 * time.Second,
+			ExpectContinueTimeout: 0,
+			DisableCompression:    true,
+			WriteBufferSize:       1 << 20, // 1 MiB
+			ReadBufferSize:        1 << 20,
+			ResponseHeaderTimeout: 30 * time.Minute,
 		},
 	}
 }
@@ -251,10 +277,10 @@ func (a *Agent) ensureToolsAsync() {
 			agentOpMu.Unlock()
 		}()
 
-		fmt.Printf("[Agent %s] Autonomous Healing: Installing missing worker tools (aria2, ffmpeg)...\n", a.NodeID)
-		cmd := exec.Command("bash", "-c", "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2 ffmpeg")
+		fmt.Printf("[Agent %s] Autonomous Healing: Installing missing worker tools (aria2, ffmpeg, rclone)...\n", a.NodeID)
+		cmd := exec.Command("bash", "-c", tools.InstallShell("all"))
 		if err := cmd.Run(); err == nil {
-			fmt.Printf("[Agent %s] Media worker tools (aria2, ffmpeg) successfully installed!\n", a.NodeID)
+			fmt.Printf("[Agent %s] Media worker tools (aria2, ffmpeg, rclone) successfully installed!\n", a.NodeID)
 			_, _ = a.SendHeartbeat()
 		}
 	}()
@@ -419,16 +445,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Header().Set("Content-Type", "application/json")
 		tool := r.URL.Query().Get("tool")
 		go func() {
-			var cmdStr string
-			switch tool {
-			case "aria2", "aria2c":
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2"
-			case "ffmpeg":
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg"
-			default:
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2 ffmpeg"
-			}
-			cmd := exec.Command("bash", "-c", cmdStr)
+			cmd := exec.Command("bash", "-c", tools.InstallShell(tool))
 			_ = cmd.Run()
 			_, _ = a.SendHeartbeat()
 		}()
@@ -441,16 +458,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Header().Set("Content-Type", "application/json")
 		tool := r.URL.Query().Get("tool")
 		go func() {
-			var cmdStr string
-			switch tool {
-			case "aria2", "aria2c":
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq aria2 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c; hash -r 2>/dev/null || true"
-			case "ffmpeg":
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq ffmpeg 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe; hash -r 2>/dev/null || true"
-			default:
-				cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq aria2 ffmpeg 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe; hash -r 2>/dev/null || true"
-			}
-			cmd := exec.Command("bash", "-c", cmdStr)
+			cmd := exec.Command("bash", "-c", tools.UninstallShell(tool))
 			_ = cmd.Run()
 			_, _ = a.SendHeartbeat()
 		}()
@@ -691,44 +699,6 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.ServeFile(w, r, targetFilePath)
 	}
 
-	mux.HandleFunc("/api/ingest", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		var req struct {
-			JobID     string `json:"job_id"`
-			SourceURL string `json:"url"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.SourceURL == "" {
-			http.Error(w, "invalid request", http.StatusBadRequest)
-			return
-		}
-		if req.JobID == "" {
-			req.JobID = fmt.Sprintf("media_%d", time.Now().Unix())
-		}
-
-		// Run ingest job directly on this VPS node, reporting progress back
-		// over legacy HTTP (kept for older coordinators and manual triggers).
-		httpReporter := func(status, speed string, pct float64, errMsg string, cmafPkg *media.CMAFPackage) {
-			updatePayload := map[string]interface{}{
-				"status":           status,
-				"progress_percent": pct,
-				"download_speed":   speed,
-				"error_msg":        errMsg,
-				"cmaf":             cmafPkg,
-			}
-			data, _ := json.Marshal(updatePayload)
-			_, _ = a.client.Post(fmt.Sprintf("%s/api/jobs/%s/progress", a.CoordinatorURL, req.JobID), "application/json", bytes.NewBuffer(data))
-		}
-		go a.RunIngestJob(req.JobID, req.SourceURL, httpReporter)
-
-		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(map[string]string{"status": "accepted", "job_id": req.JobID})
-	})
-
 	mux.HandleFunc("/media/", mediaHandler)
 	mux.HandleFunc("/stream/", mediaHandler)
 
@@ -783,7 +753,7 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 		report("downloading", speed, pct, "", nil)
 	}
 
-	if err := ingest.DownloadFile(ctx, srcURL, folder.RawFilePath, dlProgress); err != nil {
+	if err := download.DownloadFile(ctx, srcURL, folder.RawFilePath, dlProgress); err != nil {
 		report("failed", "0 B/s", 0.0, fmt.Sprintf("download failed: %v", err), nil)
 		return
 	}
@@ -869,7 +839,7 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		dlProgress := func(pct float64, speed string) {
 			report("downloading", pct, speed, "", nil)
 		}
-		if err := ingest.DownloadFile(ctx, srcURL, folder.RawFilePath, dlProgress); err != nil {
+		if err := download.DownloadFile(ctx, srcURL, folder.RawFilePath, dlProgress); err != nil {
 			report("failed", 0, "0 B/s", fmt.Sprintf("download failed: %v", err), nil)
 			if final != nil {
 				_ = os.RemoveAll(folder.BaseDir) // reclaim scratch

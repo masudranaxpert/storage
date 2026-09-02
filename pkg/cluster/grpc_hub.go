@@ -332,6 +332,7 @@ func metricsToProto(m telemetry.NodeMetrics) *pb.Heartbeat {
 		Capabilities: &pb.NodeCapabilities{
 			HasFfmpeg: m.Capabilities.HasFFmpeg,
 			HasAria2C: m.Capabilities.HasAria2c,
+			HasRclone: m.Capabilities.HasRclone,
 			AgentPort: int32(m.Capabilities.AgentPort),
 			Version:   m.Capabilities.Version,
 		},
@@ -382,6 +383,7 @@ func metricsFromProto(hb *pb.Heartbeat) telemetry.NodeMetrics {
 		m.Capabilities = telemetry.NodeCapabilities{
 			HasFFmpeg: hb.Capabilities.HasFfmpeg,
 			HasAria2c: hb.Capabilities.HasAria2C,
+			HasRclone: hb.Capabilities.HasRclone,
 			AgentPort: int(hb.Capabilities.AgentPort),
 			Version:   hb.Capabilities.Version,
 		}

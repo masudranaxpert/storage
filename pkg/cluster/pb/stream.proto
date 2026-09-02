@@ -78,6 +78,7 @@ message NodeCapabilities {
   bool has_aria2c = 2;
   int32 agent_port = 3;
   string version = 4;
+  bool has_rclone = 5; // node↔node / S3 / FTP transfer engine
 }
 
 message JobProgressUpdate {

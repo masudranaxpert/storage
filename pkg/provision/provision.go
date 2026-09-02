@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/ssh"
+
+	"stream/pkg/tools"
 )
 
 // Request contains connection and setup parameters for remote VPS provisioning
@@ -93,13 +95,12 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	defer client.Close()
 	logMsg("SSH connection established successfully.")
 
-	// Step 1: Ensure aria2 and ffmpeg are installed for distributed media worker tasks
-	logMsg("Verifying media worker tools (aria2, ffmpeg)...")
-	pkgInstallCmd := "which aria2c > /dev/null 2>&1 && which ffmpeg > /dev/null 2>&1 || (DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2 ffmpeg)"
-	if _, err := runRemote(client, pkgInstallCmd, req.User, req.Password, req.UseSudo); err != nil {
+	// Step 1: aria2 (download) + ffmpeg (CMAF) + rclone (node/S3/FTP transfer)
+	logMsg("Verifying media worker tools (aria2, ffmpeg, rclone)...")
+	if _, err := runRemote(client, tools.EnsureMediaToolsShell(), req.User, req.Password, req.UseSudo); err != nil {
 		logMsg("Note: media packages installation skipped or non-apt system.")
 	} else {
-		logMsg("Media engine tools (aria2, ffmpeg) active.")
+		logMsg("Media engine tools (aria2, ffmpeg, rclone) active.")
 	}
 
 	// Step 3: Upload stream Linux binary
@@ -189,8 +190,8 @@ WantedBy=multi-user.target
 	return result, nil
 }
 
-// InstallToolsOverSSH directly connects via SSH to install aria2, ffmpeg, and upgrade the agent binary.
-func InstallToolsOverSSH(ctx context.Context, req Request, tools ...string) error {
+// InstallToolsOverSSH connects via SSH to install aria2/ffmpeg/rclone and upgrade the agent binary.
+func InstallToolsOverSSH(ctx context.Context, req Request, toolList ...string) error {
 	port := req.Port
 	if port <= 0 {
 		port = 22
@@ -225,23 +226,18 @@ func InstallToolsOverSSH(ctx context.Context, req Request, tools ...string) erro
 	}
 	defer client.Close()
 
-	pkgs := "aria2 ffmpeg"
-	if len(tools) > 0 && tools[0] != "" && tools[0] != "all" {
-		if tools[0] == "aria2" || tools[0] == "aria2c" {
-			pkgs = "aria2"
-		} else if tools[0] == "ffmpeg" {
-			pkgs = "ffmpeg"
-		}
+	tool := "all"
+	if len(toolList) > 0 && toolList[0] != "" {
+		tool = toolList[0]
 	}
+	installCmd := tools.InstallShell(tool)
 
-	fmt.Printf("[SSH-AutoFix %s] 🔒 SSH connected. Installing %s packages...\n", req.NodeName, pkgs)
+	fmt.Printf("[SSH-AutoFix %s] 🔒 SSH connected. Installing tools (%s)...\n", req.NodeName, tool)
 
-	// 1. Install specified tools
-	installCmd := fmt.Sprintf("DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq %s", pkgs)
 	if out, err := runRemote(client, installCmd, req.User, req.Password, req.UseSudo); err != nil {
 		fmt.Printf("[SSH-AutoFix %s] ⚠️ Tool install note: %v (%s)\n", req.NodeName, err, out)
 	} else {
-		fmt.Printf("[SSH-AutoFix %s] ✅ %s installed successfully.\n", req.NodeName, pkgs)
+		fmt.Printf("[SSH-AutoFix %s] ✅ tools (%s) installed successfully.\n", req.NodeName, tool)
 	}
 
 	// 2. Deploy latest binary if available
@@ -257,7 +253,7 @@ func InstallToolsOverSSH(ctx context.Context, req Request, tools ...string) erro
 	return nil
 }
 
-// UninstallToolsOverSSH directly connects via SSH to uninstall aria2, ffmpeg, or all worker tools.
+// UninstallToolsOverSSH connects via SSH to uninstall aria2, ffmpeg, rclone, or all worker tools.
 func UninstallToolsOverSSH(ctx context.Context, req Request, tool string) error {
 	port := req.Port
 	if port <= 0 {
@@ -293,26 +289,12 @@ func UninstallToolsOverSSH(ctx context.Context, req Request, tool string) error 
 	}
 	defer client.Close()
 
-	var pkgs string
-	var fileClean string
-	switch tool {
-	case "aria2", "aria2c":
-		pkgs = "aria2"
-		fileClean = "rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c"
-	case "ffmpeg":
-		pkgs = "ffmpeg"
-		fileClean = "rm -f /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe"
-	default:
-		pkgs = "aria2 ffmpeg"
-		fileClean = "rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe"
-	}
-
-	fmt.Printf("[SSH-Uninstall %s] 🗑 Uninstalling %s packages...\n", req.NodeName, pkgs)
-	uninstallCmd := fmt.Sprintf("DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq %s 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; %s; hash -r 2>/dev/null || true", pkgs, fileClean)
+	fmt.Printf("[SSH-Uninstall %s] 🗑 Uninstalling tools (%s)...\n", req.NodeName, tool)
+	uninstallCmd := tools.UninstallShell(tool)
 	if out, err := runRemote(client, uninstallCmd, req.User, req.Password, req.UseSudo); err != nil {
 		fmt.Printf("[SSH-Uninstall %s] ⚠️ Tool uninstall note: %v (%s)\n", req.NodeName, err, out)
 	} else {
-		fmt.Printf("[SSH-Uninstall %s] ✅ %s uninstalled successfully.\n", req.NodeName, pkgs)
+		fmt.Printf("[SSH-Uninstall %s] ✅ tools (%s) uninstalled successfully.\n", req.NodeName, tool)
 	}
 
 	// Deploy latest agent binary if available so outdated auto-healing binaries are replaced

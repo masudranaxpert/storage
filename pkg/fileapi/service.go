@@ -95,7 +95,8 @@ func (s *Service) tierByID(statuses []storage.TierStatus, id int) *storage.TierS
 	return nil
 }
 
-// resolveUsage merges legacy ingest usage with fileapi library usage.
+// resolveUsage starts from the injected usage hook, then adds every non-failed
+// fileapi library entry (bytes counted against the placement block owner).
 func (s *Service) resolveUsage() map[string]uint64 {
 	merged := make(map[string]uint64)
 	for nodeID, bytes := range s.usage() {

@@ -352,8 +352,9 @@ function createNodeCardHTML(n, layout) {
     const caps = m.capabilities || {};
     const hasAria = (caps.has_aria2c === true);
     const hasFFmpeg = (caps.has_ffmpeg === true);
-    const hasMissingTools = (!hasAria || !hasFFmpeg);
-    const hasAnyTools = (hasAria || hasFFmpeg);
+    const hasRclone = (caps.has_rclone === true);
+    const hasMissingTools = (!hasAria || !hasFFmpeg || !hasRclone);
+    const hasAnyTools = (hasAria || hasFFmpeg || hasRclone);
 
     const agentBadge = `<span class="node-tag" style="background:var(--bg-orange-soft);color:var(--orange-dark);border:1px solid var(--border-orange);font-weight:700;">⚡ Stream Agent :${caps.agent_port || 2052}</span>`;
 
@@ -418,17 +419,17 @@ function createNodeCardHTML(n, layout) {
                     </div>
                     <div style="display:flex;flex-direction:column;gap:1px;">
                         <span style="font-size:12px;font-weight:800;letter-spacing:0.2px;color:var(--text-primary);">Media Worker Tools</span>
-                        <span style="font-size:10.5px;color:var(--text-secondary);">Needed for download &amp; transcoding jobs</span>
+                        <span style="font-size:10.5px;color:var(--text-secondary);">Download, package &amp; transfer (S3/FTP/node)</span>
                     </div>
                 </div>
                 <div style="display:flex;gap:6px;flex-wrap:wrap;">
                     ${hasMissingTools ? `
-                    <button class="tool-action-btn install" id="btn-autoinstall-${m.node_id}" onclick="event.stopPropagation(); triggerAutoInstallTools('${m.node_id}', this, null, null, 'all')" title="Install both aria2c & ffmpeg">
+                    <button class="tool-action-btn install" id="btn-autoinstall-${m.node_id}" onclick="event.stopPropagation(); triggerAutoInstallTools('${m.node_id}', this, null, null, 'all')" title="Install aria2c, ffmpeg & rclone">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                         <span>Install All</span>
                     </button>` : ''}
                     ${hasAnyTools ? `
-                    <button class="tool-action-btn danger" id="btn-uninstall-all-${m.node_id}" onclick="event.stopPropagation(); triggerUninstallTools('${m.node_id}', this, 'all')" title="Uninstall both tools if this node won't process jobs">
+                    <button class="tool-action-btn danger" id="btn-uninstall-all-${m.node_id}" onclick="event.stopPropagation(); triggerUninstallTools('${m.node_id}', this, 'all')" title="Uninstall all media tools if this node won't process/transfer jobs">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         <span>Remove All</span>
                     </button>` : ''}
@@ -453,6 +454,15 @@ function createNodeCardHTML(n, layout) {
                     iconBg: 'rgba(16,185,129,0.12)',
                     iconColor: '#059669',
                     icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>`
+                })}
+                ${toolCard({
+                    key: 'rclone',
+                    name: 'rclone',
+                    desc: 'Node / S3 / FTP transfer engine',
+                    installed: hasRclone,
+                    iconBg: 'rgba(14,165,233,0.12)',
+                    iconColor: '#0284c7',
+                    icon: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>`
                 })}
             </div>
         </div>
@@ -703,7 +713,7 @@ async function triggerAutoInstallTools(nodeId, btnElement, sshPassword, sshUser,
     if (!tool) tool = 'all';
     if (!btnElement) btnElement = document.getElementById(`btn-autoinstall-${nodeId}`);
     const originalHtml = btnElement ? btnElement.innerHTML : '';
-    const toolName = tool === 'aria2' ? 'aria2c' : (tool === 'ffmpeg' ? 'ffmpeg' : 'aria2 & ffmpeg');
+    const toolName = tool === 'aria2' ? 'aria2c' : (tool === 'ffmpeg' ? 'ffmpeg' : (tool === 'rclone' ? 'rclone' : 'aria2, ffmpeg & rclone'));
 
     if (btnElement) {
         btnElement.disabled = true;
@@ -755,7 +765,8 @@ async function triggerAutoInstallTools(nodeId, btnElement, sshPassword, sshUser,
                         const caps = targetNode.metrics.capabilities;
                         const ok = (tool === 'aria2' && caps.has_aria2c) ||
                                    (tool === 'ffmpeg' && caps.has_ffmpeg) ||
-                                   (tool === 'all' && caps.has_ffmpeg && caps.has_aria2c);
+                                   (tool === 'rclone' && caps.has_rclone) ||
+                                   (tool === 'all' && caps.has_ffmpeg && caps.has_aria2c && caps.has_rclone);
                         if (ok) {
                             clearInterval(pollInterval);
                             if (btnElement) {
@@ -796,7 +807,7 @@ async function triggerAutoInstallTools(nodeId, btnElement, sshPassword, sshUser,
 
 async function triggerUninstallTools(nodeId, btnElement, tool, sshPassword, sshUser) {
     if (!tool) tool = 'all';
-    const toolName = tool === 'aria2' ? 'aria2c' : (tool === 'ffmpeg' ? 'ffmpeg' : 'aria2c & ffmpeg');
+    const toolName = tool === 'aria2' ? 'aria2c' : (tool === 'ffmpeg' ? 'ffmpeg' : (tool === 'rclone' ? 'rclone' : 'aria2c, ffmpeg & rclone'));
     
     if (!sshPassword) {
         if (!confirm(`Are you sure you want to uninstall ${toolName} from node '${nodeId}'?\n\nThis will remove the worker tool(s) so this node won't be used for processing jobs.`)) {
@@ -856,7 +867,8 @@ async function triggerUninstallTools(nodeId, btnElement, tool, sshPassword, sshU
                         const caps = targetNode.metrics.capabilities;
                         const removed = (tool === 'aria2' && !caps.has_aria2c) ||
                                         (tool === 'ffmpeg' && !caps.has_ffmpeg) ||
-                                        (tool === 'all' && !caps.has_ffmpeg && !caps.has_aria2c);
+                                        (tool === 'rclone' && !caps.has_rclone) ||
+                                        (tool === 'all' && !caps.has_ffmpeg && !caps.has_aria2c && !caps.has_rclone);
                         if (removed) {
                             clearInterval(pollInterval);
                             if (btnElement) {
@@ -1282,18 +1294,18 @@ let selectedUploadFile = null;
 
 async function fetchMediaList() {
     try {
-        const res = await fetch('/api/jobs');
+        const res = await fetch('/api/v1/files');
         if (!res.ok) return;
-        const jobs = await res.json();
-        mediaList = (jobs || []).sort((a, b) => {
+        const data = await res.json();
+        mediaList = (data.files || []).sort((a, b) => {
             const timeA = new Date(a.created_at).getTime() || 0;
             const timeB = new Date(b.created_at).getTime() || 0;
             if (timeA !== timeB) return timeB - timeA;
-            return (b.job_id || '').localeCompare(a.job_id || '');
+            return (b.key || '').localeCompare(a.key || '');
         });
         renderMediaTable();
     } catch (err) {
-        console.error('Failed to load media jobs:', err);
+        console.error('Failed to load media files:', err);
     }
 }
 
@@ -1342,9 +1354,9 @@ function renderMediaTable() {
     let activeTasksCount = 0;
 
     mediaList.forEach(m => {
-        if (m.cmaf && m.cmaf.total_bytes) totalBytes += m.cmaf.total_bytes;
-        if (m.status === 'completed') readyCount++;
-        if (m.status === 'downloading' || m.status === 'packaging' || m.status === 'queued') activeTasksCount++;
+        if (m.size_bytes) totalBytes += m.size_bytes;
+        if (m.state === 'completed') readyCount++;
+        if (m.state === 'downloading' || m.state === 'processing' || m.state === 'transferring' || m.state === 'detected' || m.state === 'awaiting_upload') activeTasksCount++;
     });
 
     safeSetText('media-stat-count', totalCount);
@@ -1356,16 +1368,16 @@ function renderMediaTable() {
     let filtered = mediaList.filter(item => {
         if (mediaFilterStatus !== 'all') {
             if (mediaFilterStatus === 'downloading') {
-                if (item.status !== 'downloading' && item.status !== 'packaging' && item.status !== 'queued') return false;
-            } else if (item.status !== mediaFilterStatus) {
+                if (!['downloading', 'processing', 'transferring', 'detected', 'awaiting_upload'].includes(item.state)) return false;
+            } else if (item.state !== mediaFilterStatus) {
                 return false;
             }
         }
         if (mediaSearchQuery) {
-            const id = (item.job_id || '').toLowerCase();
-            const url = (item.source_url || '').toLowerCase();
-            const node = (item.assigned_node_id || '').toLowerCase();
-            if (!id.includes(mediaSearchQuery) && !url.includes(mediaSearchQuery) && !node.includes(mediaSearchQuery)) {
+            const id = (item.key || '').toLowerCase();
+            const name = (item.filename || '').toLowerCase();
+            const node = (item.worker_node_id || item.placement?.node_id || '').toLowerCase();
+            if (!id.includes(mediaSearchQuery) && !name.includes(mediaSearchQuery) && !node.includes(mediaSearchQuery)) {
                 return false;
             }
         }
@@ -1402,12 +1414,13 @@ function renderMediaTable() {
     }
 
     tbody.innerHTML = paginatedItems.map(item => {
-        const isReady = item.status === 'completed';
-        const isFailed = item.status === 'failed';
-        const filename = item.source_url ? item.source_url.split('/').pop() : item.job_id;
-        const sizeStr = item.cmaf ? formatBytes(item.cmaf.total_bytes) : '-';
+        const isReady = item.state === 'completed';
+        const isFailed = item.state === 'failed';
+        const filename = item.filename || item.key;
+        const sizeStr = item.size_bytes ? formatBytes(item.size_bytes) : '-';
         const dateStr = item.created_at ? new Date(item.created_at).toLocaleString() : '-';
-        const streamUrl = `/stream/${encodeURIComponent(item.job_id)}/master.m3u8`;
+        const streamUrl = item.stream_url || '';
+        const nodeLabel = item.worker_node_id || item.placement?.node_id || 'Auto';
 
         let statusHtml = '';
         if (isReady) {
@@ -1419,19 +1432,19 @@ function renderMediaTable() {
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
                         Failed
                     </span>
-                    <div style="font-size:11px;color:var(--status-offline);margin-top:2px;word-break:break-word;line-height:1.3;font-family:system-ui,sans-serif;" title="${escapeHtml(item.error_msg || 'Download or packaging error')}">
-                        ${escapeHtml(item.error_msg || 'Download error')}
+                    <div style="font-size:11px;color:var(--status-offline);margin-top:2px;word-break:break-word;line-height:1.3;font-family:system-ui,sans-serif;" title="${escapeHtml(item.error || 'Download or packaging error')}">
+                        ${escapeHtml(item.error || 'Download error')}
                     </div>
                 </div>`;
         } else {
             const pct = (item.progress_percent || 0).toFixed(1);
-            const speedDisplay = item.download_speed ? item.download_speed : '';
+            const speedDisplay = item.speed ? item.speed : '';
             statusHtml = `
                 <div style="min-width:170px;">
                     <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;margin-bottom:4px;">
                         <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:4px;text-transform:capitalize;">
                             <svg class="spin-fast" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-                            ${escapeHtml(item.status)}
+                            ${escapeHtml(item.state)}
                         </span>
                         <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;">${pct}%</span>
                     </div>
@@ -1453,7 +1466,7 @@ function renderMediaTable() {
                         ${escapeHtml(filename)}
                     </div>
                     <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
-                        ${escapeHtml(item.job_id)}
+                        ${escapeHtml(item.key)}
                     </div>
                 </td>
                 <td>
@@ -1464,7 +1477,7 @@ function renderMediaTable() {
                 </td>
                 <td>
                     <span style="font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--bg-body);padding:3px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">
-                        ${escapeHtml(item.assigned_node_id || 'Auto')}
+                        ${escapeHtml(nodeLabel)}
                     </span>
                 </td>
                 <td>
@@ -1475,11 +1488,11 @@ function renderMediaTable() {
                 </td>
                 <td style="text-align:right;white-space:nowrap;">
                     ${isReady ? `
-                        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;margin-right:4px;" onclick="openStreamDetailsModal('${escapeHtml(item.job_id)}')">
+                        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;margin-right:4px;" onclick="openStreamDetailsModal('${escapeHtml(item.key)}')">
                             ▶ Play / Links
                         </button>
                     ` : ''}
-                    <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;color:var(--status-offline);" onclick="deleteMediaConfirm('${escapeHtml(item.job_id)}')">
+                    <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;color:var(--status-offline);" onclick="deleteMediaConfirm('${escapeHtml(item.key)}')">
                         Delete
                     </button>
                 </td>
@@ -1544,7 +1557,6 @@ function closeIngestURLModal() {
 
 async function submitIngestURL() {
     const urlInput = document.getElementById('ingest-url-input');
-    const nodeSelect = document.getElementById('ingest-node-select');
     const submitBtn = document.getElementById('btn-submit-ingest');
 
     if (!urlInput || !urlInput.value.trim()) {
@@ -1556,16 +1568,13 @@ async function submitIngestURL() {
     submitBtn.innerText = 'Starting...';
 
     try {
-        const resp = await fetch('/api/ingest', {
+        const resp = await fetch('/api/v1/files', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                url: urlInput.value.trim(),
-                node_id: nodeSelect ? nodeSelect.value : 'auto'
-            })
+            body: JSON.stringify({ url: urlInput.value.trim() })
         });
 
-        if (resp.ok) {
+        if (resp.ok || resp.status === 201) {
             closeIngestURLModal();
             fetchMediaList();
         } else {
@@ -1603,7 +1612,7 @@ function onFileSelected(input) {
     }
 }
 
-function startFileUpload() {
+async function startFileUpload() {
     if (!selectedUploadFile) return;
 
     const progressContainer = document.getElementById('upload-progress-container');
@@ -1614,12 +1623,41 @@ function startFileUpload() {
 
     progressContainer.style.display = 'block';
     submitBtn.disabled = true;
+    statusText.innerText = 'Reserving upload slot...';
+
+    let uploadURL = '';
+    try {
+        const reserve = await fetch('/api/v1/files-upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                filename: selectedUploadFile.name,
+                size_bytes: selectedUploadFile.size
+            })
+        });
+        if (!reserve.ok) {
+            alert('Reserve error: ' + await reserve.text());
+            submitBtn.disabled = false;
+            return;
+        }
+        const reserved = await reserve.json();
+        uploadURL = reserved.upload_url;
+        if (!uploadURL) {
+            alert('No upload_url returned from coordinator');
+            submitBtn.disabled = false;
+            return;
+        }
+    } catch (err) {
+        alert('Network error: ' + err.message);
+        submitBtn.disabled = false;
+        return;
+    }
 
     const formData = new FormData();
     formData.append('file', selectedUploadFile);
 
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', '/api/ingest/upload', true);
+    xhr.open('POST', uploadURL, true);
 
     xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -1633,7 +1671,7 @@ function startFileUpload() {
     };
 
     xhr.onload = () => {
-        if (xhr.status === 200) {
+        if (xhr.status >= 200 && xhr.status < 300) {
             statusText.innerText = 'Upload complete! Packaging in background...';
             setTimeout(() => {
                 closeUploadModal();
@@ -1650,6 +1688,7 @@ function startFileUpload() {
         submitBtn.disabled = false;
     };
 
+    statusText.innerText = 'Uploading to worker...';
     xhr.send(formData);
 }
 
@@ -1659,15 +1698,14 @@ function openStreamDetailsModal(mediaID) {
     const modal = document.getElementById('modal-stream-details');
     if (!modal) return;
 
-    const job = mediaList.find(m => m.job_id === mediaID);
+    const job = mediaList.find(m => m.key === mediaID);
     if (!job) return;
 
-    safeSetText('stream-modal-title', job.source_url ? job.source_url.split('/').pop() : mediaID);
+    safeSetText('stream-modal-title', job.filename || mediaID);
     safeSetText('stream-modal-id', `Media ID: ${mediaID}`);
 
-    const origin = window.location.origin;
-    const hlsUrl = `${origin}/stream/${encodeURIComponent(mediaID)}/master.m3u8`;
-    const cmafUrl = `${origin}/stream/${encodeURIComponent(mediaID)}/cmaf/video.mp4`;
+    const hlsUrl = job.stream_url || `${window.location.origin}/stream/${encodeURIComponent(mediaID)}/master.m3u8`;
+    const cmafUrl = hlsUrl.replace(/master\.m3u8$/, 'cmaf/video.mp4');
 
     const hlsInput = document.getElementById('stream-hls-url');
     if (hlsInput) hlsInput.value = hlsUrl;
@@ -1743,7 +1781,7 @@ function escapeHtml(str) {
 async function deleteMediaConfirm(mediaID) {
     if (!confirm(`Delete media asset "${mediaID}"?`)) return;
     try {
-        const resp = await fetch(`/api/jobs/${encodeURIComponent(mediaID)}`, { method: 'DELETE' });
+        await fetch(`/api/v1/files/${encodeURIComponent(mediaID)}`, { method: 'DELETE' });
         fetchMediaList();
     } catch (_) {}
 }

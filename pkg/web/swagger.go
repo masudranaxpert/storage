@@ -250,7 +250,7 @@ func GetOpenAPISpec() map[string]interface{} {
 			"/api/nodes": map[string]interface{}{
 				"get": map[string]interface{}{
 					"summary":     "List cluster nodes & live telemetry",
-					"description": "All registered nodes with CPU/RAM/disk stats, capabilities (aria2c/ffmpeg), agent port, media path, version, and online status.",
+					"description": "All registered nodes with CPU/RAM/disk stats, capabilities (aria2c/ffmpeg/rclone), agent port, media path, version, and online status.",
 					"tags":        []string{"Cluster Control Plane"},
 					"responses": map[string]interface{}{
 						"200": jsonResponse("Array of node records"),
@@ -280,7 +280,7 @@ func GetOpenAPISpec() map[string]interface{} {
 			"/api/nodes/provision": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "1-Click remote VPS provisioning",
-					"description": "Provisions a remote VPS over SSH: installs the agent binary, aria2c, ffmpeg, and registers systemd. Agent advertises the VPS public/VPC IP for SeaweedFS-style node peering (ports 2052 + coordinator 1212/9090 must be reachable).",
+					"description": "Provisions a remote VPS over SSH: installs the agent binary, aria2c, ffmpeg, rclone, and registers systemd. Agent advertises the VPS public/VPC IP for SeaweedFS-style node peering (ports 2052 + coordinator 1212/9090 must be reachable).",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{

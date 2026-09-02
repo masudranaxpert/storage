@@ -1,12 +1,10 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
-	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,11 +16,10 @@ import (
 	"stream/pkg/cluster"
 	"stream/pkg/db"
 	"stream/pkg/fileapi"
-	"stream/pkg/ingest"
-	"stream/pkg/media"
 	"stream/pkg/provision"
 	"stream/pkg/storage"
 	"stream/pkg/telemetry"
+	"stream/pkg/tools"
 )
 
 // Server encapsulates the HTTP API and modular template dashboard.
@@ -36,7 +33,6 @@ type Server struct {
 	templateDir string
 	tmpl        *template.Template
 	httpServer  *http.Server
-	ingestQueue *ingest.IngestQueue
 	files       *fileapi.Service
 }
 
@@ -51,79 +47,11 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 		tiers:       tiers,
 		staticDir:   staticDir,
 		templateDir: templateDir,
-		ingestQueue: ingest.NewQueue(),
-	}
-
-	if hub != nil {
-		hub.OnJobProgress = func(p cluster.JobProgress) {
-			s.ingestQueue.UpdateStatus(p.JobID, ingest.JobStatus(p.Status), p.Percent, p.Speed, p.ErrorMsg)
-			if len(p.CMAFJSON) > 0 {
-				var cmaf media.CMAFPackage
-				if err := json.Unmarshal(p.CMAFJSON, &cmaf); err == nil {
-					s.ingestQueue.SetCMAF(p.JobID, &cmaf)
-				}
-			}
-		}
 	}
 
 	s.loadTemplates()
-	s.loadExistingMedia()
-
 	s.files = fileapi.NewService(store, tiers, coord, s.processingProfiles, s.mediaUsagePerNode)
 	return s
-}
-
-func (s *Server) loadExistingMedia() {
-	mediaRoot := filepath.Join("data", "media")
-	entries, err := os.ReadDir(mediaRoot)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		mediaID := entry.Name()
-		metaPath := filepath.Join(mediaRoot, mediaID, "metadata.json")
-		rawDir := filepath.Join(mediaRoot, mediaID, "raw")
-
-		var filename string
-		var rawSize int64
-		if rawEntries, err := os.ReadDir(rawDir); err == nil && len(rawEntries) > 0 {
-			filename = rawEntries[0].Name()
-			if info, err := rawEntries[0].Info(); err == nil {
-				rawSize = info.Size()
-			}
-		} else {
-			filename = mediaID + ".mp4"
-		}
-
-		cmafPkg := &media.CMAFPackage{
-			MediaID:    mediaID,
-			TotalBytes: rawSize,
-			CreatedAt:  time.Now(),
-		}
-
-		if metaData, err := os.ReadFile(metaPath); err == nil {
-			_ = json.Unmarshal(metaData, cmafPkg)
-		}
-		if rawSize > cmafPkg.TotalBytes {
-			cmafPkg.TotalBytes = rawSize
-		}
-
-		job := &ingest.IngestJob{
-			JobID:           mediaID,
-			SourceURL:       filename,
-			AssignedNodeID:  "local-master",
-			Status:          ingest.StatusCompleted,
-			ProgressPercent: 100.0,
-			CMAF:            cmafPkg,
-			CreatedAt:       cmafPkg.CreatedAt,
-			UpdatedAt:       time.Now(),
-		}
-		s.ingestQueue.Add(job)
-	}
 }
 
 func (s *Server) loadTemplates() {
@@ -153,12 +81,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/processing", s.handleProcessing)
 	mux.HandleFunc("/api/nodes/provision", s.handleProvisionNode)
 	mux.HandleFunc("/api/nodes/", s.handleNodeAllocation)
-	mux.HandleFunc("/api/ingest/upload", s.handleUploadIngest)
-	mux.HandleFunc("/api/ingest", s.handleIngestJob)
-	mux.HandleFunc("/api/ingest/", s.handleIngestJob)
 	mux.HandleFunc("/api/dbadmin/", s.handleDBAdmin)
-	mux.HandleFunc("/api/jobs", s.handleIngestJob)
-	mux.HandleFunc("/api/jobs/", s.handleIngestJob)
 	if s.files != nil {
 		s.files.Register(mux)
 	}
@@ -188,15 +111,15 @@ func (s *Server) Handler() http.Handler {
 		coordURL := fmt.Sprintf("%s://%s", scheme, r.Host)
 		script := fmt.Sprintf(`#!/bin/bash
 set -e
-echo "[Stream Fix] Updating package lists & installing aria2, ffmpeg..."
-apt-get update -qq && apt-get install -y -qq aria2 ffmpeg
+echo "[Stream Fix] Installing aria2, ffmpeg, rclone..."
+%s
 echo "[Stream Fix] Downloading latest Stream Agent binary from %s..."
 curl -fsSL %s/download/stream-linux-amd64 -o /usr/local/bin/stream
 chmod +x /usr/local/bin/stream
 echo "[Stream Fix] Restarting stream-agent daemon..."
 systemctl restart stream-agent 2>/dev/null || true
 echo "[Stream Fix] Done! Node successfully upgraded."
-`, coordURL, coordURL)
+`, tools.InstallShell("all"), coordURL, coordURL)
 		w.Header().Set("Content-Type", "text/x-shellscript")
 		w.Write([]byte(script))
 	})
@@ -452,16 +375,7 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 		if strings.Contains(nodeID, "master") {
 			go func() {
-				var cmdStr string
-				switch tool {
-				case "aria2", "aria2c":
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2"
-				case "ffmpeg":
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg"
-				default:
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq aria2 ffmpeg"
-				}
-				_ = exec.Command("bash", "-c", cmdStr).Run()
+				_ = exec.Command("bash", "-c", tools.InstallShell(tool)).Run()
 				if metrics, err := telemetry.Collect(nodeID); err == nil {
 					s.coord.RegisterHeartbeat(*metrics)
 				}
@@ -568,16 +482,7 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 		if strings.Contains(nodeID, "master") {
 			go func() {
-				var cmdStr string
-				switch tool {
-				case "aria2", "aria2c":
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq aria2 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c; hash -r 2>/dev/null || true"
-				case "ffmpeg":
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq ffmpeg 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe; hash -r 2>/dev/null || true"
-				default:
-					cmdStr = "DEBIAN_FRONTEND=noninteractive apt-get purge -y -qq aria2 ffmpeg 2>/dev/null; DEBIAN_FRONTEND=noninteractive apt-get autoremove -y -qq 2>/dev/null; rm -f /usr/local/bin/aria2c /usr/bin/aria2c /bin/aria2c /usr/local/bin/ffmpeg /usr/bin/ffmpeg /bin/ffmpeg /usr/local/bin/ffprobe /usr/bin/ffprobe /bin/ffprobe; hash -r 2>/dev/null || true"
-				}
-				_ = exec.Command("bash", "-c", cmdStr).Run()
+				_ = exec.Command("bash", "-c", tools.UninstallShell(tool)).Run()
 				if metrics, err := telemetry.Collect(nodeID); err == nil {
 					s.coord.RegisterHeartbeat(*metrics)
 				}
@@ -757,16 +662,10 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// mediaUsagePerNode aggregates stored media bytes per node from the ingest
-// library, used for tier quota headroom calculations.
+// mediaUsagePerNode is a hook for extra usage outside the fileapi table.
+// File placement quotas are computed in fileapi.resolveUsage from DB records.
 func (s *Server) mediaUsagePerNode() map[string]uint64 {
-	usage := make(map[string]uint64)
-	for _, j := range s.ingestQueue.List() {
-		if j.CMAF != nil && j.CMAF.TotalBytes > 0 && j.AssignedNodeID != "" {
-			usage[j.AssignedNodeID] += uint64(j.CMAF.TotalBytes)
-		}
-	}
-	return usage
+	return map[string]uint64{}
 }
 
 // processingProfiles builds the live reservation map from persisted configs.
@@ -887,52 +786,6 @@ func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 }
 
-// selectIngestTarget picks where a new ingest job runs. Preference order:
-//  1. a processing-eligible node that also owns the default tier block with
-//     the most quota headroom (tier- and reservation-aware placement),
-//  2. any processing-eligible node,
-//  3. the legacy least-loaded worker,
-//  4. local master.
-func (s *Server) selectIngestTarget() string {
-	nodes := s.coord.GetNodes()
-	profiles := s.processingProfiles()
-	eligibility := cluster.EvaluateProcessing(nodes, profiles)
-
-	var eligibleIDs []string
-	for id, e := range eligibility {
-		if e.Eligible {
-			eligibleIDs = append(eligibleIDs, id)
-		}
-	}
-
-	if s.tiers != nil && len(eligibleIDs) > 0 {
-		usage := s.mediaUsagePerNode()
-		if def := s.tiers.DefaultTier(); def != nil {
-			if p, err := s.tiers.PickBlock(def.ID, 0, nodes, usage); err == nil {
-				if e, ok := eligibility[p.NodeID]; ok && e.Eligible {
-					return p.NodeID
-				}
-			}
-		}
-	}
-
-	if len(eligibleIDs) > 0 {
-		eligibleRecords := make([]*cluster.NodeRecord, 0, len(eligibleIDs))
-		for _, n := range nodes {
-			if eligibility[n.Metrics.NodeID].Eligible {
-				eligibleRecords = append(eligibleRecords, n)
-			}
-		}
-		if id, err := cluster.SelectOptimalWorker(eligibleRecords); err == nil {
-			return id
-		}
-	}
-
-	if id, err := cluster.SelectOptimalWorker(nodes); err == nil {
-		return id
-	}
-	return ""
-}
 
 func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	validPaths := map[string]bool{
@@ -1068,262 +921,6 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func (s *Server) handleIngestJob(w http.ResponseWriter, r *http.Request) {
-	if strings.HasSuffix(r.URL.Path, "/progress") {
-		s.handleJobProgress(w, r)
-		return
-	}
-
-	if r.Method == http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(s.ingestQueue.List())
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		var req struct {
-			URL    string `json:"url"`
-			NodeID string `json:"node_id"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.URL == "" {
-			http.Error(w, "invalid request: url is required", http.StatusBadRequest)
-			return
-		}
-
-		targetNode := req.NodeID
-		if targetNode == "" || targetNode == "auto" {
-			targetNode = s.selectIngestTarget()
-		}
-
-		jobID := fmt.Sprintf("media_%d", time.Now().Unix())
-		job := &ingest.IngestJob{
-			JobID:          jobID,
-			SourceURL:      req.URL,
-			AssignedNodeID: targetNode,
-			Status:         ingest.StatusQueued,
-			CreatedAt:      time.Now(),
-			UpdatedAt:      time.Now(),
-		}
-		s.ingestQueue.Add(job)
-
-		// Dispatch ingest job: delegate to high-speed remote VPS node or execute on local master
-		go func(target string, j *ingest.IngestJob) {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-			defer cancel()
-
-				if target != "" && target != "local-master" {
-				// Preferred path: push the job down the node's live gRPC mesh
-				// stream (instant delivery, no inbound port needed on the node).
-				if s.hub != nil && s.hub.DispatchJob(target, j.JobID, j.SourceURL) {
-					fmt.Printf("[Ingest Router] Delegated Job '%s' to '%s' over persistent gRPC stream\n",
-						j.JobID, target)
-					return
-				}
-
-				// Legacy HTTP dispatch for agents without a mesh stream.
-				nodes := s.coord.GetNodes()
-				for _, n := range nodes {
-					if n.Metrics.NodeID == target && len(n.Metrics.IPs) > 0 {
-						nodeHost := n.Metrics.IPs[0]
-						agentPort := n.Metrics.Capabilities.AgentPort
-						if agentPort <= 0 {
-							agentPort = 2052
-						}
-						endpoint := fmt.Sprintf("http://%s:%d/api/ingest", nodeHost, agentPort)
-						payload, _ := json.Marshal(map[string]string{
-							"job_id": j.JobID,
-							"url":    j.SourceURL,
-						})
-						fmt.Printf("[Ingest Router] Delegating Job '%s' to remote VPS '%s' at %s (legacy HTTP)\n",
-							j.JobID, target, endpoint)
-
-						client := &http.Client{Timeout: 10 * time.Second}
-						resp, err := client.Post(endpoint, "application/json", bytes.NewBuffer(payload))
-						if err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusAccepted) {
-							resp.Body.Close()
-							return
-						}
-						fmt.Printf("[Ingest Router] Remote VPS '%s' delegation failed (%v), falling back to local master engine\n", target, err)
-						break
-					}
-				}
-			}
-
-			// Local master fallback.
-			_ = ingest.ProcessIngestJob(ctx, j, filepath.Join("data", "media"), s.ingestQueue)
-		}(targetNode, job)
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusAccepted)
-		json.NewEncoder(w).Encode(job)
-		return
-	}
-
-	if r.Method == http.MethodDelete {
-		jobID := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-		jobID = strings.TrimPrefix(jobID, "/api/ingest/")
-		if jobID != "" {
-			s.ingestQueue.Delete(jobID)
-			_ = os.RemoveAll(filepath.Join("data", "media", jobID))
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"deleted"}`))
-		return
-	}
-
-	http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-}
-
-func (s *Server) handleJobProgress(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	jobID := strings.TrimPrefix(r.URL.Path, "/api/jobs/")
-	jobID = strings.TrimSuffix(jobID, "/progress")
-	jobID = strings.Trim(jobID, "/")
-
-	var update struct {
-		Status          string             `json:"status"`
-		ProgressPercent float64            `json:"progress_percent"`
-		DownloadSpeed   string             `json:"download_speed"`
-		ErrorMsg        string             `json:"error_msg"`
-		CMAF            *media.CMAFPackage `json:"cmaf"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&update); err != nil {
-		http.Error(w, "invalid json", http.StatusBadRequest)
-		return
-	}
-
-	s.ingestQueue.UpdateStatus(jobID, ingest.JobStatus(update.Status), update.ProgressPercent, update.DownloadSpeed, update.ErrorMsg)
-	if update.CMAF != nil {
-		s.ingestQueue.SetCMAF(jobID, update.CMAF)
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"updated"}`))
-}
-
-func (s *Server) handleUploadIngest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, fmt.Sprintf("invalid upload: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	file, header, err := r.FormFile("file")
-	if err != nil {
-		http.Error(w, "file parameter is required in multipart form", http.StatusBadRequest)
-		return
-	}
-	defer file.Close()
-
-	mediaID := fmt.Sprintf("media_%d", time.Now().Unix())
-	folder, err := media.PrepareMediaFolder(filepath.Join("data", "media"), mediaID, header.Filename)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("prepare folder error: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	out, err := os.Create(folder.RawFilePath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("create file error: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, file); err != nil {
-		http.Error(w, fmt.Sprintf("save file error: %v", err), http.StatusInternalServerError)
-		return
-	}
-	out.Close()
-
-	val, err := media.DetectFileMIME(folder.RawFilePath)
-	if err != nil || !val.IsVideo {
-		os.RemoveAll(folder.BaseDir)
-		http.Error(w, fmt.Sprintf("invalid format '%s'. Only video files (MP4, MKV, WebM, MOV) are allowed", val.MIMEType), http.StatusBadRequest)
-		return
-	}
-
-	fileStat, _ := os.Stat(folder.RawFilePath)
-	rawSize := int64(0)
-	if fileStat != nil {
-		rawSize = fileStat.Size()
-	}
-
-	initialCmaf := &media.CMAFPackage{
-		MediaID:    mediaID,
-		TotalBytes: rawSize,
-		CreatedAt:  time.Now(),
-		InitChunk: &media.MediaChunk{
-			Index:     0,
-			Filename:  header.Filename,
-			SizeBytes: rawSize,
-			TrackType: "raw_video",
-			Tier:      2,
-		},
-	}
-
-	job := &ingest.IngestJob{
-		JobID:           mediaID,
-		SourceURL:       header.Filename,
-		AssignedNodeID:  "local-master",
-		Status:          ingest.StatusPackaging,
-		ProgressPercent: 90.0,
-		DownloadSpeed:   "Packaging CMAF",
-		CMAF:            initialCmaf,
-		CreatedAt:       time.Now(),
-		UpdatedAt:       time.Now(),
-	}
-	s.ingestQueue.Add(job)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"status":   "processing",
-		"media_id": mediaID,
-		"message":  "Upload complete. Packaging and normalizing audio in background.",
-	})
-
-	go func(f *media.MediaFolderStructure, mID, origName string, rSize int64, queue *ingest.IngestQueue) {
-		cmafPkg, err := media.RemuxAndPackageCMAF(f.RawFilePath, f.CMAFDir, mID)
-		if err != nil {
-			cmafPkg = &media.CMAFPackage{
-				MediaID:    mID,
-				TotalBytes: rSize,
-				CreatedAt:  time.Now(),
-				InitChunk: &media.MediaChunk{
-					Index:     0,
-					Filename:  origName,
-					SizeBytes: rSize,
-					TrackType: "raw_video",
-					Tier:      2,
-				},
-			}
-		}
-		if rSize > cmafPkg.TotalBytes {
-			cmafPkg.TotalBytes = rSize
-		}
-
-		manifest := media.GenerateHLSManifest(cmafPkg, fmt.Sprintf("/stream/%s/cmaf", mID))
-		_ = f.SaveHLSManifest(manifest)
-		_ = f.SaveMetadata(cmafPkg)
-
-		// Drop the raw upload once the remuxed copy exists.
-		if _, err := os.Stat(filepath.Join(f.CMAFDir, "video.mp4")); err == nil {
-			_ = f.CleanRaw()
-		}
-
-		// Update job state to completed
-		queue.SetCMAF(mID, cmafPkg)
-	}(folder, mediaID, header.Filename, rawSize, s.ingestQueue)
-}
 
 func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	subPath := strings.TrimPrefix(r.URL.Path, "/stream/")

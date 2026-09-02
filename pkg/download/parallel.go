@@ -1,4 +1,4 @@
-package ingest
+﻿package download
 
 import (
 	"context"
@@ -18,7 +18,7 @@ const parallelChunkBytes = 8 << 20 // 8 MB
 
 // DownloadFileParallel fetches srcURL into dstPath using `concurrency`
 // concurrent HTTP Range segments. Unlike DownloadFile it never shells out to
-// aria2c — it is the built-in engine for storage nodes without worker tools.
+// aria2c â€” it is the built-in engine for storage nodes without worker tools.
 // It degrades to a single stream when the server has no known length or the
 // file is too small to split.
 func DownloadFileParallel(ctx context.Context, srcURL, dstPath string, concurrency int, onProgress ProgressFunc) error {
@@ -249,3 +249,4 @@ func parentDir(p string) string {
 	}
 	return "."
 }
+
