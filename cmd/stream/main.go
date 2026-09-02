@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -55,6 +56,8 @@ func main() {
 		runStatus(os.Args[2:])
 	case "check":
 		runCheck(os.Args[2:])
+	case "version", "-v", "--version":
+		fmt.Printf("Stream Mesh %s (%s/%s)\n", telemetry.CurrentVersion, runtime.GOOS, runtime.GOARCH)
 	default:
 		fmt.Printf("Unknown command: %s\n\n", subcommand)
 		printUsage()
@@ -74,6 +77,7 @@ Commands:
   add-vps       Directly provision and join a remote VPS over SSH (public/VPC IP)
   status        Check cluster health and aggregated resource pool from CLI
   check         Inspect and print local hardware & storage telemetry
+  version       Print current Stream Mesh binary version and architecture
 
 Examples:
   stream coordinator --port=1212
@@ -166,7 +170,7 @@ func runCoordinator(args []string) {
 	srv := web.NewServer(addr, coord, hub, store, tiers, staticDir, templateDir)
 
 	fmt.Printf("====================================================\n")
-	fmt.Printf("🚀 Stream Coordinator running at http://0.0.0.0:%d\n", *port)
+	fmt.Printf("🚀 Stream Coordinator %s running at http://0.0.0.0:%d\n", telemetry.CurrentVersion, *port)
 	fmt.Printf("📊 Web Dashboard: http://localhost:%d\n", *port)
 	fmt.Printf("📡 API Endpoints: /api/heartbeat, /api/nodes, /api/pool\n")
 	fmt.Printf("🎯 gRPC Control Plane: :%d (agent mesh streams%s)\n",
@@ -223,7 +227,7 @@ func runAgent(args []string) {
 		}
 	}
 
-	fmt.Printf("Starting worker agent: Node ID = %s\n", *nodeName)
+	fmt.Printf("🚀 Starting worker agent: Node ID = %s (Version: %s)\n", *nodeName, telemetry.CurrentVersion)
 	fmt.Printf("Target coordinator: %s (Interval: %v)\n", *joinURL, *interval)
 	fmt.Printf("Direct Streaming Port: :%d\n", *port)
 

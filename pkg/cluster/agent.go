@@ -437,6 +437,9 @@ func (a *Agent) Start(ctx context.Context) error {
 		}
 	}()
 
+	fmt.Printf("[Agent %s] 🚀 Stream Agent %s active (Media: %s, Scratch: %s)\n",
+		a.NodeID, telemetry.CurrentVersion, a.MediaDir, a.ScratchDir)
+
 	go a.startStreamingServer(ctx)
 
 	// Persistent gRPC mesh stream with HTTP heartbeat fallback.

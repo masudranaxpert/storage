@@ -146,12 +146,11 @@ func (h *GRPCHub) NodeChannel(stream pb.Mesh_NodeChannelServer) error {
 	h.streams[nodeID] = out
 	h.mu.Unlock()
 
-	fmt.Printf("[gRPC Hub] 🔗 Node '%s' connected via persistent stream\n", nodeID)
-
 	// Heartbeat logging is throttled to once per minute per connection: the
 	// telemetry itself still flows on every heartbeat, only the console noise
 	// is reduced (connect/disconnect/errors always log immediately).
 	var lastBeatLog time.Time
+	firstBeat := true
 
 	defer func() {
 		h.mu.Lock()
@@ -221,13 +220,26 @@ func (h *GRPCHub) NodeChannel(stream pb.Mesh_NodeChannelServer) error {
 			if record == nil {
 				return status.Error(codes.PermissionDenied, "node rejected from pool")
 			}
-			if time.Since(lastBeatLog) >= time.Minute {
+
+			ver := metrics.Capabilities.Version
+			if ver == "" {
+				ver = "unknown"
+			}
+
+			if firstBeat {
+				firstBeat = false
+				fmt.Printf("[gRPC Hub] 🔗 Node '%s' (%s) connected via persistent stream\n", nodeID, ver)
+			} else if time.Since(lastBeatLog) >= time.Minute {
 				lastBeatLog = time.Now()
-				fmt.Printf("[gRPC Hub] ❤️ Stream alive from '%s' (CPU: %.1f%%, RAM: %.1f%%)\n",
-					metrics.NodeID, metrics.CPU.UsedPercent, metrics.Memory.UsedPercent)
+				fmt.Printf("[gRPC Hub] ❤️ Stream alive from '%s' (%s, CPU: %.1f%%, RAM: %.1f%%)\n",
+					metrics.NodeID, ver, metrics.CPU.UsedPercent, metrics.Memory.UsedPercent)
 			}
 
 			needsUpgrade := metrics.Capabilities.Version != "" && metrics.Capabilities.Version != telemetry.CurrentVersion
+			if needsUpgrade {
+				fmt.Printf("[gRPC Hub] ⚡ Node '%s' running %s (latest: %s) — triggering autonomous upgrade\n",
+					nodeID, ver, telemetry.CurrentVersion)
+			}
 
 			h.push(nodeID, &pb.CoordinatorMessage{
 				Kind: &pb.CoordinatorMessage_Ack{
