@@ -35,6 +35,8 @@ func (s *Service) handleFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"files": list})
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusOK)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
