@@ -483,7 +483,7 @@ func ResolveCoordinatorURL(rawURL string) string {
 		return rawURL
 	}
 
-	port := "8080"
+	port := "1212"
 	if strings.Contains(rawURL, ":") {
 		parts := strings.Split(rawURL, ":")
 		port = parts[len(parts)-1]

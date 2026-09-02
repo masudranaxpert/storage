@@ -280,7 +280,7 @@ func GetOpenAPISpec() map[string]interface{} {
 			"/api/nodes/provision": map[string]interface{}{
 				"post": map[string]interface{}{
 					"summary":     "1-Click remote VPS provisioning",
-					"description": "Provisions a remote VPS over SSH: installs the agent binary, aria2c, ffmpeg, and registers systemd. Agent advertises the VPS public/VPC IP for SeaweedFS-style node peering (ports 2052 + coordinator 8080/9090 must be reachable).",
+					"description": "Provisions a remote VPS over SSH: installs the agent binary, aria2c, ffmpeg, and registers systemd. Agent advertises the VPS public/VPC IP for SeaweedFS-style node peering (ports 2052 + coordinator 1212/9090 must be reachable).",
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -293,7 +293,7 @@ func GetOpenAPISpec() map[string]interface{} {
 										"password":        map[string]interface{}{"type": "string"},
 										"node_name":       map[string]interface{}{"type": "string", "example": "vps-01"},
 										"advertise_addr":  map[string]interface{}{"type": "string", "example": "203.0.113.10"},
-										"coordinator_url": map[string]interface{}{"type": "string", "example": "http://198.51.100.1:8080"},
+										"coordinator_url": map[string]interface{}{"type": "string", "example": "http://198.51.100.1:1212"},
 									},
 								},
 							},

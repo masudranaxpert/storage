@@ -31,7 +31,7 @@ func TestHLSManifestGeneration(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	manifest := GenerateHLSManifest(pkg, "http://10.0.0.1:8080/chunks")
+	manifest := GenerateHLSManifest(pkg, "http://10.0.0.1:1212/chunks")
 
 	if !strings.Contains(manifest, "#EXT-X-VERSION:7") {
 		t.Errorf("expected HLS v7 header, got:\n%s", manifest)

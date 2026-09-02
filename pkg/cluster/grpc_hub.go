@@ -400,7 +400,7 @@ func metricsFromProto(hb *pb.Heartbeat) telemetry.NodeMetrics {
 	return m
 }
 
-// DeriveGRPCTarget converts a coordinator HTTP URL (e.g. http://host:8080)
+// DeriveGRPCTarget converts a coordinator HTTP URL (e.g. http://host:1212)
 // into a host:port gRPC target, so agents provisioned with only --join
 // automatically find the control plane on its standard port.
 func DeriveGRPCTarget(coordinatorURL string, grpcPort int) string {

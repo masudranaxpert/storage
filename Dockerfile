@@ -15,5 +15,5 @@ WORKDIR /app
 COPY --from=builder /out/stream /usr/local/bin/stream
 COPY web /app/web
 
-EXPOSE 8080 9090
+EXPOSE 1212 9090
 ENTRYPOINT ["stream"]

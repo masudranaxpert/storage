@@ -3,15 +3,15 @@
 # (ffmpeg/aria2 install on the VPS during provision — not in this image)
 #
 #   docker compose up --build
-#   → http://localhost:8080
+#   → http://localhost:1212
 
 services:
   coordinator:
     build: .
     container_name: stream-coordinator
-    command: ["coordinator", "--port=8080", "--grpc-port=9090"]
+    command: ["coordinator", "--port=1212", "--grpc-port=9090"]
     ports:
-      - "8080:8080"
+      - "1212:1212"
       - "9090:9090"
     volumes:
       - coord-data:/app/data

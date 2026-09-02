@@ -76,10 +76,10 @@ Commands:
   check         Inspect and print local hardware & storage telemetry
 
 Examples:
-  stream coordinator --port=8080
-  stream add-vps --host=203.0.113.10 --user=root --pass=SECRET --name=vps-storage-1 --coordinator=http://COORD_PUBLIC_IP:8080
-  stream agent --join=http://COORD_IP:8080 --name=vps-hetzner-1 --advertise-addr=203.0.113.10
-  stream status --coordinator=http://127.0.0.1:8080
+  stream coordinator --port=1212
+  stream add-vps --host=203.0.113.10 --user=root --pass=SECRET --name=vps-storage-1 --coordinator=http://COORD_PUBLIC_IP:1212
+  stream agent --join=http://COORD_IP:1212 --name=vps-hetzner-1 --advertise-addr=203.0.113.10
+  stream status --coordinator=http://127.0.0.1:1212
   stream check
 
 Note:
@@ -90,7 +90,7 @@ Note:
 
 func runCoordinator(args []string) {
 	fs := flag.NewFlagSet("coordinator", flag.ExitOnError)
-	port := fs.Int("port", 8080, "HTTP port for coordinator")
+	port := fs.Int("port", 1212, "HTTP port for coordinator")
 	grpcPort := fs.Int("grpc-port", 9090, "gRPC control-plane port for agent mesh streams")
 	secret := fs.String("secret", "", "Shared cluster secret required by agents on the gRPC control plane")
 	withLocal := fs.Bool("with-local", false, "Dev only: also run an embedded worker agent on this machine (not a pool VPS)")
@@ -203,7 +203,7 @@ func runCoordinator(args []string) {
 
 func runAgent(args []string) {
 	fs := flag.NewFlagSet("agent", flag.ExitOnError)
-	joinURL := fs.String("join", "http://127.0.0.1:8080", "Coordinator HTTP address")
+	joinURL := fs.String("join", "http://127.0.0.1:1212", "Coordinator HTTP address")
 	grpcTarget := fs.String("grpc", "", "Coordinator gRPC control-plane host:port (defaults to join host :9090)")
 	secret := fs.String("secret", "", "Shared cluster secret for the gRPC control plane")
 	nodeName := fs.String("name", "", "Unique Node ID/Name (defaults to hostname)")
@@ -258,7 +258,7 @@ func runAgent(args []string) {
 
 func runStatus(args []string) {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	coordURL := fs.String("coordinator", "http://127.0.0.1:8080", "Coordinator address")
+	coordURL := fs.String("coordinator", "http://127.0.0.1:1212", "Coordinator address")
 	fs.Parse(args)
 
 	resp, err := http.Get(fmt.Sprintf("%s/api/pool", *coordURL))
@@ -332,7 +332,7 @@ func runAddVPS(args []string) {
 	pass := fs.String("pass", "", "SSH password")
 	keyPath := fs.String("key", "", "SSH private key path")
 	name := fs.String("name", "", "Node Alias/Name (defaults to vps-<ip>)")
-	coordinator := fs.String("coordinator", "http://127.0.0.1:8080", "Coordinator URL (must be reachable from the VPS — use public/VPC IP)")
+	coordinator := fs.String("coordinator", "http://127.0.0.1:1212", "Coordinator URL (must be reachable from the VPS — use public/VPC IP)")
 	fs.Parse(args)
 
 	if *host == "" {
