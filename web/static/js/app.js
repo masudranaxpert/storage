@@ -1704,14 +1704,13 @@ function openStreamDetailsModal(mediaID) {
     safeSetText('stream-modal-title', job.filename || mediaID);
     safeSetText('stream-modal-id', `Media ID: ${mediaID}`);
 
-    const hlsUrl = job.stream_url || `${window.location.origin}/stream/${encodeURIComponent(mediaID)}/master.m3u8`;
-    const cmafUrl = hlsUrl.replace(/master\.m3u8$/, 'cmaf/video.mp4');
+    const streamUrl = job.stream_url || `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
 
     const hlsInput = document.getElementById('stream-hls-url');
-    if (hlsInput) hlsInput.value = hlsUrl;
+    if (hlsInput) hlsInput.value = streamUrl;
 
     const directInput = document.getElementById('stream-direct-url');
-    if (directInput) directInput.value = cmafUrl;
+    if (directInput) directInput.value = streamUrl;
 
     const videoPlayer = document.getElementById('preview-video-player');
     if (videoPlayer) {
@@ -1719,29 +1718,8 @@ function openStreamDetailsModal(mediaID) {
             currentHlsInstance.destroy();
             currentHlsInstance = null;
         }
-
-        if (typeof Hls !== 'undefined' && Hls.isSupported()) {
-            const hls = new Hls({
-                enableWorker: true,
-                lowLatencyMode: true,
-            });
-            currentHlsInstance = hls;
-            hls.loadSource(hlsUrl);
-            hls.attachMedia(videoPlayer);
-            hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.fatal) {
-                    console.warn('HLS fallback to direct CMAF Byte-Range stream:', data);
-                    hls.destroy();
-                    currentHlsInstance = null;
-                    videoPlayer.src = cmafUrl;
-                    videoPlayer.load();
-                }
-            });
-        } else if (videoPlayer.canPlayType('application/vnd.apple.mpegurl')) {
-            videoPlayer.src = hlsUrl;
-        } else {
-            videoPlayer.src = cmafUrl;
-        }
+        videoPlayer.src = streamUrl;
+        videoPlayer.load();
     }
 
     modal.classList.add('active');

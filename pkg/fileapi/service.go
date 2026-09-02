@@ -556,7 +556,7 @@ func (s *Service) StreamURL(job *FileJob) string {
 	if node == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s/stream/%s/master.m3u8", AgentBaseURL(node), job.Key)
+	return fmt.Sprintf("%s/stream/%s", AgentBaseURL(node), job.Key)
 }
 
 // AgentBaseURL builds the worker agent's HTTP root from live telemetry.

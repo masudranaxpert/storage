@@ -17,20 +17,17 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(folder.CMAFDir, "video.mp4"), []byte("fmp4-bytes-here"), 0644); err != nil {
+	if err := os.WriteFile(folder.VideoFilePath, []byte("fmp4-bytes-here"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := folder.SaveHLSManifest("#EXTM3U\n"); err != nil {
-		t.Fatal(err)
-	}
-	if err := folder.SaveMetadata(&CMAFPackage{MediaID: key}); err != nil {
+	if err := folder.SaveMetadata(&MediaMetadata{Key: key, Filename: folder.TargetFilename}); err != nil {
 		t.Fatal(err)
 	}
 	// A nested deeper file plus an empty dir must survive the trip.
-	if err := os.MkdirAll(filepath.Join(folder.CMAFDir, "audio", "en"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(folder.BaseDir, "audio", "en"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(folder.CMAFDir, "audio", "en", "a.m4s"), []byte("seg"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(folder.BaseDir, "audio", "en", "a.m4s"), []byte("seg"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -50,15 +47,14 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unpack: %v", err)
 	}
-	if n != 4 {
-		t.Fatalf("expected 4 files restored, got %d", n)
+	if n != 3 {
+		t.Fatalf("expected 3 files restored, got %d", n)
 	}
 
 	for _, rel := range []string{
-		filepath.Join("cmaf", "video.mp4"),
-		"master.m3u8",
+		folder.TargetFilename,
 		"metadata.json",
-		filepath.Join("cmaf", "audio", "en", "a.m4s"),
+		filepath.Join("audio", "en", "a.m4s"),
 	} {
 		if _, err := os.Stat(filepath.Join(dst, rel)); err != nil {
 			t.Errorf("restored file missing: %s (%v)", rel, err)

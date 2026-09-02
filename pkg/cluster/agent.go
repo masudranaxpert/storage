@@ -138,7 +138,8 @@ func (a *Agent) resolveTargetDir(dir string) string {
 }
 
 // resolveMediaPath maps a request sub-path onto the primary media dir first,
-// then any registered block roots. Returns "" when nothing matches.
+// then any registered block roots. If the path targets a media directory,
+// it automatically serves the primary .mp4 video file inside it. Returns "" when nothing matches.
 func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 	if strings.Contains(cleanSubPath, "..") {
 		return ""
@@ -157,8 +158,24 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 
 	for _, root := range roots {
 		candidate := filepath.Join(root, cleanSubPath)
-		if stat, err := os.Stat(candidate); err == nil && !stat.IsDir() {
-			return candidate
+		if stat, err := os.Stat(candidate); err == nil {
+			if !stat.IsDir() {
+				return candidate
+			}
+			// Folder requested: auto-locate primary video (.mp4)
+			entries, err := os.ReadDir(candidate)
+			if err == nil {
+				for _, e := range entries {
+					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
+						return filepath.Join(candidate, e.Name())
+					}
+				}
+				for _, e := range entries {
+					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
+						return filepath.Join(candidate, e.Name())
+					}
+				}
+			}
 		}
 	}
 	return ""
@@ -643,9 +660,9 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "unpack failed: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		if _, err := os.Stat(filepath.Join(dest, "master.m3u8")); err != nil {
+		if _, err := os.Stat(filepath.Join(dest, "metadata.json")); err != nil {
 			_ = os.RemoveAll(dest)
-			http.Error(w, "archive incomplete: master.m3u8 missing", http.StatusUnprocessableEntity)
+			http.Error(w, "archive incomplete: metadata.json missing", http.StatusUnprocessableEntity)
 			return
 		}
 		a.registerRoot(dir)
@@ -705,6 +722,12 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 
 		if strings.HasSuffix(targetFilePath, ".mp4") {
 			w.Header().Set("Content-Type", "video/mp4")
+		} else if strings.HasSuffix(targetFilePath, ".json") {
+			w.Header().Set("Content-Type", "application/json")
+		} else if strings.HasSuffix(targetFilePath, ".vtt") {
+			w.Header().Set("Content-Type", "text/vtt")
+		} else if strings.HasSuffix(targetFilePath, ".m4a") {
+			w.Header().Set("Content-Type", "audio/mp4")
 		} else if strings.HasSuffix(targetFilePath, ".m3u8") {
 			w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 		} else if strings.HasSuffix(targetFilePath, ".m4s") {
@@ -778,29 +801,19 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 		return
 	}
 
-	report("packaging", "Packaging CMAF", 90.0, "", nil)
-	cmafPkg, err := media.RemuxAndPackageCMAF(folder.RawFilePath, folder.CMAFDir, jobID)
+	report("packaging", "Processing streamable media", 90.0, "", nil)
+	meta, err := media.RemuxToStreamableMP4(folder.RawFilePath, folder.VideoFilePath, jobID, filename)
 	if err != nil {
-		cmafPkg = &media.CMAFPackage{
-			MediaID:   jobID,
-			CreatedAt: time.Now(),
-			InitChunk: &media.MediaChunk{
-				Index:     0,
-				Filename:  filepath.Base(folder.RawFilePath),
-				TrackType: "raw_video",
-				Tier:      2,
-			},
-		}
+		report("failed", "0 B/s", 0.0, fmt.Sprintf("remux failed: %v", err), nil)
+		return
 	}
+	_ = folder.SaveMetadata(meta)
 
-	manifest := media.GenerateHLSManifest(cmafPkg, fmt.Sprintf("/stream/%s/cmaf", jobID))
-	_ = folder.SaveHLSManifest(manifest)
-	_ = folder.SaveMetadata(cmafPkg)
-
-	if _, err := os.Stat(filepath.Join(folder.CMAFDir, "video.mp4")); err == nil {
+	if _, err := os.Stat(folder.VideoFilePath); err == nil {
 		_ = folder.CleanRaw()
 	}
 
+	cmafPkg := meta.ToCMAFPackage()
 	report("completed", "Ready", 100.0, "", cmafPkg)
 }
 
@@ -887,32 +900,21 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		return
 	}
 
-	report("processing", 90, "Packaging CMAF", "", nil)
-	cmafPkg, err := media.RemuxAndPackageCMAF(folder.RawFilePath, folder.CMAFDir, key)
+	report("processing", 90, "Processing streamable media", "", nil)
+	meta, err := media.RemuxToStreamableMP4(folder.RawFilePath, folder.VideoFilePath, key, filename)
 	if err != nil {
-		// Graceful fallback: serve the raw file as a single-segment package.
-		cmafPkg = &media.CMAFPackage{
-			MediaID:   key,
-			CreatedAt: time.Now(),
-			InitChunk: &media.MediaChunk{
-				Index:     0,
-				Filename:  filename,
-				TrackType: "raw_video",
-				Tier:      2,
-			},
+		report("failed", 0, "0 B/s", fmt.Sprintf("remux failed: %v", err), nil)
+		if final != nil {
+			_ = os.RemoveAll(folder.BaseDir)
 		}
+		return
 	}
-	if stat, err := os.Stat(folder.RawFilePath); err == nil && stat.Size() > cmafPkg.TotalBytes {
-		cmafPkg.TotalBytes = stat.Size()
-	}
+	_ = folder.SaveMetadata(meta)
 
-	manifest := media.GenerateHLSManifest(cmafPkg, fmt.Sprintf("/stream/%s/cmaf", key))
-	_ = folder.SaveHLSManifest(manifest)
-	_ = folder.SaveMetadata(cmafPkg)
-
-	if _, err := os.Stat(filepath.Join(folder.CMAFDir, "video.mp4")); err == nil {
+	if _, err := os.Stat(folder.VideoFilePath); err == nil {
 		_ = folder.CleanRaw()
 	}
+	cmafPkg := meta.ToCMAFPackage()
 
 	if final != nil {
 		if err := a.transferFolder(ctx, key, folder.BaseDir, final, report); err != nil {
