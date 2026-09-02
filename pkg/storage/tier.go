@@ -402,7 +402,14 @@ func (m *Manager) Resolve(nodes []*cluster.NodeRecord, usedPerNode map[string]ui
 }
 
 func resolveBlock(b Block, nodes []*cluster.NodeRecord, usedPerNode map[string]uint64) BlockStatus {
-	bs := BlockStatus{Block: b, UsedBytes: usedPerNode[b.NodeID]}
+	var used uint64
+	blockKey := b.NodeID + "|" + b.Path
+	if u, ok := usedPerNode[blockKey]; ok {
+		used = u
+	} else {
+		used = usedPerNode[b.NodeID]
+	}
+	bs := BlockStatus{Block: b, UsedBytes: used}
 
 	for _, n := range nodes {
 		if n.Metrics.NodeID != b.NodeID {

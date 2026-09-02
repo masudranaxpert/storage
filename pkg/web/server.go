@@ -51,6 +51,17 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 
 	s.loadTemplates()
 	s.files = fileapi.NewService(store, tiers, coord, s.processingProfiles, s.mediaUsagePerNode)
+	if hub != nil {
+		hub.OnJobProgress = func(p cluster.JobProgress) {
+			_ = s.files.ApplyProgress(p.JobID, &fileapi.ProgressUpdate{
+				State:    fileapi.FileState(p.Status),
+				Percent:  p.Percent,
+				Speed:    p.Speed,
+				Error:    p.ErrorMsg,
+				CMAFJSON: p.CMAFJSON,
+			})
+		}
+	}
 	return s
 }
 
@@ -662,10 +673,32 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 	http.NotFound(w, r)
 }
 
-// mediaUsagePerNode is a hook for extra usage outside the fileapi table.
-// File placement quotas are computed in fileapi.resolveUsage from DB records.
+// mediaUsagePerNode computes the actual storage footprint per block and node from persisted records.
 func (s *Server) mediaUsagePerNode() map[string]uint64 {
-	return map[string]uint64{}
+	usage := make(map[string]uint64)
+	if s.store == nil {
+		return usage
+	}
+	recs, err := s.store.ListFileRecords()
+	if err != nil {
+		return usage
+	}
+	jobs := map[string]*fileapi.FileJob{}
+	if list, err := s.store.ListFileJobs(); err == nil {
+		for _, j := range list {
+			jobs[j.Key] = j
+		}
+	}
+	for _, rec := range recs {
+		if job, ok := jobs[rec.Key]; ok && job.State != fileapi.StateFailed {
+			bytes := uint64(rec.SizeBytes)
+			usage[job.Placement.NodeID] += bytes
+			if job.Placement.Path != "" {
+				usage[job.Placement.NodeID+"|"+job.Placement.Path] += bytes
+			}
+		}
+	}
+	return usage
 }
 
 // processingProfiles builds the live reservation map from persisted configs.

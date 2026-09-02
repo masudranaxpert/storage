@@ -111,7 +111,11 @@ func (s *Service) resolveUsage() map[string]uint64 {
 		}
 		for _, rec := range recs {
 			if job, ok := jobs[rec.Key]; ok && job.State != StateFailed {
-				merged[job.Placement.NodeID] += uint64(rec.SizeBytes)
+				bytes := uint64(rec.SizeBytes)
+				merged[job.Placement.NodeID] += bytes
+				if job.Placement.Path != "" {
+					merged[job.Placement.NodeID+"|"+job.Placement.Path] += bytes
+				}
 			}
 		}
 	}
@@ -492,6 +496,19 @@ func (s *Service) ApplyProgress(key string, up *ProgressUpdate) error {
 	job.UpdatedAt = time.Now().UTC()
 	if up.Error != "" {
 		job.Error = up.Error
+	}
+	if len(up.CMAFJSON) > 0 {
+		var cmaf struct {
+			TotalBytes int64 `json:"total_bytes"`
+		}
+		if err := json.Unmarshal(up.CMAFJSON, &cmaf); err == nil && cmaf.TotalBytes > 0 {
+			if rec, err := s.store.GetFileRecord(key); err == nil && rec != nil {
+				if rec.SizeBytes == 0 || rec.SizeBytes != cmaf.TotalBytes {
+					rec.SizeBytes = cmaf.TotalBytes
+					_ = s.store.SaveFileRecord(rec)
+				}
+			}
+		}
 	}
 	if err := s.store.SaveFileJob(job); err != nil {
 		return err
