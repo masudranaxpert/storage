@@ -1,0 +1,45 @@
+<div class="modal-overlay" id="node-detail-modal">
+    <div class="modal-dialog">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="modal-node-title">Node Telemetry</h3>
+                <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;" id="modal-node-sub">Node Details</div>
+            </div>
+            <button class="modal-close-btn" onclick="closeNodeDetailModal()">&times;</button>
+        </div>
+
+        <div class="modal-body">
+            <!-- Hardware Specifications -->
+            <div style="margin-bottom:24px;">
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px;">Hardware Specifications</div>
+                <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:14px;">
+                    <div style="font-size:13px;margin-bottom:6px;"><strong>CPU:</strong> <span id="modal-cpu-info">Loading...</span></div>
+                    <div style="font-size:13px;"><strong>Memory:</strong> <span id="modal-ram-info">Loading...</span></div>
+                </div>
+            </div>
+
+            <!-- Resource Allocation / Quota Manager -->
+            <div>
+                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">
+                    Cluster Pool Storage Contribution (Quota)
+                </div>
+                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
+                    Control how much disk space this VPS is allowed to offer to the distributed pool. Set to 0 for 100% full capacity.
+                </p>
+
+                <div class="form-group">
+                    <label class="form-label">Allocated Storage Cap:</label>
+                    <input type="text" class="form-input" id="modal-quota-value" readonly value="Unlimited (Full Capacity)">
+                    <div class="quota-slider-wrap">
+                        <input type="range" class="quota-slider" id="modal-quota-slider" min="0" max="1000" value="0" oninput="onQuotaSliderChange(this.value)">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeNodeDetailModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="saveNodeAllocation()">Save Allocation to BadgerDB</button>
+        </div>
+    </div>
+</div>

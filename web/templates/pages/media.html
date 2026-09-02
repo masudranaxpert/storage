@@ -1,0 +1,281 @@
+<div class="page-view {{if eq .CurrentPage "media"}}active{{end}}" id="view-media">
+    <!-- Top Action Bar -->
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+        <div style="display:flex; align-items:center; gap:10px;">
+            <span class="pulse-pill" style="font-size:13px; padding:6px 14px;" id="media-total-badge">
+                <span class="pulse-light"></span>
+                <span>0 Media Assets</span>
+            </span>
+        </div>
+
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <!-- Button: Ingest from URL -->
+            <button class="btn btn-secondary" onclick="openIngestURLModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+                <span>Ingest via URL</span>
+            </button>
+
+            <!-- Button: Direct Upload -->
+            <button class="btn btn-primary" onclick="openUploadModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                <span>Upload Video File</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Media Summary Cards (4-Card Grid) -->
+    <div class="metrics-row" style="margin-bottom: 24px;">
+        <div class="metric-card">
+            <div class="metric-top">
+                <span class="metric-title">TOTAL VIDEOS</span>
+                <div class="metric-icon-wrap">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
+                </div>
+            </div>
+            <div class="metric-number" id="media-stat-count">0</div>
+            <div class="metric-subtext">CMAF Packaged Assets</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-top">
+                <span class="metric-title">TOTAL MEDIA STORAGE</span>
+                <div class="metric-icon-wrap">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                </div>
+            </div>
+            <div class="metric-number" id="media-stat-size">0 B</div>
+            <div class="metric-subtext">Encapsulated Video Data</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-top">
+                <span class="metric-title">ACTIVE STREAMS</span>
+                <div class="metric-icon-wrap">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
+                </div>
+            </div>
+            <div class="metric-number" id="media-stat-ready" style="color:var(--status-online);">0</div>
+            <div class="metric-subtext">Ready for Byte-Range Play</div>
+        </div>
+
+        <div class="metric-card">
+            <div class="metric-top">
+                <span class="metric-title">ACTIVE INGEST TASKS</span>
+                <div class="metric-icon-wrap">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                </div>
+            </div>
+            <div class="metric-number" id="media-stat-tasks" style="color:var(--orange-primary);">0</div>
+            <div class="metric-subtext">Downloading & Packaging</div>
+        </div>
+    </div>
+
+    <!-- View Controls & Filter Bar -->
+    <div class="view-controls" style="margin-bottom: 20px;">
+        <div class="filter-group">
+            <button class="filter-btn active" data-media-filter="all" onclick="setMediaFilter('all')">All</button>
+            <button class="filter-btn" data-media-filter="completed" onclick="setMediaFilter('completed')">Ready Streams</button>
+            <button class="filter-btn" data-media-filter="downloading" onclick="setMediaFilter('downloading')">In Progress</button>
+            <button class="filter-btn" data-media-filter="failed" onclick="setMediaFilter('failed')">Failed</button>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+            <div class="search-input-wrap">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                </svg>
+                <input type="text" id="media-search-input" placeholder="Search video name, ID, node..." oninput="onMediaSearchChange()">
+            </div>
+        </div>
+    </div>
+
+    <!-- Media Data Table Container -->
+    <div class="custom-table-wrap" style="margin-bottom: 20px;">
+        <table class="custom-table" id="media-data-table">
+            <thead>
+                <tr>
+                    <th style="width:28%;">MEDIA / ASSET NAME</th>
+                    <th style="width:14%;">FORMAT</th>
+                    <th style="width:12%;">TOTAL SIZE</th>
+                    <th style="width:14%;">ASSIGNED NODE</th>
+                    <th style="width:16%;">STATUS & SPEED</th>
+                    <th style="width:16%;">CREATED AT</th>
+                    <th style="text-align: right; width:100px;">ACTIONS</th>
+                </tr>
+            </thead>
+            <tbody id="media-table-body">
+                <!-- Dynamically populated via app.js -->
+                <tr>
+                    <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                        No media items match your search or filter.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Pagination Footer Controls -->
+    <div class="metric-card" style="padding: 12px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div style="font-size:13px; color:var(--text-secondary);" id="media-pagination-info">
+            Showing 0 to 0 of 0 entries
+        </div>
+
+        <div style="display:flex; align-items:center; gap:12px;">
+            <!-- Items Per Page Selector -->
+            <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
+                <span>Show:</span>
+                <select id="media-page-size" onchange="onMediaPageSizeChange()" style="padding:4px 8px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-body); font-size:12px; font-family:inherit; outline:none; cursor:pointer;">
+                    <option value="10">10 / page</option>
+                    <option value="25">25 / page</option>
+                    <option value="50">50 / page</option>
+                </select>
+            </div>
+
+            <!-- Page Buttons (Prev / Numbers / Next) -->
+            <div class="pagination-buttons" id="media-pagination-buttons" style="display:flex; gap:4px;">
+                <!-- Dynamically rendered -->
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 1: Ingest via URL -->
+<div id="modal-ingest-url" class="modal-overlay" onclick="if(event.target===this) closeIngestURLModal()">
+    <div class="modal-dialog" style="max-width: 560px;">
+        <div class="modal-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);flex-shrink:0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                </div>
+                <div>
+                    <h3 class="modal-title" style="font-size:18px;">Ingest Video from URL</h3>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Auto multi-thread download via aria2c & CMAF packaging</div>
+                </div>
+            </div>
+            <button class="modal-close-btn" type="button" onclick="closeIngestURLModal()">&times;</button>
+        </div>
+
+        <div class="modal-body" style="padding:22px 24px; display:flex; flex-direction:column; gap:16px;">
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label">Direct Video Download URL *</label>
+                <input type="url" id="ingest-url-input" class="form-input" placeholder="https://example.com/videos/movie.mp4" required>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">MIME type will be verified automatically using magic numbers (rejects non-video).</div>
+            </div>
+
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label">Target Compute & Storage Node</label>
+                <select id="ingest-node-select" class="form-input">
+                    <option value="auto">⚡ Auto (Least-loaded optimal worker node)</option>
+                </select>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">The coordinator dynamically schedules the job to the idle node with the lowest CPU load.</div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeIngestURLModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btn-submit-ingest" onclick="submitIngestURL()">Start Ingest</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 2: Direct Video File Upload -->
+<div id="modal-upload-file" class="modal-overlay" onclick="if(event.target===this) closeUploadModal()">
+    <div class="modal-dialog" style="max-width: 560px;">
+        <div class="modal-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);flex-shrink:0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                </div>
+                <div>
+                    <h3 class="modal-title" style="font-size:18px;">Upload Video File</h3>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Direct upload with instant MIME detection & CMAF packaging</div>
+                </div>
+            </div>
+            <button class="modal-close-btn" type="button" onclick="closeUploadModal()">&times;</button>
+        </div>
+
+        <div class="modal-body" style="padding:22px 24px; display:flex; flex-direction:column; gap:16px;">
+            <!-- Dropzone -->
+            <div id="upload-dropzone" class="upload-dropzone" onclick="document.getElementById('upload-file-input').click()">
+                <div style="display:flex;justify-content:center;margin-bottom:8px;">
+                    <div style="width:48px;height:48px;border-radius:50%;background:var(--bg-surface);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px var(--orange-glow);">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--orange-primary)" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    </div>
+                </div>
+                <div style="font-weight:700; color:var(--text-primary); font-size:14px;" id="upload-filename-text">Click to choose or drag & drop video file</div>
+                <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">Supports MP4, MKV, WebM, MOV (Encapsulated in isolated folder)</div>
+                <input type="file" id="upload-file-input" accept="video/*,.mp4,.mkv,.webm,.mov" style="display:none;" onchange="onFileSelected(this)">
+            </div>
+
+            <!-- Upload Progress Meter -->
+            <div id="upload-progress-container" style="display:none; margin-top:4px;">
+                <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; margin-bottom:6px;">
+                    <span id="upload-status-text">Uploading video...</span>
+                    <span id="upload-pct-text">0%</span>
+                </div>
+                <div class="gauge-track" style="height:8px;">
+                    <div id="upload-progress-bar" class="gauge-fill" style="width:0%;"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" onclick="closeUploadModal()">Cancel</button>
+            <button type="button" class="btn btn-primary" id="btn-submit-upload" onclick="startFileUpload()" disabled>Upload & Package</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal 3: Stream Details & Preview Player -->
+<div id="modal-stream-details" class="modal-overlay" onclick="if(event.target===this) closeStreamDetailsModal()">
+    <div class="modal-dialog" style="max-width: 640px;">
+        <div class="modal-header">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);flex-shrink:0;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                </div>
+                <div>
+                    <h3 class="modal-title" id="stream-modal-title" style="font-size:18px;">Stream Details & HLS Playback</h3>
+                    <div id="stream-modal-id" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Media ID: media_xxx</div>
+                </div>
+            </div>
+            <button class="modal-close-btn" type="button" onclick="closeStreamDetailsModal()">&times;</button>
+        </div>
+
+        <div class="modal-body" style="padding:22px 24px; display:flex; flex-direction:column; gap:16px;">
+            <!-- Video Preview Player Container -->
+            <div style="border-radius:var(--radius-md); overflow:hidden; background:#000000; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-light);">
+                <video id="preview-video-player" controls style="width:100%; height:100%; object-fit:contain;"></video>
+            </div>
+
+            <!-- Direct HLS Stream Link Box -->
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label">HLS Master Playlist URL (.m3u8)</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="stream-hls-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:12px; background:var(--bg-body);">
+                    <button class="btn btn-secondary" type="button" onclick="copyStreamURL()" style="white-space:nowrap;">Copy URL</button>
+                </div>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Compatible with HLS.js, Video.js, Safari, VLC, and Android/iOS players.</div>
+            </div>
+
+            <!-- Single-File Byte-Range Direct URL Box -->
+            <div class="form-group" style="margin-bottom:0;">
+                <label class="form-label">Single-File Byte-Range Direct File URL</label>
+                <input type="text" id="stream-direct-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:12px; background:var(--bg-body);">
+                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Direct HTTP 206 Byte-Range streaming from the assigned VPS node.</div>
+            </div>
+        </div>
+
+        <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="closeStreamDetailsModal()">Close</button>
+        </div>
+    </div>
+</div>

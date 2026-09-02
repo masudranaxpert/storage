@@ -1,0 +1,27 @@
+# Stream Mesh — coordinator only.
+# Workers = real VPS via dashboard "+ Add VPS" or: stream add-vps ...
+# (ffmpeg/aria2 install on the VPS during provision — not in this image)
+#
+#   docker compose up --build
+#   → http://localhost:8080
+
+services:
+  coordinator:
+    build: .
+    container_name: stream-coordinator
+    command: ["coordinator", "--port=8080", "--grpc-port=9090"]
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - coord-data:/app/data
+    networks:
+      - stream-mesh
+    restart: unless-stopped
+
+networks:
+  stream-mesh:
+    driver: bridge
+
+volumes:
+  coord-data:

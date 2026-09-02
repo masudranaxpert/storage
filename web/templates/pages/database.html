@@ -1,0 +1,132 @@
+<div class="page-view {{if eq .CurrentPage "database"}}active{{end}}" id="view-database">
+    <div style="margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;">
+        <h3 style="font-size:18px;font-weight:700;">Database Studio</h3>
+        <div style="display:flex;gap:10px;">
+            <button class="btn btn-secondary" onclick="DBStudio.refresh()" title="Reload tables & rows">↻ Refresh</button>
+            <button class="btn btn-primary" onclick="DBStudio.openCreate()">+ New Row</button>
+        </div>
+    </div>
+
+    <!-- Store stats cards -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:22px;">
+        <div class="metric-card" style="padding:16px 18px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">LSM Size</div>
+            <div style="font-size:20px;font-weight:800;" id="db-stat-lsm">—</div>
+        </div>
+        <div class="metric-card" style="padding:16px 18px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">Stored Data</div>
+            <div style="font-size:20px;font-weight:800;" id="db-stat-stored">—</div>
+        </div>
+        <div class="metric-card" style="padding:16px 18px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">Total Keys</div>
+            <div style="font-size:20px;font-weight:800;" id="db-stat-keys">—</div>
+        </div>
+        <div class="metric-card" style="padding:16px 18px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">Tables</div>
+            <div style="font-size:20px;font-weight:800;" id="db-stat-tables">—</div>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start;" class="dbstudio-grid">
+        <!-- Tables sidebar -->
+        <div class="metric-card" style="padding:12px;">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);padding:6px 8px 10px;">Tables</div>
+            <div id="db-table-list" style="display:flex;flex-direction:column;gap:4px;">
+                <div style="font-size:13px;color:var(--text-secondary);padding:8px;">Loading…</div>
+            </div>
+        </div>
+
+        <!-- Rows panel -->
+        <div class="metric-card" style="padding:18px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+                <div style="font-size:14px;font-weight:700;" id="db-current-table-label">Select a table</div>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                    <input class="form-input" id="db-search" placeholder="Search key or value…" style="width:220px;padding:7px 10px;font-size:13px;" onkeydown="if(event.key==='Enter')DBStudio.search()">
+                    <button class="btn btn-secondary" style="padding:7px 12px;font-size:12px;" onclick="DBStudio.search()">Search</button>
+                    <button class="btn btn-secondary" style="padding:7px 12px;font-size:12px;color:#e5484d;border-color:#e5484d55;" id="db-truncate-btn" onclick="DBStudio.truncate()" disabled>Truncate</button>
+                </div>
+            </div>
+
+            <div style="overflow-x:auto;" class="db-rows-scroll">
+                <table class="db-rows-table" style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead>
+                        <tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase;letter-spacing:.04em;">
+                            <th style="padding:8px 10px;border-bottom:1px solid var(--border-light);">Key</th>
+                            <th style="padding:8px 10px;border-bottom:1px solid var(--border-light);width:90px;">Size</th>
+                            <th style="padding:8px 10px;border-bottom:1px solid var(--border-light);width:70px;">Ver</th>
+                            <th style="padding:8px 10px;border-bottom:1px solid var(--border-light);">Value Preview</th>
+                            <th style="padding:8px 10px;border-bottom:1px solid var(--border-light);width:150px;">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="db-rows-body">
+                        <tr><td colspan="5" style="padding:22px;text-align:center;color:var(--text-secondary);">No table selected — pick one from the left.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-top:14px;font-size:12px;color:var(--text-secondary);">
+                <span id="db-page-info"></span>
+                <div style="display:flex;gap:6px;">
+                    <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" id="db-prev-btn" onclick="DBStudio.prevPage()" disabled>← Prev</button>
+                    <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;" id="db-next-btn" onclick="DBStudio.nextPage()" disabled>Next →</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Row viewer / editor modal -->
+<div class="modal-overlay" id="db-row-modal">
+    <div class="modal-dialog" style="max-width:760px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title" id="db-row-modal-title">Row</h3>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;font-family:'JetBrains Mono',monospace;" id="db-row-modal-sub"></div>
+            </div>
+            <button class="modal-close-btn" onclick="DBStudio.closeRowModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:8px;" id="db-row-value-label">Value (JSON)</div>
+            <textarea id="db-row-editor" spellcheck="false" style="width:100%;min-height:320px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.55;padding:12px;border-radius:var(--radius-md);border:1px solid var(--border-light);background:var(--bg-body);color:var(--text-primary);resize:vertical;"></textarea>
+            <div id="db-row-editor-err" style="color:#e5484d;font-size:12px;margin-top:6px;display:none;"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="DBStudio.closeRowModal()">Close</button>
+            <button class="btn btn-primary" id="db-row-save-btn" onclick="DBStudio.saveRow()">Save Changes</button>
+        </div>
+    </div>
+</div>
+
+<!-- Create row modal -->
+<div class="modal-overlay" id="db-create-modal">
+    <div class="modal-dialog" style="max-width:640px;">
+        <div class="modal-header">
+            <div>
+                <h3 class="modal-title">New Row</h3>
+                <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Insert a JSON document into a table</div>
+            </div>
+            <button class="modal-close-btn" onclick="DBStudio.closeCreateModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label">Table (key prefix)</label>
+                <input class="form-input" id="db-create-table" list="db-table-datalist" placeholder="e.g. file" style="font-family:'JetBrains Mono',monospace;">
+                <datalist id="db-table-datalist"></datalist>
+            </div>
+            <div class="form-group" style="margin-bottom:12px;">
+                <label class="form-label">Key (part after prefix)</label>
+                <input class="form-input" id="db-create-key" placeholder="e.g. myVideo123" style="font-family:'JetBrains Mono',monospace;">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Value (JSON)</label>
+                <textarea id="db-create-value" spellcheck="false" placeholder='{ "hello": "world" }' style="width:100%;min-height:180px;font-family:'JetBrains Mono',monospace;font-size:12.5px;padding:12px;border-radius:var(--radius-md);border:1px solid var(--border-light);background:var(--bg-body);color:var(--text-primary);resize:vertical;"></textarea>
+                <div id="db-create-err" style="color:#e5484d;font-size:12px;margin-top:6px;display:none;"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="DBStudio.closeCreateModal()">Cancel</button>
+            <button class="btn btn-primary" onclick="DBStudio.createRow()">Create Row</button>
+        </div>
+    </div>
+</div>

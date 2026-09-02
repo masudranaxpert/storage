@@ -1,0 +1,15 @@
+.git
+.cursor
+data
+tmp
+tmp_dir
+*.exe
+*.exe~
+stream-linux-amd64
+office-agent.exe*
+agent-transcripts
+terminals
+uploads
+assets
+*.md
+.air.toml

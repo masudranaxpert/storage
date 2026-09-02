@@ -1,0 +1,56 @@
+# Air configuration for live hot reloading in Go
+root = "."
+testdata_dir = "testdata"
+tmp_dir = "tmp"
+
+[build]
+  args_bin = ["coordinator", "--port=8080"]
+  bin = "./tmp/stream.exe"
+  entrypoint = "./tmp/stream.exe"
+  cmd = "go build -o ./tmp/stream.exe ./cmd/stream"
+  delay = 500
+  exclude_dir = [
+    "data",
+    "tmp",
+    "vendor",
+    ".git",
+    "scratch",
+    "bin",
+    ".gemini",
+    "logs",
+    "node_storage",
+    ".cursor",
+    "terminals",
+    "agent-transcripts",
+    "uploads",
+    "assets"
+  ]
+  exclude_file = ["stream-linux-amd64", "stream.exe", "stream"]
+  exclude_regex = ["_test.go", ".*\\.log$"]
+  exclude_unchanged = false
+  follow_symlink = false
+  full_bin = ""
+  include_dir = []
+  include_ext = ["go", "html", "css", "js"]
+  kill_delay = "500ms"
+  log = "build-errors.log"
+  send_interrupt = false
+  stop_on_error = true
+
+[color]
+  app = ""
+  build = "yellow"
+  main = "magenta"
+  runner = "green"
+  watcher = "cyan"
+
+[log]
+  main_only = false
+  time = false
+
+[misc]
+  clean_on_exit = true
+
+[screen]
+  clear_on_rebuild = false
+  keep_scroll = true

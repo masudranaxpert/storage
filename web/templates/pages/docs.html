@@ -1,0 +1,17 @@
+<div class="page-view {{if eq .CurrentPage "docs"}}active{{end}}" id="view-docs">
+    <div style="background:var(--bg-surface); border:1px solid var(--border-light); border-radius:var(--radius-lg); overflow:hidden; min-height:850px; box-shadow:var(--shadow-card); margin-bottom:24px;">
+        <div style="padding:16px 22px; border-bottom:1px solid var(--border-light); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+            <div>
+                <h2 style="font-size:16px; font-weight:800; color:var(--text-primary); margin:0;">Interactive OpenAPI 3.0 & Swagger Explorer</h2>
+                <p style="font-size:12px; color:var(--text-secondary); margin:3px 0 0 0;">Test live media ingest, video link downloads, and cluster control APIs directly in the browser.</p>
+            </div>
+            <a href="/api/openapi.json" target="_blank" class="btn btn-secondary" style="font-size:12px; padding:6px 14px; text-decoration:none; display:inline-flex; align-items:center; gap:6px;">
+                <span>View OpenAPI JSON</span>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </a>
+        </div>
+        <div id="swagger-container" style="padding:10px 14px; background:#ffffff; min-height:800px;">
+            <iframe id="swagger-frame" src="/docs/swagger-embed" style="width:100%; height:900px; border:none; background:#ffffff;"></iframe>
+        </div>
+    </div>
+</div>

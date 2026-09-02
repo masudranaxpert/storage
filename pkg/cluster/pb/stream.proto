@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package stream_pb;
+
+option go_package = "stream/pkg/cluster/pb";
+
+// Mesh is the control-plane service (SeaweedFS-style): each agent keeps ONE
+// persistent bidirectional stream open to the coordinator. Telemetry flows up,
+// commands (job dispatch, upgrades, tool installs) are pushed down instantly
+// with zero polling latency. The HTTP data plane (byte-range media serving) is
+// unaffected and stays on the agent's own port.
+service Mesh {
+  rpc NodeChannel (stream NodeMessage) returns (stream CoordinatorMessage);
+}
+
+// NodeMessage is sent agent -> coordinator over the persistent stream.
+message NodeMessage {
+  oneof kind {
+    Heartbeat heartbeat = 1;
+    JobProgressUpdate progress = 2;
+  }
+}
+
+// CoordinatorMessage is pushed coordinator -> agent over the same stream.
+message CoordinatorMessage {
+  oneof kind {
+    HeartbeatAck ack = 1;
+    RunIngestJob run_job = 2;
+    InstallTools install_tools = 3;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Telemetry (agent -> coordinator)
+// ---------------------------------------------------------------------------
+
+message Heartbeat {
+  string node_id = 1;
+  string hostname = 2;
+  string os = 3;
+  string platform = 4;
+  repeated string ips = 5;
+  uint64 uptime_sec = 6;
+  repeated DiskStat disks = 7;
+  MemoryStat memory = 8;
+  CPUStat cpu = 9;
+  NodeCapabilities capabilities = 10;
+  int64 reported_at_unix = 11;
+  // Resolved on-disk media storage location (best mount picked at startup).
+  string media_path = 12;
+}
+
+message DiskStat {
+  string path = 1;
+  string fs_type = 2;
+  string disk_type = 3; // "SSD", "HDD", "NVMe"
+  uint64 total_bytes = 4;
+  uint64 free_bytes = 5;
+  uint64 used_bytes = 6;
+  double used_percent = 7;
+}
+
+message MemoryStat {
+  uint64 total_bytes = 1;
+  uint64 available_bytes = 2;
+  uint64 used_bytes = 3;
+  double used_percent = 4;
+}
+
+message CPUStat {
+  int32 cores = 1;
+  string model_name = 2;
+  double used_percent = 3;
+}
+
+message NodeCapabilities {
+  bool has_ffmpeg = 1;
+  bool has_aria2c = 2;
+  int32 agent_port = 3;
+  string version = 4;
+}
+
+message JobProgressUpdate {
+  string job_id = 1;
+  string status = 2; // queued|downloading|packaging|completed|failed
+  double progress_percent = 3;
+  string download_speed = 4;
+  string error_msg = 5;
+  // CMAF package payload serialized as JSON; it is display data, not control
+  // data, so it stays schema-free to avoid coupling the wire format to the
+  // media packaging structs.
+  bytes cmaf_json = 6;
+}
+
+// ---------------------------------------------------------------------------
+// Commands (coordinator -> agent)
+// ---------------------------------------------------------------------------
+
+message HeartbeatAck {
+  string node_id = 1;
+  string status = 2;
+  // false when the node has been decommissioned; the agent must disconnect.
+  bool node_enabled = 3;
+  string latest_version = 4;
+  string download_url = 5;
+  bool update_available = 6;
+  bool install_missing_tools = 7;
+}
+
+message RunIngestJob {
+  string job_id = 1;
+  string source_url = 2;
+}
+
+message InstallTools {
+  // reserved for future options (e.g. specific tool list)
+}

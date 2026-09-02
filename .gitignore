@@ -1,0 +1,49 @@
+# Binaries / build
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/stream
+/stream-linux-amd64
+/office-agent.exe*
+/tmp/
+/bin/
+*.test
+
+# Air / local run
+build-errors.log
+
+# Runtime data
+/data/
+node_storage/
+scratch/
+logs/
+
+# Go
+vendor/
+
+# IDE / OS
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Docker
+docker-compose.override.yml
+
+# Uploads / misc local junk
+uploads/
+assets/
+agent-transcripts/
+terminals/

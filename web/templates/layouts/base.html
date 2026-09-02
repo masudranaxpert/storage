@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream // Distributed Cluster & Storage Control Plane</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/app.css?v=13">
+</head>
+<body>
+    <!-- Left Navigation Sidebar -->
+    {{template "sidebar.html" .}}
+
+    <!-- Backdrop for Mobile Sidebar Drawer -->
+    <div id="sidebar-backdrop" class="sidebar-backdrop" onclick="toggleMobileSidebar(false)"></div>
+
+    <!-- Main Content Area -->
+    <main class="app-main">
+        <!-- Sticky Topbar Header -->
+        {{template "header.html" .}}
+
+        <!-- Page Views Container -->
+        <div class="content-container">
+            {{template "dashboard.html" .}}
+            {{template "nodes.html" .}}
+            {{template "storage.html" .}}
+            {{template "tiers.html" .}}
+            {{template "media.html" .}}
+            {{template "database.html" .}}
+            {{template "settings.html" .}}
+            {{template "docs.html" .}}
+        </div>
+    </main>
+
+    <!-- Node Detail & Quota Modal -->
+    {{template "modal_node_detail.html" .}}
+
+    <!-- Add VPS Node Modal -->
+    {{template "modal_add_vps.html" .}}
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="/static/js/tiers.js?v=8"></script>
+    <script src="/static/js/database.js?v=2"></script>
+    <script src="/static/js/app.js?v=16"></script>
+</body>
+</html>

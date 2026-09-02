@@ -1,0 +1,332 @@
+<div class="page-view {{if or (eq .CurrentPage "dashboard") (eq .CurrentPage "")}}active{{end}}" id="view-dashboard">
+
+    <!-- ================= HERO BAND: Cluster Health ================= -->
+    <div class="hero-band" id="dash-hero">
+        <div class="hero-main">
+            <div class="hero-status-wrap">
+                <span class="hero-status-dot" id="dash-hero-dot"></span>
+                <div>
+                    <span class="hero-status-label" id="dash-hero-status">Cluster Healthy</span>
+                    <span class="hero-status-sub" id="dash-hero-sub">All systems operational</span>
+                </div>
+            </div>
+            <div class="hero-actions">
+                <button class="hero-btn ghost" onclick="navigateTo('nodes')">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                    Manage Nodes
+                </button>
+                <button class="hero-btn solid" onclick="openAddVPSModal()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Add VPS Node
+                </button>
+            </div>
+        </div>
+        <div class="hero-stats">
+            <div class="hero-stat">
+                <span class="hero-stat-value" id="dash-hero-storage">0 GB</span>
+                <span class="hero-stat-label">Pooled Storage</span>
+            </div>
+            <div class="hero-stat-divider"></div>
+            <div class="hero-stat">
+                <span class="hero-stat-value" id="dash-hero-free">0 GB</span>
+                <span class="hero-stat-label">Free Space</span>
+            </div>
+            <div class="hero-stat-divider"></div>
+            <div class="hero-stat">
+                <span class="hero-stat-value" id="dash-hero-nodes">0</span>
+                <span class="hero-stat-label">Nodes Online</span>
+            </div>
+            <div class="hero-stat-divider"></div>
+            <div class="hero-stat">
+                <span class="hero-stat-value" id="dash-hero-drives">0</span>
+                <span class="hero-stat-label">Active Drives</span>
+            </div>
+            <div class="hero-stat-divider"></div>
+            <div class="hero-stat">
+                <span class="hero-stat-value" id="dash-hero-cores">0</span>
+                <span class="hero-stat-label">CPU Cores</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= KPI ROW: Ring Gauge Cards ================= -->
+    <div class="metrics-row">
+        <!-- Total Storage Pool -->
+        <div class="metric-card kpi-card">
+            <div class="kpi-head">
+                <span class="metric-title">Total Storage Pool</span>
+                <div class="metric-icon-wrap">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                </div>
+            </div>
+            <div class="kpi-body">
+                <div class="ring-wrap">
+                    <svg class="ring-gauge" viewBox="0 0 80 80">
+                        <circle class="ring-track" cx="40" cy="40" r="33"></circle>
+                        <circle class="ring-fill ring-storage" id="dash-ring-storage" cx="40" cy="40" r="33"></circle>
+                    </svg>
+                    <div class="ring-center">
+                        <span class="ring-pct" id="dash-ring-storage-pct">0%</span>
+                        <span class="ring-cap">Used</span>
+                    </div>
+                </div>
+                <div class="kpi-side">
+                    <span class="metric-number" id="dash-stat-storage" style="font-size:26px;">0 GB</span>
+                    <span class="free-highlight-pill" id="dash-stat-storage-free-badge" style="align-self:flex-start;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span id="dash-stat-storage-free-text">0 GB Free</span>
+                    </span>
+                    <span class="metric-subtext" id="dash-stat-storage-sub" style="margin-top:0;">0% Used</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pooled RAM -->
+        <div class="metric-card kpi-card">
+            <div class="kpi-head">
+                <span class="metric-title">Pooled RAM Buffer</span>
+                <div class="metric-icon-wrap">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19v-2"></path><path d="M10 19v-2"></path><path d="M14 19v-2"></path><path d="M18 19v-2"></path><rect x="2" y="6" width="20" height="9" rx="2"></rect></svg>
+                </div>
+            </div>
+            <div class="kpi-body">
+                <div class="ring-wrap">
+                    <svg class="ring-gauge" viewBox="0 0 80 80">
+                        <circle class="ring-track" cx="40" cy="40" r="33"></circle>
+                        <circle class="ring-fill ring-ram" id="dash-ring-ram" cx="40" cy="40" r="33"></circle>
+                    </svg>
+                    <div class="ring-center">
+                        <span class="ring-pct" id="dash-ring-ram-pct">0%</span>
+                        <span class="ring-cap">Used</span>
+                    </div>
+                </div>
+                <div class="kpi-side">
+                    <span class="metric-number" id="dash-stat-ram" style="font-size:26px;">0 GB</span>
+                    <span class="free-highlight-pill" id="dash-stat-ram-free-badge" style="align-self:flex-start;">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span id="dash-stat-ram-free-text">0 GB Free</span>
+                    </span>
+                    <span class="metric-subtext" style="margin-top:0;">Cache Buffer</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compute Load -->
+        <div class="metric-card kpi-card">
+            <div class="kpi-head">
+                <span class="metric-title">Compute Load</span>
+                <div class="metric-icon-wrap">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+                </div>
+            </div>
+            <div class="kpi-body">
+                <div class="ring-wrap">
+                    <svg class="ring-gauge" viewBox="0 0 80 80">
+                        <circle class="ring-track" cx="40" cy="40" r="33"></circle>
+                        <circle class="ring-fill ring-cpu" id="dash-ring-cpu" cx="40" cy="40" r="33"></circle>
+                    </svg>
+                    <div class="ring-center">
+                        <span class="ring-pct" id="dash-ring-cpu-pct">0%</span>
+                        <span class="ring-cap">Load</span>
+                    </div>
+                </div>
+                <div class="kpi-side">
+                    <span class="metric-number" id="dash-stat-cpu" style="font-size:26px;">0</span>
+                    <span class="metric-subtext" style="margin-top:2px;">Total Cores</span>
+                    <span class="metric-subtext" id="dash-stat-cpu-sub" style="margin-top:0;">0.0% Avg Load</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Node Health -->
+        <div class="metric-card kpi-card">
+            <div class="kpi-head">
+                <span class="metric-title">Node Health</span>
+                <div class="metric-icon-wrap">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"></path></svg>
+                </div>
+            </div>
+            <div class="kpi-body">
+                <div class="ring-wrap">
+                    <svg class="ring-gauge" viewBox="0 0 80 80">
+                        <circle class="ring-track" cx="40" cy="40" r="33"></circle>
+                        <circle class="ring-fill ring-nodes" id="dash-ring-nodes" cx="40" cy="40" r="33"></circle>
+                    </svg>
+                    <div class="ring-center">
+                        <span class="ring-pct" id="dash-ring-nodes-pct">0%</span>
+                        <span class="ring-cap">Online</span>
+                    </div>
+                </div>
+                <div class="kpi-side">
+                    <span class="metric-number" id="dash-stat-nodes" style="font-size:26px;">0</span>
+                    <span class="metric-subtext" style="margin-top:2px;">Total Nodes</span>
+                    <span class="metric-subtext" id="dash-stat-nodes-sub" style="margin-top:0;">0 Active &bull; 0 Offline</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= CLUSTER FLEET STRIP ================= -->
+    <div class="dash-section-header">
+        <div>
+            <h2 class="dash-section-title">
+                <span>Cluster Fleet</span>
+                <span class="dash-tier-badge">LIVE</span>
+            </h2>
+            <p class="dash-section-desc">Real-time health of every worker in the mesh. Click a node to manage it.</p>
+        </div>
+    </div>
+    <div class="fleet-strip" id="dash-fleet-strip">
+        <!-- Injected via JS -->
+    </div>
+
+    <!-- ================= STORAGE MEDIUM BREAKDOWN ================= -->
+    <div class="dash-section-header">
+        <div>
+            <h2 class="dash-section-title">
+                <span>Storage Hardware Breakdown</span>
+                <span class="dash-tier-badge">NVMe &bull; SSD &bull; HDD</span>
+            </h2>
+            <p class="dash-section-desc">Physical drive mediums aggregated across all active nodes in the cluster mesh.</p>
+        </div>
+        <div id="dash-total-drives-badge" class="dash-drives-counter">
+            0 Drives Active
+        </div>
+    </div>
+
+    <div class="medium-grid">
+        <!-- NVMe Tier Card -->
+        <div class="metric-card medium-card medium-card-nvme">
+            <div class="medium-card-header">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="medium-title">NVMe Flash</span>
+                        <span class="medium-tag tag-nvme">Tier 0</span>
+                    </div>
+                    <div class="medium-subtitle">Ultra-Low Latency Hot Buffer</div>
+                </div>
+                <div class="medium-icon-box icon-nvme">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                </div>
+            </div>
+
+            <div class="medium-stat-row">
+                <div class="metric-number" id="dash-medium-nvme-total" style="font-size:26px;">0 GB</div>
+                <div class="free-highlight-pill" id="dash-medium-nvme-free-badge">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    <span id="dash-medium-nvme-free-text">0 GB Free</span>
+                </div>
+            </div>
+            <div class="metric-subtext" id="dash-medium-nvme-sub">0% Used &bull; 0 Drives Active</div>
+
+            <div class="gauge-track">
+                <div class="gauge-fill gauge-nvme" id="dash-medium-nvme-meter" style="width: 0%;"></div>
+            </div>
+
+            <div class="medium-card-footer">
+                <span>Role: Chunk Ingest &amp; Metadata</span>
+                <span id="dash-medium-nvme-pct" class="medium-pct-text">0% Share</span>
+            </div>
+        </div>
+
+        <!-- SSD Tier Card -->
+        <div class="metric-card medium-card medium-card-ssd">
+            <div class="medium-card-header">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="medium-title">Solid State (SSD)</span>
+                        <span class="medium-tag tag-ssd">Tier 1</span>
+                    </div>
+                    <div class="medium-subtitle">Active Video Delivery Pool</div>
+                </div>
+                <div class="medium-icon-box icon-ssd">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M7 8h10"></path><path d="M7 12h10"></path><path d="M7 16h4"></path></svg>
+                </div>
+            </div>
+
+            <div class="medium-stat-row">
+                <div class="metric-number" id="dash-medium-ssd-total" style="font-size:26px;">0 GB</div>
+                <div class="free-highlight-pill" id="dash-medium-ssd-free-badge">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    <span id="dash-medium-ssd-free-text">0 GB Free</span>
+                </div>
+            </div>
+            <div class="metric-subtext" id="dash-medium-ssd-sub">0% Used &bull; 0 Drives Active</div>
+
+            <div class="gauge-track">
+                <div class="gauge-fill gauge-ssd" id="dash-medium-ssd-meter" style="width: 0%;"></div>
+            </div>
+
+            <div class="medium-card-footer">
+                <span>Role: Streaming Cache &amp; Buffers</span>
+                <span id="dash-medium-ssd-pct" class="medium-pct-text">0% Share</span>
+            </div>
+        </div>
+
+        <!-- HDD Tier Card -->
+        <div class="metric-card medium-card medium-card-hdd">
+            <div class="medium-card-header">
+                <div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="medium-title">High-Density (HDD)</span>
+                        <span class="medium-tag tag-hdd">Tier 2</span>
+                    </div>
+                    <div class="medium-subtitle">Massive Video Storage &amp; Replicas</div>
+                </div>
+                <div class="medium-icon-box icon-hdd">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="3" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="21"></line></svg>
+                </div>
+            </div>
+
+            <div class="medium-stat-row">
+                <div class="metric-number" id="dash-medium-hdd-total" style="font-size:26px;">0 GB</div>
+                <div class="free-highlight-pill" id="dash-medium-hdd-free-badge">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    <span id="dash-medium-hdd-free-text">0 GB Free</span>
+                </div>
+            </div>
+            <div class="metric-subtext" id="dash-medium-hdd-sub">0% Used &bull; 0 Drives Active</div>
+
+            <div class="gauge-track">
+                <div class="gauge-fill gauge-hdd" id="dash-medium-hdd-meter" style="width: 0%;"></div>
+            </div>
+
+            <div class="medium-card-footer">
+                <span>Role: Bulk Video Storage Pool</span>
+                <span id="dash-medium-hdd-pct" class="medium-pct-text">0% Share</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ================= COMPOSITION BAR ================= -->
+    <div class="metric-card" style="margin-bottom: 24px; padding: 18px 20px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+            <span style="font-size:13px;font-weight:700;color:var(--text-primary);">Cluster Medium Share &amp; Capacity Composition</span>
+            <span id="dash-storage-share-text" style="font-size:12px;color:var(--text-secondary);font-weight:600;">Total 0 GB</span>
+        </div>
+
+        <div class="composition-bar-track">
+            <div id="dash-segment-nvme" class="composition-segment segment-nvme" style="width: 0%;" title="NVMe Flash"></div>
+            <div id="dash-segment-ssd" class="composition-segment segment-ssd" style="width: 0%;" title="SSD Solid State"></div>
+            <div id="dash-segment-hdd" class="composition-segment segment-hdd" style="width: 0%;" title="HDD Mechanical"></div>
+        </div>
+
+        <div class="composition-legend">
+            <div class="legend-item">
+                <span class="legend-dot dot-nvme"></span>
+                <span class="legend-label">NVMe Flash:</span>
+                <strong id="dash-legend-nvme" class="legend-value">0 GB (0%)</strong>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot dot-ssd"></span>
+                <span class="legend-label">SSD Solid State:</span>
+                <strong id="dash-legend-ssd" class="legend-value">0 GB (0%)</strong>
+            </div>
+            <div class="legend-item">
+                <span class="legend-dot dot-hdd"></span>
+                <span class="legend-label">HDD Mechanical:</span>
+                <strong id="dash-legend-hdd" class="legend-value">0 GB (0%)</strong>
+            </div>
+        </div>
+    </div>
+</div>

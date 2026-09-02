@@ -1,0 +1,26 @@
+<div class="page-view {{if eq .CurrentPage "storage"}}active{{end}}" id="view-storage">
+    <div style="margin-bottom:20px;">
+        <h3 style="font-size:18px;font-weight:700;margin-bottom:4px;">Pooled Storage Drives</h3>
+        <p style="font-size:13px;color:var(--text-secondary);">All mounted SSD/HDD partitions contributed by connected VPS nodes.</p>
+    </div>
+
+    <div class="custom-table-wrap">
+        <table class="custom-table">
+            <thead>
+                <tr>
+                    <th>Node ID / Host</th>
+                    <th>Mount Path</th>
+                    <th>Medium</th>
+                    <th>FS Type</th>
+                    <th>Total Size</th>
+                    <th>Free Space</th>
+                    <th>Utilization</th>
+                    <th>Node Health</th>
+                </tr>
+            </thead>
+            <tbody id="storage-table-body">
+                <!-- Injected via JS -->
+            </tbody>
+        </table>
+    </div>
+</div>

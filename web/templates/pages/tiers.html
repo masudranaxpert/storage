@@ -1,0 +1,21 @@
+<div class="page-view {{if eq .CurrentPage "tiers"}}active{{end}}" id="view-tiers">
+    <div class="tiers-page-header">
+        <div class="header-info">
+            <h3 style="font-size:19px;font-weight:800;letter-spacing:-0.3px;margin-bottom:4px;">Tiered Storage &amp; Processing Workers</h3>
+        </div>
+    </div>
+
+    <div class="tiers-section-header">
+        <div class="tiers-section-title">Storage Tiers</div>
+        <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="addNewTier()">
+            <span style="font-size:14px;line-height:1;">+</span> Add Tier
+        </button>
+    </div>
+    <div id="tiers-grid" class="tiers-grid"></div>
+
+    <div class="tiers-section-header">
+        <div class="tiers-section-title">Processing VPS Pool</div>
+        <span class="node-tag" id="processing-eligible-count" style="font-family:'JetBrains Mono',monospace;">-</span>
+    </div>
+    <div id="processing-grid" class="processing-grid"></div>
+</div>
