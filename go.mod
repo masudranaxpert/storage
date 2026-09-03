@@ -3,7 +3,6 @@ module stream
 go 1.26.2
 
 require (
-	github.com/Eyevinn/mp4ff v0.56.0
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gabriel-vasile/mimetype v1.4.15
 	github.com/jaypipes/ghw v0.25.0

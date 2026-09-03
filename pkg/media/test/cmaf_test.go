@@ -2,12 +2,10 @@ package media_test
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/Eyevinn/mp4ff/mp4"
 	"stream/pkg/media"
 )
 
@@ -47,29 +45,15 @@ func TestHLSManifestGeneration(t *testing.T) {
 	}
 }
 
-func TestCMAFInitSegmentEncoding(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "cmaf_test_*")
+func TestRemuxAndPackageCMAFFailOnNonexistentFile(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "cmaf_fail_test_*")
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tmpDir)
 
-	initSeg := mp4.CreateEmptyInit()
-	initSeg.AddEmptyTrack(1000, "video", "und")
-
-	outPath := filepath.Join(tmpDir, "init.mp4")
-	f, err := os.Create(outPath)
-	if err != nil {
-		t.Fatalf("failed to create init file: %v", err)
-	}
-	defer f.Close()
-
-	if err := initSeg.Encode(f); err != nil {
-		t.Fatalf("failed to encode init segment: %v", err)
-	}
-
-	stat, _ := os.Stat(outPath)
-	if stat == nil || stat.Size() == 0 {
-		t.Errorf("expected non-empty init segment file")
+	_, err = media.RemuxAndPackageCMAF("nonexistent_video.mp4", tmpDir, "media_nonexistent")
+	if err == nil {
+		t.Errorf("expected remux to fail on nonexistent input file")
 	}
 }
