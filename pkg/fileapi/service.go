@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"stream/pkg/cluster"
@@ -513,7 +514,54 @@ func (s *Service) ApplyProgress(key string, up *ProgressUpdate) error {
 	if err := s.store.SaveFileJob(job); err != nil {
 		return err
 	}
+	s.logProgress(job, up)
 	return nil
+}
+
+var (
+	progressLogMu   sync.Mutex
+	lastProgressLog = make(map[string]time.Time)
+	lastStateLog    = make(map[string]FileState)
+)
+
+func (s *Service) logProgress(job *FileJob, up *ProgressUpdate) {
+	progressLogMu.Lock()
+	defer progressLogMu.Unlock()
+
+	key := job.Key
+	lastState := lastStateLog[key]
+	lastTime := lastProgressLog[key]
+	now := time.Now()
+
+	stateChanged := lastState != up.State
+	timeToLog := now.Sub(lastTime) >= 3*time.Second
+
+	if stateChanged || timeToLog || up.State == StateCompleted || up.State == StateFailed {
+		lastStateLog[key] = up.State
+		lastProgressLog[key] = now
+
+		switch up.State {
+		case StateDownloading:
+			fmt.Printf("[Transfer %s] 📥 downloading on %s: %.1f%% (%s)\n", key, job.NodeID, up.Percent, up.Speed)
+		case StateProcessing:
+			fmt.Printf("[Transfer %s] ⚙️ processing on %s: %.1f%% (%s)\n", key, job.NodeID, up.Percent, up.Speed)
+		case StateTransferring:
+			fmt.Printf("[Transfer %s] 🔀 transferring %s -> %s: %.1f%% (Speed: %s)\n", key, job.NodeID, job.Placement.NodeID, up.Percent, up.Speed)
+		case StateCompleted:
+			rec, _ := s.store.GetFileRecord(key)
+			var sizeStr string
+			if rec != nil && rec.SizeBytes > 0 {
+				sizeStr = fmt.Sprintf(" | Size: %.1f MB", float64(rec.SizeBytes)/(1024*1024))
+			}
+			fmt.Printf("[Transfer %s] ✅ Completed! Stored on %s:%s%s\n", key, job.Placement.NodeID, job.Placement.Path, sizeStr)
+			delete(lastStateLog, key)
+			delete(lastProgressLog, key)
+		case StateFailed:
+			fmt.Printf("[Transfer %s] ❌ Failed on %s: %s\n", key, job.NodeID, up.Error)
+			delete(lastStateLog, key)
+			delete(lastProgressLog, key)
+		}
+	}
 }
 
 // Status assembles the public status view for a key.

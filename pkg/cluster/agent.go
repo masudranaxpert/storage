@@ -995,6 +995,9 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 	totalBytes, _ := media.CalculateFolderSize(baseDir)
 	report("transferring", 90.5, "Starting transfer to "+final.NodeID, "", nil)
 
+	fmt.Printf("[Agent %s] 🚀 Starting node-to-node transfer for '%s' -> %s (%s, Total: %s)\n",
+		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
+
 	pipeR, pipeW := io.Pipe()
 	defer pipeR.Close()
 	go func() {
@@ -1002,6 +1005,7 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		pipeW.CloseWithError(err) // nil error → plain EOF for the reader
 	}()
 
+	var lastLog time.Time
 	cr := &countingReader{
 		r:         pipeR,
 		total:     totalBytes,
@@ -1009,6 +1013,12 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		lastT:     time.Now(),
 		onUpdate: func(transferred, total int64, speed string, pct float64) {
 			report("transferring", pct, speed, "", nil)
+			if time.Since(lastLog) >= 2*time.Second {
+				lastLog = time.Now()
+				fmt.Printf("[Agent %s] 🔀 Transferring '%s' -> %s: %.1f%% | Speed: %s (%s / %s)\n",
+					a.NodeID, key, final.NodeID, pct, speed,
+					formatTransferSpeed(float64(transferred)), formatTransferSpeed(float64(total)))
+			}
 		},
 	}
 
@@ -1026,13 +1036,20 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 
 	resp, err := a.transferClient.Do(req)
 	if err != nil {
+		fmt.Printf("[Agent %s] ❌ Node transfer failed for '%s' -> %s: %v\n", a.NodeID, key, final.NodeID, err)
 		return err
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("receiver answered %s", resp.Status)
+		err := fmt.Errorf("receiver answered %s", resp.Status)
+		fmt.Printf("[Agent %s] ❌ Node transfer rejected for '%s' -> %s: %v\n", a.NodeID, key, final.NodeID, err)
+		return err
 	}
+	elapsed := time.Since(cr.startTime)
+	avgSpeed := float64(totalBytes) / elapsed.Seconds()
+	fmt.Printf("[Agent %s] ✅ Node transfer complete: '%s' -> %s in %s (Avg: %s)\n",
+		a.NodeID, key, final.NodeID, elapsed.Round(time.Millisecond), formatTransferSpeed(avgSpeed))
 	return nil
 }
 

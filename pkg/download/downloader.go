@@ -1,4 +1,4 @@
-﻿package download
+package download
 
 import (
 	"bufio"
@@ -93,6 +93,8 @@ func downloadWithAria2(ctx context.Context, srcURL, dstPath string, onProgress P
 	etaRegex := regexp.MustCompile(`ETA:([0-9\.]+[A-Za-z]+)`)
 	scanner := bufio.NewScanner(stdout)
 
+	fmt.Printf("[Aria2c] 🚀 Starting aria2c (16 parallel connections) for '%s'\n", filename)
+	var lastLog time.Time
 	go func() {
 		for scanner.Scan() {
 			line := scanner.Text()
@@ -108,17 +110,26 @@ func downloadWithAria2(ctx context.Context, srcURL, dstPath string, onProgress P
 				}
 				if etaMatches := etaRegex.FindStringSubmatch(line); len(etaMatches) >= 2 {
 					if speedStr != "" {
-						speedStr += fmt.Sprintf(" â€¢ ETA: %s", etaMatches[1])
+						speedStr += fmt.Sprintf(" • ETA: %s", etaMatches[1])
 					} else {
 						speedStr = fmt.Sprintf("ETA: %s", etaMatches[1])
 					}
 				}
 				onProgress(pct, speedStr)
+				if time.Since(lastLog) >= 2*time.Second {
+					lastLog = time.Now()
+					fmt.Printf("[Aria2c] 📥 %s: %.1f%% | Speed: %s\n", filename, pct, speedStr)
+				}
 			}
 		}
 	}()
 
-	return cmd.Wait()
+	if err := cmd.Wait(); err != nil {
+		fmt.Printf("[Aria2c] ❌ aria2c finished with error: %v\n", err)
+		return err
+	}
+	fmt.Printf("[Aria2c] ✅ aria2c completed download: %s\n", filename)
+	return nil
 }
 
 // downloadWithNativeGo streams the response directly to disk with bounded memory allocations.
