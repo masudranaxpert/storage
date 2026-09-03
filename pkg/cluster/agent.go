@@ -1118,7 +1118,7 @@ func (a *Agent) getStreamDrives() []StreamDriveStat {
 		})
 	}
 
-	// 1. Discover active mounts on Linux
+	// 1. Discover active mounts on Linux (matches telemetry.collectDisks)
 	if runtime.GOOS == "linux" {
 		partitions, err := disk.Partitions(false)
 		if err == nil {
@@ -1128,7 +1128,10 @@ func (a *Agent) getStreamDrives() []StreamDriveStat {
 					strings.HasPrefix(p.Mountpoint, "/dev") ||
 					strings.HasPrefix(p.Mountpoint, "/run") ||
 					strings.HasPrefix(p.Mountpoint, "/boot") ||
-					strings.HasPrefix(p.Mountpoint, "/snap") {
+					strings.HasPrefix(p.Mountpoint, "/snap") ||
+					strings.Contains(p.Fstype, "squashfs") ||
+					strings.Contains(p.Fstype, "tmpfs") ||
+					strings.Contains(p.Fstype, "overlay") {
 					continue
 				}
 
@@ -1147,32 +1150,6 @@ func (a *Agent) getStreamDrives() []StreamDriveStat {
 	if !seenRoots["/stream"] {
 		addRoot("/", "System SSD (/)")
 	}
-
-	// 3. Check well-known extra storage mounts (/mnt/hdd, /data, /mnt/storage)
-	for _, known := range []string{"/mnt/hdd", "/data", "/mnt/storage"} {
-		if stat, err := os.Stat(known); err == nil && stat.IsDir() {
-			addRoot(known, fmt.Sprintf("%s (%s)", filepath.Base(known), known))
-		}
-	}
-
-	// 4. Check a.extraRoots
-	a.rootMu.RLock()
-	for extra := range a.extraRoots {
-		if extra == "" || extra == "/" || extra == "." {
-			continue
-		}
-		baseMount := extra
-		if strings.HasSuffix(baseMount, "/stream/media") {
-			baseMount = strings.TrimSuffix(baseMount, "/stream/media")
-		} else if strings.HasSuffix(baseMount, "/stream") {
-			baseMount = strings.TrimSuffix(baseMount, "/stream")
-		}
-		if baseMount == "" {
-			baseMount = "/"
-		}
-		addRoot(baseMount, fmt.Sprintf("Block (%s)", baseMount))
-	}
-	a.rootMu.RUnlock()
 
 	return drives
 }
