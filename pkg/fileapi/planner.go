@@ -5,6 +5,7 @@ import (
 
 	"stream/pkg/cluster"
 	"stream/pkg/storage"
+	"stream/pkg/telemetry"
 )
 
 // RequiredHeadroom returns the disk space a file needs on its target block:
@@ -28,7 +29,7 @@ type PlacementPolicy struct {
 // DefaultPolicy matches the seeded system tiers.
 var DefaultPolicy = PlacementPolicy{HDDTierID: storage.IngestTierID, SSDTierID: 1, HotTierID: 0}
 
-// WorkerCandidate filters the live cluster down to nodes allowed to run
+// WorkerCandidates filters the live cluster down to nodes allowed to run
 // file jobs: online, admin processing-enabled, with aria2c + ffmpeg ready,
 // and reachable as a dispatch target (the coordinator process itself has no
 // ingest agent, so master nodes are excluded).
@@ -49,6 +50,10 @@ func WorkerCandidates(nodes []*cluster.NodeRecord, profiles map[string]cluster.P
 		if !caps.HasAria2c || !caps.HasFFmpeg {
 			continue
 		}
+		// Gate: Nodes pending upgrade must complete upgrade before accepting new jobs
+		if caps.Version != "" && caps.Version != telemetry.CurrentVersion {
+			continue
+		}
 		out = append(out, n)
 	}
 	return out
@@ -67,6 +72,10 @@ func ReceiverCandidates(nodes []*cluster.NodeRecord) map[string]bool {
 			continue
 		}
 		if cluster.IsCoordinatorNode(n.Metrics.NodeID) {
+			continue
+		}
+		// Gate: Nodes pending upgrade must complete upgrade before accepting storage placement
+		if n.Metrics.Capabilities.Version != "" && n.Metrics.Capabilities.Version != telemetry.CurrentVersion {
 			continue
 		}
 		allowed[n.Metrics.NodeID] = true

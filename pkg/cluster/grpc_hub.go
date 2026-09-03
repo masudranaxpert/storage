@@ -150,6 +150,7 @@ func (h *GRPCHub) NodeChannel(stream pb.Mesh_NodeChannelServer) error {
 	// telemetry itself still flows on every heartbeat, only the console noise
 	// is reduced (connect/disconnect/errors always log immediately).
 	var lastBeatLog time.Time
+	var lastUpgradeLog time.Time
 	firstBeat := true
 
 	defer func() {
@@ -236,7 +237,8 @@ func (h *GRPCHub) NodeChannel(stream pb.Mesh_NodeChannelServer) error {
 			}
 
 			needsUpgrade := metrics.Capabilities.Version != "" && metrics.Capabilities.Version != telemetry.CurrentVersion
-			if needsUpgrade {
+			if needsUpgrade && time.Since(lastUpgradeLog) >= time.Minute {
+				lastUpgradeLog = time.Now()
 				fmt.Printf("[gRPC Hub] ⚡ Node '%s' running %s (latest: %s) — triggering autonomous upgrade\n",
 					nodeID, ver, telemetry.CurrentVersion)
 			}

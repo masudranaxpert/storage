@@ -350,7 +350,10 @@ func (a *Agent) triggerSelfUpgradeAsync(downloadPath, newVersion string) {
 		targetURL := fmt.Sprintf("%s%s", strings.TrimRight(a.CoordinatorURL, "/"), downloadPath)
 		fmt.Printf("[Agent %s] Autonomous Upgrade: Downloading new version %s from %s...\n", a.NodeID, newVersion, targetURL)
 
-		resp, err := a.client.Get(targetURL)
+		upgradeClient := &http.Client{
+			Timeout: 5 * time.Minute,
+		}
+		resp, err := upgradeClient.Get(targetURL)
 		if err != nil || resp.StatusCode != http.StatusOK {
 			fmt.Printf("[Agent %s] Upgrade download failed: %v\n", a.NodeID, err)
 			return
@@ -369,15 +372,25 @@ func (a *Agent) triggerSelfUpgradeAsync(downloadPath, newVersion string) {
 		}
 		tmpPath := currentExe + ".new"
 		if err := os.WriteFile(tmpPath, binBytes, 0755); err != nil {
-			fmt.Printf("[Agent %s] Failed to write binary update: %v\n", a.NodeID, err)
-			return
+			tmpPath = filepath.Join(os.TempDir(), "stream-update.bin")
+			if err2 := os.WriteFile(tmpPath, binBytes, 0755); err2 != nil {
+				fmt.Printf("[Agent %s] Failed to write binary update: %v\n", a.NodeID, err2)
+				return
+			}
 		}
 		_ = os.Chmod(tmpPath, 0755)
 
-		_ = os.Rename(tmpPath, currentExe)
+		if err := os.Rename(tmpPath, currentExe); err != nil {
+			_ = os.Remove(currentExe)
+			if err2 := os.WriteFile(currentExe, binBytes, 0755); err2 != nil {
+				fmt.Printf("[Agent %s] Failed to replace binary: %v\n", a.NodeID, err2)
+				return
+			}
+		}
 		fmt.Printf("[Agent %s] Binary upgraded to %s. Restarting stream-agent service...\n", a.NodeID, newVersion)
 
 		_ = exec.Command("systemctl", "restart", "stream-agent").Start()
+		_ = exec.Command("systemctl", "restart", "stream").Start()
 	}()
 }
 
