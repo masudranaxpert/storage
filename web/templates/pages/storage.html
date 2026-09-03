@@ -1,6 +1,6 @@
 <div class="page-view {{if eq .CurrentPage "storage"}}active{{end}}" id="view-storage">
     <style>
-        /* Modern Segmented Tab Switcher */
+        /* Storage Segmented Switcher */
         .storage-segmented-wrap {
             display: inline-flex;
             background: var(--bg-subtle, #f4efe6);
@@ -26,11 +26,11 @@
         }
         .storage-tab-btn:hover {
             color: var(--text-primary, #1c1917);
-            background: rgba(255, 255, 255, 0.45);
+            background: rgba(255, 255, 255, 0.6);
         }
         .storage-tab-btn.active {
             background: #ffffff !important;
-            color: var(--orange-primary, #f97316) !important;
+            color: var(--orange-dark, #ea580c) !important;
             border: 1px solid rgba(0, 0, 0, 0.05) !important;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
             font-weight: 700;
@@ -40,18 +40,21 @@
         .storage-metric-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 18px;
+            gap: 16px;
             margin-bottom: 24px;
         }
         .storage-metric-card {
             background: var(--bg-surface, #ffffff);
             border: 1px solid var(--border-light, #ede6da);
-            border-radius: var(--radius-md, 12px);
+            border-radius: var(--radius-lg, 16px);
             padding: 20px 22px;
             box-shadow: var(--shadow-card, 0 4px 14px -2px rgba(234, 88, 12, 0.05));
             transition: transform 0.2s ease, box-shadow 0.2s ease;
             position: relative;
             overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
         }
         .storage-metric-card:hover {
             box-shadow: var(--shadow-hover, 0 10px 25px -4px rgba(234, 88, 12, 0.09));
@@ -64,28 +67,33 @@
             font-weight: 700;
             letter-spacing: 0.6px;
             text-transform: uppercase;
-            padding: 3px 8px;
+            padding: 4px 9px;
             border-radius: 6px;
-            margin-bottom: 10px;
+            margin-bottom: 12px;
+            align-self: flex-start;
         }
         .storage-metric-badge.orange {
-            background: var(--bg-orange-subtle, #ffedd5);
+            background: var(--bg-orange-soft, #fff7ed);
             color: var(--orange-dark, #ea580c);
+            border: 1px solid var(--border-hover, #fed7aa);
         }
         .storage-metric-badge.blue {
             background: #eff6ff;
             color: #2563eb;
+            border: 1px solid #bfdbfe;
         }
         .storage-metric-badge.gray {
             background: var(--bg-subtle, #f4efe6);
             color: var(--text-secondary, #78716c);
+            border: 1px solid var(--border-light, #ede6da);
         }
         .storage-metric-val {
-            font-size: 26px;
+            font-size: 28px;
             font-weight: 800;
             color: var(--text-primary, #1c1917);
-            letter-spacing: -0.5px;
-            line-height: 1.2;
+            letter-spacing: -0.6px;
+            line-height: 1.15;
+            font-variant-numeric: tabular-nums;
         }
         .storage-metric-val.orange {
             color: var(--orange-primary, #f97316);
@@ -94,11 +102,13 @@
             color: #2563eb;
         }
         .storage-metric-sub {
-            font-size: 12px;
+            font-size: 12.5px;
             color: var(--text-secondary, #78716c);
-            margin-top: 5px;
+            margin-top: 6px;
+            font-weight: 500;
         }
 
+        /* Path Chips */
         .path-chip {
             display: inline-flex;
             align-items: center;
@@ -129,26 +139,29 @@
             margin-top: 6px;
         }
         .folder-stat-line .size {
-            font-size: 14px;
+            font-size: 13.5px;
             font-weight: 700;
             color: var(--text-primary, #1c1917);
         }
         .folder-stat-line .count {
-            font-size: 12px;
+            font-size: 11.5px;
             color: var(--text-secondary, #78716c);
         }
         .total-usage-pill {
             display: inline-block;
-            font-size: 15px;
+            font-size: 14px;
             font-weight: 800;
             color: var(--orange-dark, #ea580c);
             background: var(--bg-orange-soft, #fff7ed);
-            padding: 5px 12px;
+            padding: 4px 11px;
             border-radius: 8px;
             border: 1px solid var(--border-hover, #fed7aa);
+            font-variant-numeric: tabular-nums;
         }
         .ip-chip {
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             font-size: 11px;
             font-family: 'JetBrains Mono', monospace;
             background: var(--bg-subtle, #f4efe6);
@@ -168,7 +181,7 @@
             background: #eff6ff;
             color: #1d4ed8;
             border: 1px solid #bfdbfe;
-            padding: 6px 13px;
+            padding: 6px 12px;
             border-radius: 7px;
             font-size: 12px;
             font-weight: 600;
@@ -188,7 +201,7 @@
             background: #fef2f2;
             color: #b91c1c;
             border: 1px solid #fecaca;
-            padding: 6px 13px;
+            padding: 6px 12px;
             border-radius: 7px;
             font-size: 12px;
             font-weight: 600;
@@ -209,17 +222,28 @@
     <!-- Header & Segmented Tab Switcher -->
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px; flex-wrap:wrap; gap:16px;">
         <div>
-            <h3 style="font-size:22px; font-weight:800; margin-bottom:4px; color:var(--text-primary); letter-spacing:-0.4px;">Storage & Drive Manager</h3>
-            <p style="font-size:13px; color:var(--text-secondary); margin:0;">Monitor physical partitions, inspect /stream media & processing folders, and clean disk space.</p>
+            <h3 style="font-size:22px; font-weight:800; margin-bottom:4px; color:var(--text-primary); letter-spacing:-0.4px;">Storage &amp; Drive Manager</h3>
+            <p style="font-size:13px; color:var(--text-secondary); margin:0;">Monitor physical partitions, inspect /stream media &amp; processing folders, and clean disk space.</p>
         </div>
         
         <!-- Segmented Tab Navigation -->
         <div class="storage-segmented-wrap">
             <button class="storage-tab-btn active" id="tab-btn-disks" onclick="switchStorageTab('disks')">
-                <i class="fas fa-hard-drive"></i> Pooled Drives
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="12" x2="2" y2="12"></line>
+                    <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>
+                    <line x1="6" y1="16" x2="6.01" y2="16"></line>
+                    <line x1="10" y1="16" x2="10.01" y2="16"></line>
+                </svg>
+                <span>Pooled Drives</span>
             </button>
             <button class="storage-tab-btn" id="tab-btn-folders" onclick="switchStorageTab('folders')">
-                <i class="fas fa-folder-tree"></i> Stream Folders & Cleaning
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                    <line x1="12" y1="11" x2="12" y2="17"></line>
+                    <line x1="9" y1="14" x2="15" y2="14"></line>
+                </svg>
+                <span>Stream Folders &amp; Cleaning</span>
             </button>
         </div>
     </div>
@@ -252,25 +276,62 @@
         <!-- Top Metric Summary Cards -->
         <div class="storage-metric-grid">
             <div class="storage-metric-card">
-                <div class="storage-metric-badge orange"><i class="fas fa-database"></i> Media Storage</div>
-                <div id="summary-total-media" class="storage-metric-val orange">0 B</div>
-                <div id="summary-total-media-files" class="storage-metric-sub">0 packages stored across cluster</div>
+                <div class="storage-metric-badge orange">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                        <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                        <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                    </svg>
+                    <span>Media Storage</span>
+                </div>
+                <div>
+                    <div id="summary-total-media" class="storage-metric-val orange">0 B</div>
+                    <div id="summary-total-media-files" class="storage-metric-sub">0 packages stored across cluster</div>
+                </div>
             </div>
 
             <div class="storage-metric-card">
-                <div class="storage-metric-badge blue"><i class="fas fa-microchip"></i> Scratch Workspace</div>
-                <div id="summary-total-processing" class="storage-metric-val blue">0 B</div>
-                <div id="summary-total-processing-files" class="storage-metric-sub">Temporary download/remux artifacts</div>
+                <div class="storage-metric-badge blue">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                        <line x1="9" y1="1" x2="9" y2="4"></line>
+                        <line x1="15" y1="1" x2="15" y2="4"></line>
+                        <line x1="9" y1="20" x2="9" y2="23"></line>
+                        <line x1="15" y1="20" x2="15" y2="23"></line>
+                        <line x1="20" y1="9" x2="23" y2="9"></line>
+                        <line x1="20" y1="14" x2="23" y2="14"></line>
+                        <line x1="1" y1="9" x2="4" y2="9"></line>
+                        <line x1="1" y1="14" x2="4" y2="14"></line>
+                    </svg>
+                    <span>Scratch Workspace</span>
+                </div>
+                <div>
+                    <div id="summary-total-processing" class="storage-metric-val blue">0 B</div>
+                    <div id="summary-total-processing-files" class="storage-metric-sub">Temporary processing artifacts</div>
+                </div>
             </div>
 
-            <div class="storage-metric-card" style="display:flex; flex-direction:column; justify-content:center;">
-                <div class="storage-metric-badge gray"><i class="fas fa-bolt"></i> Cluster Maintenance</div>
-                <div style="display:flex; gap:10px; margin-top:4px; flex-wrap:wrap;">
-                    <button onclick="cleanAllProcessingScratch()" class="btn-clean-scratch" style="padding:8px 14px; font-size:13px;">
-                        <i class="fas fa-broom"></i> Clean All Scratch
+            <div class="storage-metric-card">
+                <div class="storage-metric-badge gray">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                    </svg>
+                    <span>Cluster Maintenance</span>
+                </div>
+                <div style="display:flex; gap:10px; margin-top:8px; flex-wrap:wrap;">
+                    <button onclick="cleanAllProcessingScratch()" class="btn-clean-scratch" style="padding:8px 14px; font-size:12.5px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                        </svg>
+                        <span>Clean All Scratch</span>
                     </button>
-                    <button onclick="fetchStorageFolders()" class="btn btn-secondary" style="padding:8px 14px; font-size:13px; display:inline-flex; align-items:center; gap:6px;">
-                        <i class="fas fa-rotate"></i> Refresh
+                    <button onclick="fetchStorageFolders()" class="btn btn-secondary" style="padding:8px 14px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px;">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="23 4 23 10 17 10"></polyline>
+                            <polyline points="1 20 1 14 7 14"></polyline>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                        </svg>
+                        <span>Refresh</span>
                     </button>
                 </div>
             </div>
@@ -281,16 +342,27 @@
             <table class="custom-table">
                 <thead>
                     <tr>
-                        <th>Node & Host</th>
-                        <th>Stream Root</th>
-                        <th>Media Folder (/stream/media)</th>
-                        <th>Processing Folder (/stream/processing)</th>
-                        <th>Total Usage</th>
-                        <th>Actions</th>
+                        <th style="width:20%;">NODE &amp; HOST</th>
+                        <th style="width:14%;">STREAM ROOT</th>
+                        <th style="width:24%;">MEDIA FOLDER</th>
+                        <th style="width:24%;">PROCESSING FOLDER</th>
+                        <th style="width:10%;">TOTAL USAGE</th>
+                        <th style="text-align:right; width:8%;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody id="storage-folders-table-body">
-                    <tr><td colspan="6" style="text-align:center; padding:36px; color:var(--text-secondary);"><i class="fas fa-circle-notch fa-spin"></i> Scanning Stream folder sizes across nodes...</td></tr>
+                    <tr>
+                        <td colspan="6" style="text-align:center; padding:36px; color:var(--text-secondary);">
+                            <div style="display:inline-flex; align-items:center; gap:8px;">
+                                <svg class="spin-fast" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <polyline points="1 20 1 14 7 14"></polyline>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                                <span>Scanning Stream folder sizes across nodes...</span>
+                            </div>
+                        </td>
+                    </tr>
                 </tbody>
             </table>
         </div>

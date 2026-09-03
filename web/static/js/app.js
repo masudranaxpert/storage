@@ -1027,27 +1027,32 @@ function renderStorageFolders(nodes) {
             rows += `
                 <tr>
                     <td>
-                        <div style="display:flex; align-items:center; gap:8px;">
-                            <span style="font-size:15px; font-weight:700; color:var(--text-primary);">${n.node_id}</span>
-                            ${isMultiDrive ? `<span class="ip-chip" style="color:var(--orange-dark); font-weight:700;"><i class="fas fa-hard-drive"></i> ${driveTag}</span>` : ''}
+                        <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+                            <span style="font-size:14px; font-weight:700; color:var(--text-primary);">${escapeHtml(n.node_id)}</span>
+                            ${isMultiDrive ? `<span class="ip-chip" style="color:var(--orange-dark); font-weight:700; background:var(--bg-orange-soft); border-color:var(--border-hover);"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="12" x2="2" y2="12"></line><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg> ${escapeHtml(driveTag)}</span>` : ''}
                         </div>
-                        <div style="font-size:12px; color:var(--text-secondary); margin:3px 0 6px 0; display:flex; align-items:center; gap:6px;">
-                            <span>${hostname}</span>
-                            <span class="ip-chip">${primaryIP}</span>
+                        <div style="font-size:12px; color:var(--text-secondary); margin:4px 0 6px 0; display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <span>${escapeHtml(hostname)}</span>
+                            <span class="ip-chip">${escapeHtml(primaryIP)}</span>
                         </div>
                         <div>${statusBadge}</div>
                     </td>
                     <td>
-                        <div class="path-chip">
-                            <i class="fas fa-folder" style="color:var(--text-muted);"></i>
-                            <span>${d.stream_root}</span>
+                        <div class="path-chip" title="${escapeHtml(d.stream_root)}">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted); flex-shrink:0;">
+                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                            <span>${escapeHtml(d.stream_root)}</span>
                         </div>
                     </td>
                     <td>
                         <div>
-                            <div class="path-chip media">
-                                <i class="fas fa-film"></i>
-                                <span>${d.media_dir}</span>
+                            <div class="path-chip media" title="${escapeHtml(d.media_dir)}">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;">
+                                    <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                                </svg>
+                                <span>${escapeHtml(d.media_dir)}</span>
                             </div>
                             <div class="folder-stat-line">
                                 <span class="size">${formatBytes(d.media_size_bytes || 0)}</span>
@@ -1057,9 +1062,15 @@ function renderStorageFolders(nodes) {
                     </td>
                     <td>
                         <div>
-                            <div class="path-chip proc">
-                                <i class="fas fa-microchip"></i>
-                                <span>${d.processing_dir}</span>
+                            <div class="path-chip proc" title="${escapeHtml(d.processing_dir)}">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;">
+                                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                                    <line x1="9" y1="1" x2="9" y2="4"></line>
+                                    <line x1="15" y1="1" x2="15" y2="4"></line>
+                                    <line x1="9" y1="20" x2="9" y2="23"></line>
+                                    <line x1="15" y1="20" x2="15" y2="23"></line>
+                                </svg>
+                                <span>${escapeHtml(d.processing_dir)}</span>
                             </div>
                             <div class="folder-stat-line">
                                 <span class="size" style="${d.processing_size_bytes > 0 ? 'color:#2563eb;' : 'color:var(--text-muted);'}">
@@ -1073,12 +1084,19 @@ function renderStorageFolders(nodes) {
                         <span class="total-usage-pill">${formatBytes(d.total_stream_bytes || 0)}</span>
                     </td>
                     <td>
-                        <div class="folder-actions-wrap">
+                        <div class="folder-actions-wrap" style="justify-content: flex-end;">
                             <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean temporary scratch workspace in ${d.processing_dir}">
-                                <i class="fas fa-broom"></i> Clean Scratch
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"></path>
+                                </svg>
+                                <span>Clean Scratch</span>
                             </button>
                             <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge media stored in ${d.media_dir}">
-                                <i class="fas fa-trash-can"></i> Purge Media
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                                <span>Purge Media</span>
                             </button>
                         </div>
                     </td>
