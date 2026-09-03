@@ -123,6 +123,12 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	} else if strings.HasSuffix(filePath, ".mp4") {
 		w.Header().Set("Content-Type", "video/mp4")
+	} else if strings.HasSuffix(filePath, ".m4a") {
+		w.Header().Set("Content-Type", "audio/mp4")
+	} else if strings.HasSuffix(filePath, ".vtt") {
+		w.Header().Set("Content-Type", "text/vtt")
+	} else if strings.HasSuffix(filePath, ".json") {
+		w.Header().Set("Content-Type", "application/json")
 	} else if strings.HasSuffix(filePath, ".m4s") {
 		w.Header().Set("Content-Type", "video/iso.segment")
 	}
