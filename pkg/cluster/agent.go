@@ -473,8 +473,26 @@ func (a *Agent) Start(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func tuneLinuxTCPBuffers() {
+	if runtime.GOOS != "linux" {
+		return
+	}
+	commands := [][]string{
+		{"sysctl", "-w", "net.core.default_qdisc=fq"},
+		{"sysctl", "-w", "net.ipv4.tcp_congestion_control=bbr"},
+		{"sysctl", "-w", "net.core.rmem_max=33554432"},
+		{"sysctl", "-w", "net.core.wmem_max=33554432"},
+		{"sysctl", "-w", "net.ipv4.tcp_rmem=4096 87380 33554432"},
+		{"sysctl", "-w", "net.ipv4.tcp_wmem=4096 65536 33554432"},
+	}
+	for _, cmd := range commands {
+		_ = exec.Command(cmd[0], cmd[1:]...).Run()
+	}
+}
+
 // startStreamingServer initializes the local Byte-Range HTTP streaming server on port 2052
 func (a *Agent) startStreamingServer(ctx context.Context) {
+	tuneLinuxTCPBuffers()
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -708,6 +726,11 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Write([]byte(`{"status":"initialized"}`))
 	})
 
+var (
+	activeTransferFilesMu sync.Mutex
+	activeTransferFiles   = make(map[string]*os.File)
+)
+
 	mux.HandleFunc("/api/v1/ingest-file-init", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -728,15 +751,22 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		dest := filepath.Join(dir, key, filename)
 		size, _ := strconv.ParseInt(r.URL.Query().Get("size"), 10, 64)
 
-		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		activeTransferFilesMu.Lock()
+		if old, exists := activeTransferFiles[dest]; exists {
+			_ = old.Close()
+		}
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 		if err != nil {
+			activeTransferFilesMu.Unlock()
 			http.Error(w, "create file failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if size > 0 {
 			_ = f.Truncate(size)
 		}
-		f.Close()
+		activeTransferFiles[dest] = f
+		activeTransferFilesMu.Unlock()
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"file_ready"}`))
 	})
@@ -761,12 +791,19 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		dir := a.resolveTargetDir(filepath.Clean(r.URL.Query().Get("dir")))
 		dest := filepath.Join(dir, key, filename)
 
-		f, err := os.OpenFile(dest, os.O_WRONLY, 0644)
-		if err != nil {
-			http.Error(w, "open file failed: "+err.Error(), http.StatusInternalServerError)
-			return
+		activeTransferFilesMu.Lock()
+		f := activeTransferFiles[dest]
+		activeTransferFilesMu.Unlock()
+
+		if f == nil {
+			var err error
+			f, err = os.OpenFile(dest, os.O_WRONLY, 0644)
+			if err != nil {
+				http.Error(w, "open file failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			defer f.Close()
 		}
-		defer f.Close()
 
 		buf := make([]byte, 1024*1024)
 		var written int64
@@ -813,6 +850,17 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
 		dir := a.resolveTargetDir(rawDir)
 		dest := filepath.Join(dir, key)
+
+		activeTransferFilesMu.Lock()
+		prefix := dest + string(os.PathSeparator)
+		for p, f := range activeTransferFiles {
+			if strings.HasPrefix(p, prefix) || p == dest {
+				_ = f.Sync()
+				_ = f.Close()
+				delete(activeTransferFiles, p)
+			}
+		}
+		activeTransferFilesMu.Unlock()
 
 		if _, err := os.Stat(filepath.Join(dest, "metadata.json")); err != nil {
 			_ = os.RemoveAll(dest)
@@ -1225,7 +1273,10 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 		length int64
 	}
 
-	const chunkSize = int64(8 * 1024 * 1024) // 8 MB chunks
+	chunkSize := int64(16 * 1024 * 1024) // 16 MB chunks for optimal TCP window ramp-up
+	if totalBytes > 1024*1024*1024 {
+		chunkSize = int64(32 * 1024 * 1024) // 32 MB for files > 1GB
+	}
 	var tasks []chunkTask
 	for _, f := range files {
 		if f.size == 0 {
@@ -1258,6 +1309,7 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 		defer ticker.Stop()
 		lastBytes := int64(0)
 		lastTick := time.Now()
+		var smoothSpeedBps float64
 
 		for {
 			select {
@@ -1267,15 +1319,20 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 				cur := transferred.Load()
 				elapsed := now.Sub(lastTick).Seconds()
 				if elapsed > 0 {
-					speedBps := float64(cur-lastBytes) / elapsed
-					speedStr := formatTransferSpeed(speedBps)
+					instantSpeed := float64(cur-lastBytes) / elapsed
+					if smoothSpeedBps == 0 {
+						smoothSpeedBps = instantSpeed
+					} else {
+						smoothSpeedBps = 0.35*instantSpeed + 0.65*smoothSpeedBps
+					}
+					speedStr := formatTransferSpeed(smoothSpeedBps)
 					var transferPct float64
 					if totalBytes > 0 {
 						transferPct = (float64(cur) / float64(totalBytes)) * 100.0
 					}
 					overallPct := 90.0 + (transferPct * 0.09) // 90.0% to 99.0%
 
-					detailedSpeed := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%) [8 streams]",
+					detailedSpeed := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%) [12 streams]",
 						speedStr,
 						float64(cur)/(1024*1024),
 						float64(totalBytes)/(1024*1024),
@@ -1295,7 +1352,7 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 		}
 	}()
 
-	const numWorkers = 8
+	const numWorkers = 12
 	var wg sync.WaitGroup
 	var workerErr error
 	var errMu sync.Mutex
@@ -1342,7 +1399,9 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 					if err != nil {
 						break
 					}
+					req.ContentLength = task.length
 					req.Header.Set("Content-Type", "application/octet-stream")
+					req.Header.Set("Content-Length", strconv.FormatInt(task.length, 10))
 					if a.Secret != "" {
 						req.Header.Set("X-Cluster-Secret", a.Secret)
 					}
@@ -1393,7 +1452,7 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 
 	elapsed := time.Since(startTime)
 	avgSpeed := float64(totalBytes) / elapsed.Seconds()
-	fmt.Printf("[Agent %s] ✅ Parallel transfer complete: '%s' -> %s in %s (Avg: %s) [8 parallel streams]\n",
+	fmt.Printf("[Agent %s] ✅ Parallel transfer complete: '%s' -> %s in %s (Avg: %s) [12 parallel streams]\n",
 		a.NodeID, key, final.NodeID, elapsed.Round(time.Millisecond), formatTransferSpeed(avgSpeed))
 	return nil
 }

@@ -103,6 +103,16 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 		logMsg("Media engine tools (aria2, ffmpeg, rclone) active.")
 	}
 
+	// Optimize Linux TCP stack: enable Google BBR & 32MB WAN socket buffers
+	tcpTuneCmd := `sysctl -w net.core.default_qdisc=fq 2>/dev/null; ` +
+		`sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null; ` +
+		`sysctl -w net.core.rmem_max=33554432 2>/dev/null; ` +
+		`sysctl -w net.core.wmem_max=33554432 2>/dev/null; ` +
+		`sysctl -w net.ipv4.tcp_rmem="4096 87380 33554432" 2>/dev/null; ` +
+		`sysctl -w net.ipv4.tcp_wmem="4096 65536 33554432" 2>/dev/null || true`
+	_, _ = runRemote(client, tcpTuneCmd, req.User, req.Password, req.UseSudo)
+	logMsg("Linux TCP BBR congestion control and 32MB WAN buffers optimized.")
+
 	resolvedCoordinator := ResolveCoordinatorURL(req.CoordinatorURL)
 	logMsg(fmt.Sprintf("Coordinator mesh target resolved to: %s", resolvedCoordinator))
 
