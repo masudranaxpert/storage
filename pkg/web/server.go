@@ -269,19 +269,17 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 	nodes := s.coord.GetNodes()
 
 	type NodeFolderResponse struct {
-		NodeID              string   `json:"node_id"`
-		Hostname            string   `json:"hostname"`
-		PrimaryIP           string   `json:"primary_ip"`
-		IPs                 []string `json:"ips"`
-		Status              string   `json:"status"`
-		StreamRoot          string   `json:"stream_root"`
-		MediaDir            string   `json:"media_dir"`
-		MediaSizeBytes      uint64   `json:"media_size_bytes"`
-		MediaFileCount      int      `json:"media_file_count"`
-		ProcessingDir       string   `json:"processing_dir"`
-		ProcessingSizeBytes uint64   `json:"processing_size_bytes"`
-		ProcessingFileCount int      `json:"processing_file_count"`
-		TotalStreamBytes    uint64   `json:"total_stream_bytes"`
+		NodeID              string                  `json:"node_id"`
+		Hostname            string                  `json:"hostname"`
+		PrimaryIP           string                  `json:"primary_ip"`
+		IPs                 []string                `json:"ips"`
+		Status              string                  `json:"status"`
+		Drives              []cluster.StreamDriveStat `json:"drives"`
+		MediaSizeBytes      uint64                  `json:"media_size_bytes"`
+		MediaFileCount      int                     `json:"media_file_count"`
+		ProcessingSizeBytes uint64                  `json:"processing_size_bytes"`
+		ProcessingFileCount int                     `json:"processing_file_count"`
+		TotalStreamBytes    uint64                  `json:"total_stream_bytes"`
 	}
 
 	var results []NodeFolderResponse
@@ -308,21 +306,17 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 			resp, err := client.Get(baseURL + "/api/v1/storage-folders")
 			if err == nil && resp.StatusCode == http.StatusOK {
 				var folderStats struct {
-					StreamRoot          string `json:"stream_root"`
-					MediaDir            string `json:"media_dir"`
-					MediaSizeBytes      uint64 `json:"media_size_bytes"`
-					MediaFileCount      int    `json:"media_file_count"`
-					ProcessingDir       string `json:"processing_dir"`
-					ProcessingSizeBytes uint64 `json:"processing_size_bytes"`
-					ProcessingFileCount int    `json:"processing_file_count"`
-					TotalStreamBytes    uint64 `json:"total_stream_bytes"`
+					Drives              []cluster.StreamDriveStat `json:"drives"`
+					MediaSizeBytes      uint64                  `json:"media_size_bytes"`
+					MediaFileCount      int                     `json:"media_file_count"`
+					ProcessingSizeBytes uint64                  `json:"processing_size_bytes"`
+					ProcessingFileCount int                     `json:"processing_file_count"`
+					TotalStreamBytes    uint64                  `json:"total_stream_bytes"`
 				}
 				if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
-					item.StreamRoot = folderStats.StreamRoot
-					item.MediaDir = folderStats.MediaDir
+					item.Drives = folderStats.Drives
 					item.MediaSizeBytes = folderStats.MediaSizeBytes
 					item.MediaFileCount = folderStats.MediaFileCount
-					item.ProcessingDir = folderStats.ProcessingDir
 					item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
 					item.ProcessingFileCount = folderStats.ProcessingFileCount
 					item.TotalStreamBytes = folderStats.TotalStreamBytes
@@ -355,6 +349,7 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		NodeID string `json:"node_id"`
 		Target string `json:"target"`
+		Dir    string `json:"dir"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -406,8 +401,12 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	baseURL := fileapi.AgentBaseURL(targetNode)
-	resp, err := client.Post(baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), "application/json", nil)
+	cleanURL := fmt.Sprintf("%s/api/v1/storage-clean?target=%s", fileapi.AgentBaseURL(targetNode), url.QueryEscape(req.Target))
+	if req.Dir != "" {
+		cleanURL += "&dir=" + url.QueryEscape(req.Dir)
+	}
+
+	resp, err := client.Post(cleanURL, "application/json", nil)
 	if err != nil {
 		http.Error(w, "failed to dial agent: "+err.Error(), http.StatusBadGateway)
 		return

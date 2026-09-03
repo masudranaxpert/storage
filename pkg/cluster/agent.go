@@ -908,100 +908,33 @@ var chunkBufPool = sync.Pool{
 		w.Write([]byte(`{"status":"deleted"}`))
 	})
 
-	// GET /api/v1/storage-folders: inspect sizes and paths of media and processing directories.
+	// GET /api/v1/storage-folders: inspect all stream drives and their media/processing directories.
 	mux.HandleFunc("/api/v1/storage-folders", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		drives := a.getStreamDrives()
 
-		// Discover all potential media directories on this node
-		candidateDirs := make(map[string]struct{})
-		if a.MediaDir != "" {
-			candidateDirs[filepath.Clean(a.MediaDir)] = struct{}{}
-		}
-		candidateDirs["/stream/media"] = struct{}{}
-		candidateDirs["/var/lib/stream/media"] = struct{}{}
-		candidateDirs["/mnt/hdd/stream/media"] = struct{}{}
-
-		a.rootMu.RLock()
-		for root := range a.extraRoots {
-			candidateDirs[filepath.Clean(root)] = struct{}{}
-			candidateDirs[filepath.Clean(a.resolveTargetDir(root))] = struct{}{}
-		}
-		a.rootMu.RUnlock()
-
-		var totalMediaSize uint64
-		var totalMediaCount int
-		primaryMediaDir := a.MediaDir
-		var maxDirBytes uint64
-
-		for dir := range candidateDirs {
-			if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
-				s, c := measureDir(dir)
-				if s > 0 || c > 0 {
-					totalMediaSize += s
-					totalMediaCount += c
-					if s > maxDirBytes || primaryMediaDir == "" {
-						maxDirBytes = s
-						primaryMediaDir = dir
-					}
-				}
-			}
-		}
-		if primaryMediaDir == "" {
-			primaryMediaDir = a.MediaDir
-		}
-
-		// Also discover processing/scratch directories
-		candidateProcDirs := make(map[string]struct{})
-		if a.ScratchDir != "" {
-			candidateProcDirs[filepath.Clean(a.ScratchDir)] = struct{}{}
-		}
-		candidateProcDirs["/stream/processing"] = struct{}{}
-		candidateProcDirs["/var/lib/stream/processing"] = struct{}{}
-		candidateProcDirs["/mnt/hdd/stream/processing"] = struct{}{}
-		candidateProcDirs[filepath.Join(filepath.Dir(primaryMediaDir), "processing")] = struct{}{}
-
-		var totalProcSize uint64
-		var totalProcCount int
-		primaryProcDir := a.ScratchDir
-		var maxProcBytes uint64
-
-		for dir := range candidateProcDirs {
-			if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
-				s, c := measureDir(dir)
-				if s > 0 || c > 0 {
-					totalProcSize += s
-					totalProcCount += c
-					if s > maxProcBytes || primaryProcDir == "" {
-						maxProcBytes = s
-						primaryProcDir = dir
-					}
-				}
-			}
-		}
-		if primaryProcDir == "" {
-			primaryProcDir = filepath.Join(filepath.Dir(primaryMediaDir), "processing")
-		}
-
-		streamRoot := filepath.Dir(primaryMediaDir)
-		if streamRoot == "." || streamRoot == "/" {
-			streamRoot = "/stream"
+		var totalMediaBytes, totalProcBytes uint64
+		var totalMediaFiles, totalProcFiles int
+		for _, d := range drives {
+			totalMediaBytes += d.MediaSizeBytes
+			totalMediaFiles += d.MediaFileCount
+			totalProcBytes += d.ProcessingSizeBytes
+			totalProcFiles += d.ProcessingFileCount
 		}
 
 		resp := map[string]interface{}{
 			"node_id":               a.NodeID,
-			"stream_root":           streamRoot,
-			"media_dir":             primaryMediaDir,
-			"media_size_bytes":      totalMediaSize,
-			"media_file_count":      totalMediaCount,
-			"processing_dir":        primaryProcDir,
-			"processing_size_bytes": totalProcSize,
-			"processing_file_count": totalProcCount,
-			"total_stream_bytes":    totalMediaSize + totalProcSize,
+			"drives":                drives,
+			"media_size_bytes":      totalMediaBytes,
+			"media_file_count":      totalMediaFiles,
+			"processing_size_bytes": totalProcBytes,
+			"processing_file_count": totalProcFiles,
+			"total_stream_bytes":    totalMediaBytes + totalProcBytes,
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	// POST /api/v1/storage-clean?target=processing|media: cleans files inside the requested directories.
+	// POST /api/v1/storage-clean?target=processing|media[&dir=...]: cleans files inside the requested directories.
 	mux.HandleFunc("/api/v1/storage-clean", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -1009,28 +942,22 @@ var chunkBufPool = sync.Pool{
 			return
 		}
 		target := r.URL.Query().Get("target")
+		requestedDir := r.URL.Query().Get("dir")
 
 		var dirsToClean []string
-		switch target {
-		case "processing", "scratch":
-			seen := make(map[string]bool)
-			for _, d := range []string{a.ScratchDir, "/stream/processing", "/var/lib/stream/processing", "/mnt/hdd/stream/processing"} {
-				if d != "" && !seen[d] {
-					seen[d] = true
-					dirsToClean = append(dirsToClean, d)
+		if requestedDir != "" {
+			if strings.Contains(requestedDir, "stream") {
+				dirsToClean = append(dirsToClean, requestedDir)
+			}
+		} else {
+			drives := a.getStreamDrives()
+			for _, d := range drives {
+				if target == "processing" || target == "scratch" {
+					dirsToClean = append(dirsToClean, d.ProcessingDir)
+				} else if target == "media" {
+					dirsToClean = append(dirsToClean, d.MediaDir)
 				}
 			}
-		case "media":
-			seen := make(map[string]bool)
-			for _, d := range []string{a.MediaDir, "/stream/media", "/var/lib/stream/media", "/mnt/hdd/stream/media"} {
-				if d != "" && !seen[d] {
-					seen[d] = true
-					dirsToClean = append(dirsToClean, d)
-				}
-			}
-		default:
-			http.Error(w, "target must be 'processing' or 'media'", http.StatusBadRequest)
-			return
 		}
 
 		var totalFreedBytes uint64
@@ -1125,6 +1052,129 @@ var chunkBufPool = sync.Pool{
 	if err := a.httpServer.Serve(listener); err != nil && err != http.ErrServerClosed {
 		fmt.Printf("[Agent %s] Streaming server error: %v\n", a.NodeID, err)
 	}
+}
+
+type StreamDriveStat struct {
+	DriveName           string `json:"drive_name"`
+	MountPoint          string `json:"mount_point"`
+	StreamRoot          string `json:"stream_root"`
+	MediaDir            string `json:"media_dir"`
+	MediaSizeBytes      uint64 `json:"media_size_bytes"`
+	MediaFileCount      int    `json:"media_file_count"`
+	ProcessingDir       string `json:"processing_dir"`
+	ProcessingSizeBytes uint64 `json:"processing_size_bytes"`
+	ProcessingFileCount int    `json:"processing_file_count"`
+	TotalStreamBytes    uint64 `json:"total_stream_bytes"`
+}
+
+func (a *Agent) getStreamDrives() []StreamDriveStat {
+	var drives []StreamDriveStat
+	seenRoots := make(map[string]bool)
+
+	addRoot := func(mountPoint, driveName string) {
+		mountPoint = filepath.Clean(mountPoint)
+		var streamRoot string
+		if mountPoint == "/" || mountPoint == "." || mountPoint == "\\" {
+			streamRoot = "/stream"
+		} else {
+			streamRoot = filepath.Join(mountPoint, "stream")
+		}
+
+		cleanRoot := filepath.Clean(streamRoot)
+		if seenRoots[cleanRoot] {
+			return
+		}
+		seenRoots[cleanRoot] = true
+
+		mediaDir := filepath.Join(cleanRoot, "media")
+		procDir := filepath.Join(cleanRoot, "processing")
+
+		mediaSize, mediaCount := measureDir(mediaDir)
+		procSize, procCount := measureDir(procDir)
+
+		// Check if data is inside /var/lib/stream/media and this is the root drive
+		if (mountPoint == "/" || mountPoint == "/stream") && mediaSize == 0 {
+			varLibMedia := "/var/lib/stream/media"
+			if stat, err := os.Lstat(varLibMedia); err == nil && stat.Mode()&os.ModeSymlink == 0 {
+				s, c := measureDir(varLibMedia)
+				if s > 0 {
+					mediaSize = s
+					mediaCount = c
+				}
+			}
+		}
+
+		drives = append(drives, StreamDriveStat{
+			DriveName:           driveName,
+			MountPoint:          mountPoint,
+			StreamRoot:          cleanRoot,
+			MediaDir:            mediaDir,
+			MediaSizeBytes:      mediaSize,
+			MediaFileCount:      mediaCount,
+			ProcessingDir:       procDir,
+			ProcessingSizeBytes: procSize,
+			ProcessingFileCount: procCount,
+			TotalStreamBytes:    mediaSize + procSize,
+		})
+	}
+
+	// 1. Discover active mounts on Linux
+	if runtime.GOOS == "linux" {
+		partitions, err := disk.Partitions(false)
+		if err == nil {
+			for _, p := range partitions {
+				if strings.HasPrefix(p.Mountpoint, "/proc") ||
+					strings.HasPrefix(p.Mountpoint, "/sys") ||
+					strings.HasPrefix(p.Mountpoint, "/dev") ||
+					strings.HasPrefix(p.Mountpoint, "/run") ||
+					strings.HasPrefix(p.Mountpoint, "/boot") ||
+					strings.HasPrefix(p.Mountpoint, "/snap") {
+					continue
+				}
+
+				name := p.Mountpoint
+				if p.Mountpoint == "/" {
+					name = "System SSD (/)"
+				} else {
+					name = fmt.Sprintf("%s (%s)", filepath.Base(p.Mountpoint), p.Mountpoint)
+				}
+				addRoot(p.Mountpoint, name)
+			}
+		}
+	}
+
+	// 2. Always ensure system root "/" is present
+	if !seenRoots["/stream"] {
+		addRoot("/", "System SSD (/)")
+	}
+
+	// 3. Check well-known extra storage mounts (/mnt/hdd, /data, /mnt/storage)
+	for _, known := range []string{"/mnt/hdd", "/data", "/mnt/storage"} {
+		if stat, err := os.Stat(known); err == nil && stat.IsDir() {
+			addRoot(known, fmt.Sprintf("%s (%s)", filepath.Base(known), known))
+		}
+	}
+
+	// 4. Check a.extraRoots
+	a.rootMu.RLock()
+	for extra := range a.extraRoots {
+		if extra == "" || extra == "/" || extra == "." {
+			continue
+		}
+		baseMount := extra
+		if strings.HasSuffix(baseMount, "/stream/media") {
+			baseMount = strings.TrimSuffix(baseMount, "/stream/media")
+		} else if strings.HasSuffix(baseMount, "/stream") {
+			baseMount = strings.TrimSuffix(baseMount, "/stream")
+		}
+		if baseMount == "" {
+			baseMount = "/"
+		}
+		addRoot(baseMount, fmt.Sprintf("Block (%s)", baseMount))
+	}
+	a.rootMu.RUnlock()
+
+	return drives
 }
 
 // RunIngestJob downloads a source media file and packages it into CMAF on this
@@ -1693,7 +1743,7 @@ func validKey(key string) bool {
 }
 
 func measureDir(dir string) (uint64, int) {
-	if dir == "" {
+	if dir == "" || dir == "/" || dir == "." || dir == "\\" {
 		return 0, 0
 	}
 	entries, err := os.ReadDir(dir)
@@ -1727,7 +1777,7 @@ func measureDir(dir string) (uint64, int) {
 }
 
 func cleanDirContents(dir string) (uint64, int, error) {
-	if dir == "" || dir == "/" || dir == "." {
+	if dir == "" || dir == "/" || dir == "." || dir == "\\" || !strings.Contains(dir, "stream") {
 		return 0, 0, fmt.Errorf("invalid or protected directory: %s", dir)
 	}
 	entries, err := os.ReadDir(dir)

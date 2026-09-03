@@ -997,73 +997,94 @@ function renderStorageFolders(nodes) {
 
     let rows = '';
     nodes.forEach(n => {
-        totalMedia += n.media_size_bytes || 0;
-        totalMediaFiles += n.media_file_count || 0;
-        totalProc += n.processing_size_bytes || 0;
-        totalProcFiles += n.processing_file_count || 0;
-
         const primaryIP = n.primary_ip || (n.ips && n.ips[0]) || '127.0.0.1';
         const hostname = n.hostname || 'Host';
         const isOnline = n.status === 'online';
         const statusBadge = `<span class="node-badge ${n.status}">${n.status}</span>`;
 
-        rows += `
-            <tr>
-                <td>
-                    <div style="font-size:15px; font-weight:700; color:var(--text-primary); letter-spacing:-0.2px;">${n.node_id}</div>
-                    <div style="font-size:12px; color:var(--text-secondary); margin:3px 0 6px 0; display:flex; align-items:center; gap:6px;">
-                        <span>${hostname}</span>
-                        <span class="ip-chip">${primaryIP}</span>
-                    </div>
-                    <div>${statusBadge}</div>
-                </td>
-                <td>
-                    <div class="path-chip">
-                        <i class="fas fa-folder" style="color:var(--text-muted);"></i>
-                        <span>${n.stream_root || '/stream'}</span>
-                    </div>
-                </td>
-                <td>
-                    <div>
-                        <div class="path-chip media">
-                            <i class="fas fa-film"></i>
-                            <span>${n.media_dir || '/stream/media'}</span>
+        const drives = n.drives && n.drives.length > 0 ? n.drives : [{
+            drive_name: 'System SSD (/)',
+            mount_point: '/',
+            stream_root: '/stream',
+            media_dir: '/stream/media',
+            media_size_bytes: n.media_size_bytes || 0,
+            media_file_count: n.media_file_count || 0,
+            processing_dir: '/stream/processing',
+            processing_size_bytes: n.processing_size_bytes || 0,
+            processing_file_count: n.processing_file_count || 0,
+            total_stream_bytes: n.total_stream_bytes || 0
+        }];
+
+        drives.forEach((d) => {
+            totalMedia += d.media_size_bytes || 0;
+            totalMediaFiles += d.media_file_count || 0;
+            totalProc += d.processing_size_bytes || 0;
+            totalProcFiles += d.processing_file_count || 0;
+
+            const isMultiDrive = drives.length > 1;
+            const driveTag = d.drive_name || d.mount_point;
+
+            rows += `
+                <tr>
+                    <td>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <span style="font-size:15px; font-weight:700; color:var(--text-primary);">${n.node_id}</span>
+                            ${isMultiDrive ? `<span class="ip-chip" style="color:var(--orange-dark); font-weight:700;"><i class="fas fa-hard-drive"></i> ${driveTag}</span>` : ''}
                         </div>
-                        <div class="folder-stat-line">
-                            <span class="size">${formatBytes(n.media_size_bytes || 0)}</span>
-                            <span class="count">• ${n.media_file_count || 0} packages</span>
+                        <div style="font-size:12px; color:var(--text-secondary); margin:3px 0 6px 0; display:flex; align-items:center; gap:6px;">
+                            <span>${hostname}</span>
+                            <span class="ip-chip">${primaryIP}</span>
                         </div>
-                    </div>
-                </td>
-                <td>
-                    <div>
-                        <div class="path-chip proc">
-                            <i class="fas fa-microchip"></i>
-                            <span>${n.processing_dir || '/stream/processing'}</span>
+                        <div>${statusBadge}</div>
+                    </td>
+                    <td>
+                        <div class="path-chip">
+                            <i class="fas fa-folder" style="color:var(--text-muted);"></i>
+                            <span>${d.stream_root}</span>
                         </div>
-                        <div class="folder-stat-line">
-                            <span class="size" style="${n.processing_size_bytes > 0 ? 'color:#2563eb;' : 'color:var(--text-muted);'}">
-                                ${formatBytes(n.processing_size_bytes || 0)}
-                            </span>
-                            <span class="count">• ${n.processing_file_count || 0} temp files</span>
+                    </td>
+                    <td>
+                        <div>
+                            <div class="path-chip media">
+                                <i class="fas fa-film"></i>
+                                <span>${d.media_dir}</span>
+                            </div>
+                            <div class="folder-stat-line">
+                                <span class="size">${formatBytes(d.media_size_bytes || 0)}</span>
+                                <span class="count">• ${d.media_file_count || 0} packages</span>
+                            </div>
                         </div>
-                    </div>
-                </td>
-                <td>
-                    <span class="total-usage-pill">${formatBytes(n.total_stream_bytes || 0)}</span>
-                </td>
-                <td>
-                    <div class="folder-actions-wrap">
-                        <button class="btn-clean-scratch" onclick="cleanNodeFolder('${n.node_id}', 'processing')" title="Clean temporary scratch workspace">
-                            <i class="fas fa-broom"></i> Clean Scratch
-                        </button>
-                        <button class="btn-clean-media" onclick="cleanNodeFolder('${n.node_id}', 'media')" title="Purge media on this node">
-                            <i class="fas fa-trash-can"></i> Purge Media
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
+                    </td>
+                    <td>
+                        <div>
+                            <div class="path-chip proc">
+                                <i class="fas fa-microchip"></i>
+                                <span>${d.processing_dir}</span>
+                            </div>
+                            <div class="folder-stat-line">
+                                <span class="size" style="${d.processing_size_bytes > 0 ? 'color:#2563eb;' : 'color:var(--text-muted);'}">
+                                    ${formatBytes(d.processing_size_bytes || 0)}
+                                </span>
+                                <span class="count">• ${d.processing_file_count || 0} temp files</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="total-usage-pill">${formatBytes(d.total_stream_bytes || 0)}</span>
+                    </td>
+                    <td>
+                        <div class="folder-actions-wrap">
+                            <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean temporary scratch workspace in ${d.processing_dir}">
+                                <i class="fas fa-broom"></i> Clean Scratch
+                            </button>
+                            <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge media stored in ${d.media_dir}">
+                                <i class="fas fa-trash-can"></i> Purge Media
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        });
     });
 
     tbody.innerHTML = rows || '<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-secondary);">No nodes connected.</td></tr>';
@@ -1077,6 +1098,27 @@ function renderStorageFolders(nodes) {
     if (mediaCountEl) mediaCountEl.innerText = `${totalMediaFiles} packages stored across cluster`;
     if (procEl) procEl.innerText = formatBytes(totalProc);
     if (procCountEl) procCountEl.innerText = `${totalProcFiles} temporary processing artifacts`;
+}
+
+async function cleanDriveFolder(nodeId, dirPath, target) {
+    const actionLabel = target === 'processing' ? 'temporary processing/scratch files' : 'ALL media packages';
+    if (!confirm(`Are you sure you want to clean ${actionLabel} in '${dirPath}' on node '${nodeId}'? This action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/storage/clean', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ node_id: nodeId, dir: dirPath, target: target })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        alert(`Cleaned successfully! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
+        fetchStorageFolders();
+    } catch (err) {
+        alert('Failed to clean: ' + err.message);
+    }
 }
 
 async function cleanNodeFolder(nodeId, target) {
