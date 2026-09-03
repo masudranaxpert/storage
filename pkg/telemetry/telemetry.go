@@ -84,7 +84,7 @@ type NodeMetrics struct {
 // CurrentVersion defines the latest build version of the Stream Mesh platform.
 // Bump this whenever the wire/agent behavior changes: agents running older
 // versions self-upgrade when their reported version differs from this value.
-const CurrentVersion = "v2.3.4"
+const CurrentVersion = "v2.3.5"
 
 func Collect(nodeID string) (*NodeMetrics, error) {
 	hostInfo, err := host.Info()

@@ -1056,7 +1056,7 @@ function renderStorageFolders(nodes) {
                             </div>
                             <div class="folder-stat-line">
                                 <span class="size">${formatBytes(d.media_size_bytes || 0)}</span>
-                                <span class="count">• ${d.media_file_count || 0} packages</span>
+                                <span class="count">• ${d.media_file_count || 0} Files</span>
                             </div>
                         </div>
                     </td>
@@ -1098,12 +1098,12 @@ function renderStorageFolders(nodes) {
                     </td>
                     <td>
                         <div class="folder-actions-wrap">
-                            <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean Scratch (${escapeHtml(d.processing_dir)})" aria-label="Clean Scratch">
+                            <button class="btn-table-icon-clean" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean Scratch (${escapeHtml(d.processing_dir)})" aria-label="Clean Scratch">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
                                     <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
                                 </svg>
                             </button>
-                            <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge Media (${escapeHtml(d.media_dir)})" aria-label="Purge Media">
+                            <button class="btn-table-icon-purge" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge Media (${escapeHtml(d.media_dir)})" aria-label="Purge Media">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
                                     <polyline points="3 6 5 6 21 6"></polyline>
                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -1124,7 +1124,7 @@ function renderStorageFolders(nodes) {
     const procCountEl = document.getElementById('summary-total-processing-files');
 
     if (mediaEl) mediaEl.innerText = formatBytes(totalMedia);
-    if (mediaCountEl) mediaCountEl.innerText = `${totalMediaFiles} packages stored across cluster`;
+    if (mediaCountEl) mediaCountEl.innerText = `${totalMediaFiles} Files stored across cluster`;
     if (procEl) procEl.innerText = formatBytes(totalProc);
     if (procCountEl) procCountEl.innerText = `${totalProcFiles} temporary processing artifacts`;
 }
@@ -1240,6 +1240,30 @@ async function cleanAllProcessingScratch() {
         refreshStorageView();
     } catch (err) {
         alert('Failed to clean all scratch: ' + err.message);
+    }
+}
+
+async function purgeAllMedia() {
+    const confirmation = prompt('⚠️ DANGER: This will permanently DELETE ALL stored media files across ALL nodes in the cluster!\n\nThis will reset Media Storage to 0 B.\nTo confirm, type "DELETE" below:');
+    if (confirmation !== 'DELETE') {
+        if (confirmation !== null) alert('Action cancelled. You must type DELETE to confirm.');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/storage/clean', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ node_id: 'all', target: 'media' })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const freed = data.freed_bytes || 0;
+        const items = data.freed_items || 0;
+        alert(`✅ All media purged! Freed ${formatBytes(freed)} (${items} files removed across cluster).`);
+        refreshStorageView();
+    } catch (err) {
+        alert('Failed to purge all media: ' + err.message);
     }
 }
 
