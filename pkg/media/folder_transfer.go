@@ -65,7 +65,8 @@ func PackFolder(w io.Writer, baseDir string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := io.Copy(tw, f); err != nil {
+		bf := bufio.NewReaderSize(f, 1024*1024)
+		if _, err := io.Copy(tw, bf); err != nil {
 			f.Close()
 			return err
 		}
@@ -79,7 +80,7 @@ func PackFolder(w io.Writer, baseDir string) error {
 // Paths are sanitized: absolute paths, ".." traversal, symlinks and special files
 // are rejected so a malicious sender can never escape destDir.
 func UnpackFolder(r io.Reader, destDir string) (int, error) {
-	br := bufio.NewReaderSize(r, 64*1024)
+	br := bufio.NewReaderSize(r, 1024*1024)
 
 	var tr *tar.Reader
 	magic, err := br.Peek(2)
@@ -150,7 +151,14 @@ func writeFileAtomic(target string, r io.Reader, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	if _, err := io.Copy(f, r); err != nil {
+	bw := bufio.NewWriterSize(f, 1024*1024)
+	buf := make([]byte, 1024*1024)
+	if _, err := io.CopyBuffer(bw, r, buf); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := bw.Flush(); err != nil {
 		f.Close()
 		os.Remove(tmp)
 		return err

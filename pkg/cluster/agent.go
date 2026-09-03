@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -949,7 +950,7 @@ func (cr *countingReader) Read(p []byte) (int, error) {
 	if n > 0 {
 		cr.read += int64(n)
 		now := time.Now()
-		if now.Sub(cr.lastT) >= 400*time.Millisecond {
+		if now.Sub(cr.lastT) >= 1200*time.Millisecond {
 			elapsedSec := now.Sub(cr.lastT).Seconds()
 			if elapsedSec > 0 {
 				bytesInInterval := cr.read - cr.lastBytes
@@ -1005,19 +1006,29 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		pipeW.CloseWithError(err) // nil error → plain EOF for the reader
 	}()
 
+	bufferedPipeR := bufio.NewReaderSize(pipeR, 1024*1024)
 	var lastLog time.Time
 	cr := &countingReader{
-		r:         pipeR,
+		r:         bufferedPipeR,
 		total:     totalBytes,
 		startTime: time.Now(),
 		lastT:     time.Now(),
 		onUpdate: func(transferred, total int64, speed string, pct float64) {
-			report("transferring", pct, speed, "", nil)
+			var transferPct float64
+			if total > 0 {
+				transferPct = (float64(transferred) / float64(total)) * 100.0
+			}
+			speedWithProgress := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%)",
+				speed,
+				float64(transferred)/(1024*1024),
+				float64(total)/(1024*1024),
+				transferPct,
+			)
+			report("transferring", pct, speedWithProgress, "", nil)
 			if time.Since(lastLog) >= 2*time.Second {
 				lastLog = time.Now()
-				fmt.Printf("[Agent %s] 🔀 Transferring '%s' -> %s: %.1f%% | Speed: %s (%s / %s)\n",
-					a.NodeID, key, final.NodeID, pct, speed,
-					formatTransferSpeed(float64(transferred)), formatTransferSpeed(float64(total)))
+				fmt.Printf("[Agent %s] 🔀 Transferring '%s' -> %s: %.1f%% | %s\n",
+					a.NodeID, key, final.NodeID, pct, speedWithProgress)
 			}
 		},
 	}
