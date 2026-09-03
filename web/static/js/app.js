@@ -1254,7 +1254,7 @@ async function handleProvisionSubmit(e) {
     } catch (err) {
         logContent.innerHTML += `<div style="color:var(--text-secondary);margin-top:6px;">Browser lost the long HTTP response (${err.message}). Checking if the node joined...</div>`;
         const joined = await joinedPromise;
-        if (joined || await waitForProvisionedNode(name, host, { timeoutMs: 60000 })) {
+        if (joined || await waitForProvisionedNode(name, host, { timeoutMs: 180000 })) {
             finishSuccess(`<div style="color:var(--text-secondary);margin-top:6px;">Node is online (provision finished on server).</div>`);
             return;
         }

@@ -155,10 +155,12 @@ echo "[Stream Fix] Done! Node successfully upgraded."
 // Start launches the HTTP server listening on the configured address.
 func (s *Server) Start() error {
 	s.httpServer = &http.Server{
-		Addr:         s.addr,
-		Handler:      s.Handler(),
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              s.addr,
+		Handler:           s.Handler(),
+		ReadHeaderTimeout: 30 * time.Second,
+		ReadTimeout:       30 * time.Minute,
+		WriteTimeout:      30 * time.Minute,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	return s.httpServer.ListenAndServe()
