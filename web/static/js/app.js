@@ -1081,18 +1081,31 @@ function renderStorageFolders(nodes) {
                         </div>
                     </td>
                     <td>
-                        <span class="total-usage-pill">${formatBytes(d.total_stream_bytes || 0)}</span>
+                        ${(d.total_stream_bytes || 0) > 0 ? `
+                            <span class="total-usage-pill">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                                </svg>
+                                <span>${formatBytes(d.total_stream_bytes || 0)}</span>
+                            </span>
+                        ` : `
+                            <span class="total-usage-pill empty">
+                                <span>0 B</span>
+                            </span>
+                        `}
                     </td>
                     <td>
-                        <div class="folder-actions-wrap" style="justify-content: flex-end;">
+                        <div class="folder-actions-wrap">
                             <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean temporary scratch workspace in ${d.processing_dir}">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
                                     <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"></path>
                                 </svg>
                                 <span>Clean Scratch</span>
                             </button>
                             <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge media stored in ${d.media_dir}">
-                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
                                     <polyline points="3 6 5 6 21 6"></polyline>
                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                 </svg>
