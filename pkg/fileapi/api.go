@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // Register mounts the v1 file API on the mux:
@@ -227,19 +228,58 @@ func (s *Service) handleUpload(w http.ResponseWriter, r *http.Request, key strin
 	workerReq.URL.RawQuery = q.Encode()
 	workerReq.ContentLength = r.ContentLength
 
+	totalSize := r.ContentLength
+	if rec.SizeBytes > 0 && totalSize <= 0 {
+		totalSize = rec.SizeBytes
+	}
+
+	job.State = StateUploading
+	job.Stage = "upload"
+	job.StageName = "Uploading to Cluster"
+	job.StagePercent = 0
+	job.TotalBytes = totalSize
+	job.UpdatedAt = time.Now().UTC()
+	_ = s.store.SaveFileJob(job)
+
+	pr := &uploadProgressReader{
+		r:         workerReq.Body,
+		total:     totalSize,
+		lastTime:  time.Now(),
+		lastBytes: 0,
+		onUpdate: func(read, total int64, pct float64, speed string) {
+			job.Progress = pct
+			job.StagePercent = pct
+			job.Speed = speed
+			job.TransferredBytes = read
+			job.UpdatedAt = time.Now().UTC()
+			_ = s.store.SaveFileJob(job)
+		},
+	}
+	workerReq.Body = io.NopCloser(pr)
+
 	resp, err := s.client.Do(workerReq)
 	if err != nil {
+		job.State = StateFailed
+		job.Error = fmt.Sprintf("worker unreachable: %v", err)
+		_ = s.store.SaveFileJob(job)
 		writeErr(w, http.StatusBadGateway, fmt.Errorf("worker unreachable: %w", err))
 		return
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 300 {
+		job.State = StateFailed
+		job.Error = fmt.Sprintf("worker rejected upload (%s)", resp.Status)
+		_ = s.store.SaveFileJob(job)
 		writeErr(w, http.StatusBadGateway, fmt.Errorf("worker rejected upload (%s)", resp.Status))
 		return
 	}
 
 	job.State = StateProcessing
+	job.Stage = "process"
+	job.StageName = "Validating & Remuxing"
+	job.StagePercent = 100
+	job.UpdatedAt = time.Now().UTC()
 	_ = s.store.SaveFileJob(job)
 
 	w.WriteHeader(http.StatusAccepted)
@@ -248,6 +288,60 @@ func (s *Service) handleUpload(w http.ResponseWriter, r *http.Request, key strin
 		"key":        key,
 		"status_url": "/api/v1/files/" + key,
 	})
+}
+
+type uploadProgressReader struct {
+	r         io.Reader
+	total     int64
+	read      int64
+	lastTime  time.Time
+	lastBytes int64
+	onUpdate  func(read, total int64, pct float64, speed string)
+}
+
+func (u *uploadProgressReader) Read(p []byte) (int, error) {
+	n, err := u.r.Read(p)
+	if n > 0 {
+		u.read += int64(n)
+		now := time.Now()
+		if now.Sub(u.lastTime) >= 800*time.Millisecond || (u.total > 0 && u.read >= u.total) {
+			sec := now.Sub(u.lastTime).Seconds()
+			speedStr := ""
+			if sec > 0 {
+				bps := float64(u.read-u.lastBytes) / sec
+				speedStr = formatSpeedBps(bps)
+			}
+			pct := float64(0)
+			if u.total > 0 {
+				pct = (float64(u.read) / float64(u.total)) * 100.0
+				if pct > 100 {
+					pct = 100
+				}
+			}
+			if u.onUpdate != nil {
+				u.onUpdate(u.read, u.total, pct, speedStr)
+			}
+			u.lastTime = now
+			u.lastBytes = u.read
+		}
+	}
+	return n, err
+}
+
+func formatSpeedBps(bps float64) string {
+	if bps <= 0 {
+		return "0 B/s"
+	}
+	const unit = 1024
+	if bps < unit {
+		return fmt.Sprintf("%.0f B/s", bps)
+	}
+	div, exp := int64(unit), 0
+	for n := bps / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB/s", bps/float64(div), "KMGTPE"[exp])
 }
 
 // Delete removes a file from its worker and both tables.

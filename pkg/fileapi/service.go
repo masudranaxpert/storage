@@ -491,12 +491,35 @@ func (s *Service) ApplyProgress(key string, up *ProgressUpdate) error {
 	if err != nil || job == nil {
 		return fmt.Errorf("unknown file key %s", key)
 	}
-	job.State = up.State
+	if up.State != "" {
+		job.State = up.State
+	}
 	job.Progress = up.Percent
 	job.Speed = up.Speed
 	job.UpdatedAt = time.Now().UTC()
 	if up.Error != "" {
 		job.Error = up.Error
+	}
+	if up.Stage != "" {
+		job.Stage = up.Stage
+	}
+	if up.StageName != "" {
+		job.StageName = up.StageName
+	}
+	if up.StagePercent > 0 {
+		job.StagePercent = up.StagePercent
+	}
+	if up.TransferredBytes > 0 {
+		job.TransferredBytes = up.TransferredBytes
+	}
+	if up.TotalBytes > 0 {
+		job.TotalBytes = up.TotalBytes
+	}
+	if up.ETA != "" {
+		job.ETA = up.ETA
+	}
+	if up.Details != "" {
+		job.Details = up.Details
 	}
 	if len(up.CMAFJSON) > 0 {
 		var cmaf struct {
@@ -576,20 +599,27 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 	}
 
 	resp := &StatusResponse{
-		Key:          key,
-		State:        job.State,
-		Filename:     rec.Filename,
-		SizeBytes:    rec.SizeBytes,
-		MimeType:     rec.MimeType,
-		Progress:     job.Progress,
-		Speed:        job.Speed,
-		Error:        job.Error,
-		Source:       rec.SourceType,
-		WorkerNodeID: job.NodeID,
-		Placement:    job.Placement,
-		StreamURL:    s.StreamURL(job),
-		CreatedAt:    rec.CreatedAt,
-		UpdatedAt:    job.UpdatedAt,
+		Key:              key,
+		State:            job.State,
+		Filename:         rec.Filename,
+		SizeBytes:        rec.SizeBytes,
+		MimeType:         rec.MimeType,
+		Progress:         job.Progress,
+		Speed:            job.Speed,
+		Error:            job.Error,
+		Stage:            job.Stage,
+		StageName:        job.StageName,
+		StagePercent:     job.StagePercent,
+		TransferredBytes: job.TransferredBytes,
+		TotalBytes:       job.TotalBytes,
+		ETA:              job.ETA,
+		Details:          job.Details,
+		Source:           rec.SourceType,
+		WorkerNodeID:     job.NodeID,
+		Placement:        job.Placement,
+		StreamURL:        s.StreamURL(job),
+		CreatedAt:        rec.CreatedAt,
+		UpdatedAt:        job.UpdatedAt,
 	}
 	if resp.State == StateCompleted {
 		resp.Progress = 100

@@ -1217,15 +1217,23 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 
 // fileProgressReporter posts file-job state transitions to the master's
 // v1 progress callback over the same coordinator URL used for heartbeats.
+// ProgressReporterFunc represents the standard progress callback signature with optional stage metadata.
+type ProgressReporterFunc func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage, extra ...map[string]interface{})
+
 // State strings mirror fileapi.FileState values without importing it (the
 // fileapi package imports cluster for node records).
-func (a *Agent) fileProgressReporter(key string) func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage) {
-	report := func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage) {
+func (a *Agent) fileProgressReporter(key string) ProgressReporterFunc {
+	report := func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage, extra ...map[string]interface{}) {
 		payload := map[string]interface{}{
-			"state":             state,
-			"progress_percent":  pct,
-			"speed":             speed,
-			"error":             errMsg,
+			"state":            state,
+			"progress_percent": pct,
+			"speed":            speed,
+			"error":            errMsg,
+		}
+		if len(extra) > 0 && extra[0] != nil {
+			for k, v := range extra[0] {
+				payload[k] = v
+			}
 		}
 		if cmaf != nil {
 			if data, err := json.Marshal(cmaf); err == nil {
@@ -1272,36 +1280,62 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 	}
 
 	if srcURL != "" {
-		report("downloading", 0, "Starting", "", nil)
+		report("downloading", 0, "Starting download...", "", nil, map[string]interface{}{
+			"stage":         "download",
+			"stage_name":    "Downloading Source (16-thread)",
+			"stage_percent": 0.0,
+		})
 		dlProgress := func(pct float64, speed string) {
-			report("downloading", pct, speed, "", nil)
+			report("downloading", pct, speed, "", nil, map[string]interface{}{
+				"stage":         "download",
+				"stage_name":    "Downloading Source (16-thread)",
+				"stage_percent": pct,
+			})
 		}
 		if err := download.DownloadFile(ctx, srcURL, folder.RawFilePath, dlProgress); err != nil {
-			report("failed", 0, "0 B/s", fmt.Sprintf("download failed: %v", err), nil)
+			report("failed", 0, "0 B/s", fmt.Sprintf("download failed: %v", err), nil, map[string]interface{}{
+				"stage": "failed",
+			})
 			if final != nil {
 				_ = os.RemoveAll(folder.BaseDir) // reclaim scratch
 			}
 			return
 		}
 	} else if _, err := os.Stat(folder.RawFilePath); err != nil {
-		report("failed", 0, "0 B/s", "neither source url nor uploaded bytes present", nil)
+		report("failed", 0, "0 B/s", "neither source url nor uploaded bytes present", nil, map[string]interface{}{
+			"stage": "failed",
+		})
 		if final != nil {
 			_ = os.RemoveAll(folder.BaseDir)
 		}
 		return
 	}
 
+	report("processing", 100, "Validating video stream...", "", nil, map[string]interface{}{
+		"stage":         "process",
+		"stage_name":    "Validating Video Stream",
+		"stage_percent": 25.0,
+	})
+
 	// Authoritative magic-byte check: a mislabeled source never enters the library.
 	if err := media.ValidateVideoFile(folder.RawFilePath); err != nil {
 		_ = os.RemoveAll(folder.BaseDir)
-		report("failed", 0, "0 B/s", err.Error(), nil)
+		report("failed", 0, "0 B/s", err.Error(), nil, map[string]interface{}{
+			"stage": "failed",
+		})
 		return
 	}
 
-	report("processing", 90, "Processing streamable media", "", nil)
+	report("processing", 100, "Fast-Start CMAF & AAC Audio Normalization...", "", nil, map[string]interface{}{
+		"stage":         "process",
+		"stage_name":    "CMAF Remuxing & Audio Normalization",
+		"stage_percent": 65.0,
+	})
 	meta, err := media.RemuxToStreamableMP4(folder.RawFilePath, folder.VideoFilePath, key, filename)
 	if err != nil {
-		report("failed", 0, "0 B/s", fmt.Sprintf("remux failed: %v", err), nil)
+		report("failed", 0, "0 B/s", fmt.Sprintf("remux failed: %v", err), nil, map[string]interface{}{
+			"stage": "failed",
+		})
 		if final != nil {
 			_ = os.RemoveAll(folder.BaseDir)
 		}
@@ -1317,17 +1351,27 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 	if final != nil {
 		if err := a.transferFolder(ctx, key, folder.BaseDir, final, report); err != nil {
 			_ = os.RemoveAll(folder.BaseDir)
-			report("failed", 95, "0 B/s", fmt.Sprintf("transfer to %s failed: %v", final.NodeID, err), nil)
+			report("failed", 95, "0 B/s", fmt.Sprintf("transfer to %s failed: %v", final.NodeID, err), nil, map[string]interface{}{
+				"stage": "failed",
+			})
 			return
 		}
 		_ = os.RemoveAll(folder.BaseDir) // scratch is reclaimed once stored
-		report("completed", 100, "Ready", "", cmafPkg)
+		report("completed", 100, "Ready", "", cmafPkg, map[string]interface{}{
+			"stage":         "ready",
+			"stage_name":    "Stream Ready",
+			"stage_percent": 100.0,
+		})
 		fmt.Printf("[Agent %s] ✅ File job '%s' processed in scratch, stored on %s:%s (local copy cleaned)\n",
 			a.NodeID, key, final.NodeID, final.Dir)
 		return
 	}
 
-	report("completed", 100, "Ready", "", cmafPkg)
+	report("completed", 100, "Ready", "", cmafPkg, map[string]interface{}{
+		"stage":         "ready",
+		"stage_name":    "Stream Ready",
+		"stage_percent": 100.0,
+	})
 	fmt.Printf("[Agent %s] ✅ File job '%s' completed on tier block %s\n", a.NodeID, key, targetDir)
 }
 
@@ -1390,9 +1434,15 @@ func formatTransferSpeed(bps float64) string {
 // high-speed 8-stream parallel chunk transfer first (saturating 1Gbps WAN links),
 // falling back to uncompressed tar single-stream if the remote node is an older version.
 func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *TransferTarget,
-	report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
+	report ProgressReporterFunc) error {
 	totalBytes, _ := media.CalculateFolderSize(baseDir)
-	report("transferring", 90.0, "Starting parallel transfer to "+final.NodeID, "", nil)
+	report("transferring", 90.0, "Starting parallel transfer to "+final.NodeID, "", nil, map[string]interface{}{
+		"stage":             "transfer",
+		"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
+		"stage_percent":     0.0,
+		"transferred_bytes": int64(0),
+		"total_bytes":       totalBytes,
+	})
 
 	// Step 1: Probe if the target node supports parallel chunk ingest
 	initURL := fmt.Sprintf("%s/api/v1/ingest-init?key=%s&dir=%s",
@@ -1417,7 +1467,7 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 }
 
 func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string, final *TransferTarget,
-	totalBytes int64, report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
+	totalBytes int64, report ProgressReporterFunc) error {
 
 	startTime := time.Now()
 	fmt.Printf("[Agent %s] 🚀 Starting 8-stream parallel transfer for '%s' -> %s (%s, Total: %s)\n",
@@ -1535,7 +1585,14 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 						float64(totalBytes)/(1024*1024),
 						transferPct)
 
-					report("transferring", overallPct, detailedSpeed, "", nil)
+					report("transferring", overallPct, detailedSpeed, "", nil, map[string]interface{}{
+						"stage":             "transfer",
+						"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
+						"stage_percent":     transferPct,
+						"transferred_bytes": cur,
+						"total_bytes":       totalBytes,
+						"details":           fmt.Sprintf("12 parallel streams to %s (%s)", final.NodeID, final.Dir),
+					})
 
 					if time.Since(lastLoggedTime) >= 3*time.Second {
 						lastLoggedTime = time.Now()
@@ -1649,7 +1706,7 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 }
 
 func (a *Agent) transferFolderClassic(ctx context.Context, key, baseDir string, final *TransferTarget,
-	totalBytes int64, report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
+	totalBytes int64, report ProgressReporterFunc) error {
 
 	fmt.Printf("[Agent %s] 🚀 Starting classic single-stream transfer for '%s' -> %s (%s, Total: %s)\n",
 		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
@@ -1679,7 +1736,13 @@ func (a *Agent) transferFolderClassic(ctx context.Context, key, baseDir string, 
 				float64(total)/(1024*1024),
 				transferPct,
 			)
-			report("transferring", pct, speedWithProgress, "", nil)
+			report("transferring", pct, speedWithProgress, "", nil, map[string]interface{}{
+				"stage":             "transfer",
+				"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
+				"stage_percent":     transferPct,
+				"transferred_bytes": transferred,
+				"total_bytes":       total,
+			})
 			if time.Since(lastLog) >= 2*time.Second {
 				lastLog = time.Now()
 				fmt.Printf("[Agent %s] 🔀 Transferring '%s' -> %s: %.1f%% | %s\n",

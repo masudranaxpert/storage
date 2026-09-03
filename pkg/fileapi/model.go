@@ -23,6 +23,8 @@ const (
 	StateDetected FileState = "detected"
 	// StateAwaitingUpload: upload slot reserved, waiting for client bytes.
 	StateAwaitingUpload FileState = "awaiting_upload"
+	// StateUploading: client is currently streaming raw bytes to the cluster.
+	StateUploading FileState = "uploading"
 	// StateDownloading: the assigned worker is pulling the source.
 	StateDownloading FileState = "downloading"
 	// StateProcessing: download finished, video is being validated/remuxed.
@@ -69,26 +71,40 @@ type FileRecord struct {
 // location — the owner of the block — which may be a different node when
 // placement is decoupled (worker processes in scratch, then transfers).
 type FileJob struct {
-	Key       string     `json:"key"` // FK -> FileRecord.Key
-	State     FileState  `json:"state"`
-	SourceURL string     `json:"source_url,omitempty"`
-	NodeID    string     `json:"node_id,omitempty"` // assigned processing worker
-	Placement Placement  `json:"placement,omitempty"`
-	Progress  float64    `json:"progress_percent"`
-	Speed     string     `json:"speed,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	Attempts  int        `json:"attempts"`
-	CreatedAt time.Time  `json:"created_at"`
-	UpdatedAt time.Time  `json:"updated_at"`
+	Key              string     `json:"key"` // FK -> FileRecord.Key
+	State            FileState  `json:"state"`
+	SourceURL        string     `json:"source_url,omitempty"`
+	NodeID           string     `json:"node_id,omitempty"` // assigned processing worker
+	Placement        Placement  `json:"placement,omitempty"`
+	Progress         float64    `json:"progress_percent"`
+	Speed            string     `json:"speed,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	Stage            string     `json:"stage,omitempty"` // "upload" | "download" | "process" | "transfer" | "ready"
+	StageName        string     `json:"stage_name,omitempty"`
+	StagePercent     float64    `json:"stage_percent,omitempty"`
+	TransferredBytes int64      `json:"transferred_bytes,omitempty"`
+	TotalBytes       int64      `json:"total_bytes,omitempty"`
+	ETA              string     `json:"eta,omitempty"`
+	Details          string     `json:"details,omitempty"`
+	Attempts         int        `json:"attempts"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // ProgressUpdate is the wire shape workers POST back to the master.
 type ProgressUpdate struct {
-	State     FileState `json:"state"`
-	Percent   float64   `json:"progress_percent"`
-	Speed     string    `json:"speed,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	CMAFJSON  []byte    `json:"cmaf_json,omitempty"`
+	State            FileState `json:"state"`
+	Percent          float64   `json:"progress_percent"`
+	Speed            string    `json:"speed,omitempty"`
+	Error            string    `json:"error,omitempty"`
+	Stage            string    `json:"stage,omitempty"`
+	StageName        string    `json:"stage_name,omitempty"`
+	StagePercent     float64   `json:"stage_percent,omitempty"`
+	TransferredBytes int64     `json:"transferred_bytes,omitempty"`
+	TotalBytes       int64     `json:"total_bytes,omitempty"`
+	ETA              string    `json:"eta,omitempty"`
+	Details          string    `json:"details,omitempty"`
+	CMAFJSON         []byte    `json:"cmaf_json,omitempty"`
 }
 
 // CreateRequest is the POST /api/v1/files body: exactly one of URL / upload.
@@ -115,18 +131,25 @@ type CreateResponse struct {
 
 // StatusResponse is the GET /api/v1/files/{key} reply.
 type StatusResponse struct {
-	Key          string     `json:"key"`
-	State        FileState  `json:"state"`
-	Filename     string     `json:"filename,omitempty"`
-	SizeBytes    int64      `json:"size_bytes,omitempty"`
-	MimeType     string     `json:"mime_type,omitempty"`
-	Progress     float64    `json:"progress_percent"`
-	Speed        string     `json:"speed,omitempty"`
-	Error        string     `json:"error,omitempty"`
-	Source       SourceType `json:"source_type"`
-	WorkerNodeID string     `json:"worker_node_id,omitempty"` // node running download/remux
-	Placement    Placement  `json:"placement,omitempty"`      // final storage block owner
-	StreamURL    string     `json:"stream_url,omitempty"`
-	CreatedAt time.Time   `json:"created_at"`
-	UpdatedAt time.Time   `json:"updated_at"`
+	Key              string     `json:"key"`
+	State            FileState  `json:"state"`
+	Filename         string     `json:"filename,omitempty"`
+	SizeBytes        int64      `json:"size_bytes,omitempty"`
+	MimeType         string     `json:"mime_type,omitempty"`
+	Progress         float64    `json:"progress_percent"`
+	Speed            string     `json:"speed,omitempty"`
+	Error            string     `json:"error,omitempty"`
+	Stage            string     `json:"stage,omitempty"`
+	StageName        string     `json:"stage_name,omitempty"`
+	StagePercent     float64    `json:"stage_percent,omitempty"`
+	TransferredBytes int64      `json:"transferred_bytes,omitempty"`
+	TotalBytes       int64      `json:"total_bytes,omitempty"`
+	ETA              string     `json:"eta,omitempty"`
+	Details          string     `json:"details,omitempty"`
+	Source           SourceType `json:"source_type"`
+	WorkerNodeID     string     `json:"worker_node_id,omitempty"` // node running download/remux
+	Placement        Placement  `json:"placement,omitempty"`      // final storage block owner
+	StreamURL        string     `json:"stream_url,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }

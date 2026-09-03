@@ -1734,7 +1734,7 @@ setInterval(() => {
     if (currentView === 'media') {
         fetchMediaList();
     }
-}, 3000);
+}, 1500);
 
 function setMediaFilter(status) {
     mediaFilterStatus = status;
@@ -1763,6 +1763,63 @@ function onMediaPageSizeChange() {
         mediaCurrentPage = 1;
         renderMediaTable();
     }
+}
+
+function renderPipelineStepper(item) {
+    const isUpload = item.source_type === 'upload';
+    const hasTransfer = item.worker_node_id && item.placement?.node_id && item.worker_node_id !== item.placement?.node_id;
+
+    let s1 = 'pending', s2 = 'pending', s3 = 'pending', s4 = 'pending';
+
+    if (item.state === 'completed') {
+        s1 = s2 = s3 = s4 = 'done';
+    } else if (item.state === 'failed') {
+        // not applicable
+    } else if (item.state === 'awaiting_upload' || item.state === 'uploading' || item.state === 'detected' || item.state === 'downloading') {
+        s1 = 'active';
+    } else if (item.state === 'processing') {
+        s1 = 'done';
+        s2 = 'active';
+    } else if (item.state === 'transferring') {
+        s1 = 'done';
+        s2 = 'done';
+        s3 = 'active';
+    }
+
+    const stepIcon = (st, icon, label) => {
+        let bg = 'rgba(255, 255, 255, 0.05)';
+        let color = 'var(--text-muted)';
+        let border = 'var(--border-light)';
+        if (st === 'done') {
+            bg = 'rgba(16, 185, 129, 0.12)';
+            color = '#10b981';
+            border = 'rgba(16, 185, 129, 0.3)';
+        } else if (st === 'active') {
+            bg = 'rgba(255, 122, 24, 0.15)';
+            color = 'var(--orange-primary)';
+            border = 'var(--orange-primary)';
+        }
+        return `
+            <div style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:9.5px;font-weight:700;background:${bg};color:${color};border:1px solid ${border};" title="${label}">
+                <span>${st === 'done' ? '✓' : icon}</span>
+                <span>${label}</span>
+            </div>
+        `;
+    };
+
+    return `
+        <div style="display:flex;align-items:center;gap:3px;margin-bottom:6px;flex-wrap:wrap;">
+            ${stepIcon(s1, isUpload ? '📤' : '📥', isUpload ? 'Upload' : 'Download')}
+            <span style="font-size:9px;color:var(--text-muted);">➔</span>
+            ${stepIcon(s2, '⚙️', 'CMAF')}
+            ${hasTransfer ? `
+                <span style="font-size:9px;color:var(--text-muted);">➔</span>
+                ${stepIcon(s3, '🔀', 'Sync')}
+            ` : ''}
+            <span style="font-size:9px;color:var(--text-muted);">➔</span>
+            ${stepIcon(s4, '✓', 'Ready')}
+        </div>
+    `;
 }
 
 function renderMediaTable() {
@@ -1858,25 +1915,32 @@ function renderMediaTable() {
                     </div>
                 </div>`;
         } else {
-            const pct = (item.progress_percent || 0).toFixed(1);
-            const speedDisplay = item.speed ? item.speed : '';
+            const pct = Math.min(100, Math.max(0, item.progress_percent || 0)).toFixed(1);
+            const stageLabel = item.stage_name || item.state.replace('_', ' ');
+            const speedDisplay = item.speed || '';
+            let byteProgress = '';
+            if (item.transferred_bytes && item.total_bytes && item.total_bytes > 0) {
+                byteProgress = `${formatBytes(item.transferred_bytes)} / ${formatBytes(item.total_bytes)}`;
+            }
+
             statusHtml = `
-                <div style="min-width:170px;">
+                <div style="min-width:220px;max-width:320px;">
+                    ${renderPipelineStepper(item)}
                     <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;margin-bottom:4px;">
-                        <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:4px;text-transform:capitalize;">
-                            <svg class="spin-fast" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line><line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"></line><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"></line></svg>
-                            ${escapeHtml(item.state)}
+                        <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:5px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;" title="${escapeHtml(stageLabel)}">
+                            <svg class="spin-fast" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
+                            ${escapeHtml(stageLabel)}
                         </span>
-                        <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;">${pct}%</span>
+                        <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;">${pct}%</span>
                     </div>
-                    <div class="gauge-track" style="height:6px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:4px;overflow:hidden;">
-                        <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;"></div>
+                    <div class="gauge-track" style="height:7px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:5px;overflow:hidden;">
+                        <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;box-shadow:0 0 8px rgba(255,122,24,0.4);"></div>
                     </div>
-                    ${speedDisplay ? `
-                        <div style="font-size:10.5px;color:var(--text-secondary);margin-top:3px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:3px;">
-                            ⚡ <strong>${escapeHtml(speedDisplay)}</strong>
-                        </div>
-                    ` : ''}
+                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--text-secondary);margin-top:4px;font-family:'JetBrains Mono',monospace;">
+                        ${speedDisplay ? `<span>⚡ ${escapeHtml(speedDisplay)}</span>` : `<span></span>`}
+                        ${byteProgress ? `<span style="font-weight:600;">${escapeHtml(byteProgress)}</span>` : ''}
+                    </div>
+                    ${item.details ? `<div style="font-size:9.5px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(item.details)}">${escapeHtml(item.details)}</div>` : ''}
                 </div>`;
         }
 
