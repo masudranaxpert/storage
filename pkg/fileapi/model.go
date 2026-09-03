@@ -48,10 +48,11 @@ const (
 
 // Placement records where a file lives (written once the block is chosen).
 type Placement struct {
-	TierID    int    `json:"tier_id"`
-	TierLabel string `json:"tier_label"`
-	NodeID    string `json:"node_id"`
-	Path      string `json:"path"`
+	TierID     int    `json:"tier_id"`
+	TierLabel  string `json:"tier_label"`
+	NodeID     string `json:"node_id"`
+	Path       string `json:"path"`
+	PublicHost string `json:"public_host,omitempty"`
 }
 
 // FileRecord is the main table: one row per stored file, keyed by the

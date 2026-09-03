@@ -182,10 +182,11 @@ func (s *Service) PlanPlacement(requiredBytes uint64, receivers map[string]bool)
 
 func (s *Service) placementOf(tier *storage.TierStatus, bs *storage.BlockStatus) Placement {
 	return Placement{
-		TierID:    tier.ID,
-		TierLabel: TierLabel(tier.ID),
-		NodeID:    bs.Block.NodeID,
-		Path:      bs.Block.Path,
+		TierID:     tier.ID,
+		TierLabel:  TierLabel(tier.ID),
+		NodeID:     bs.Block.NodeID,
+		Path:       bs.Block.Path,
+		PublicHost: bs.Block.PublicHost,
 	}
 }
 
@@ -642,11 +643,48 @@ func (s *Service) List() ([]*StatusResponse, error) {
 	return out, nil
 }
 
-// StreamURL points clients at the owning worker's byte-range media server.
+// StreamURL points clients at the owning worker's byte-range media server,
+// or the custom domain/host link configured for the storage block.
 func (s *Service) StreamURL(job *FileJob) string {
 	if job.State != StateCompleted || job.Placement.NodeID == "" {
 		return ""
 	}
+
+	// 1. Check if placement cached a custom domain / host link
+	publicHost := job.Placement.PublicHost
+
+	// 2. If not cached (e.g. older job, or updated tier block configuration),
+	// dynamically look up the live block's PublicHost in the tier definition
+	if publicHost == "" && s.tiers != nil {
+		for _, t := range s.tiers.List() {
+			for _, b := range t.Blocks {
+				if b.NodeID == job.Placement.NodeID && (b.Path == job.Placement.Path || job.Placement.Path == "") {
+					if b.PublicHost != "" {
+						publicHost = b.PublicHost
+						break
+					}
+				}
+			}
+			if publicHost != "" {
+				break
+			}
+		}
+	}
+
+	if publicHost != "" {
+		host := strings.TrimSpace(publicHost)
+		host = strings.TrimRight(host, "/")
+		if !strings.HasPrefix(host, "http://") && !strings.HasPrefix(host, "https://") {
+			if strings.Contains(host, ":") {
+				host = "http://" + host
+			} else {
+				host = "https://" + host
+			}
+		}
+		return fmt.Sprintf("%s/stream/%s", host, job.Key)
+	}
+
+	// 3. Fallback: worker agent's direct reachable address
 	node := s.nodeByID(job.Placement.NodeID)
 	if node == nil {
 		return ""

@@ -60,6 +60,7 @@ func testNodes() []*cluster.NodeRecord {
 				Disks: []telemetry.DiskStat{
 					{Path: "/mnt/nvme", DiskType: "NVME", TotalBytes: 100 << 30, FreeBytes: 80 << 30, UsedBytes: 20 << 30},
 					{Path: "/mnt/hdd", DiskType: "HDD", TotalBytes: 500 << 30, FreeBytes: 400 << 30, UsedBytes: 100 << 30},
+					{Path: "/mnt/ssd", DiskType: "SSD", TotalBytes: 200 << 30, FreeBytes: 150 << 30, UsedBytes: 50 << 30},
 				},
 			},
 		},
@@ -212,7 +213,6 @@ func TestUpsertDefaultIsExclusive(t *testing.T) {
 
 func TestDeleteLastDefaultTierRejected(t *testing.T) {
 	m := storage.NewManager(newMemStore())
-	// Remove seeded tiers 2 and 3, then try to delete the default tier 1.
 	_ = m.Delete(2)
 	_ = m.Delete(3)
 	if err := m.Delete(1); err == nil {
@@ -235,7 +235,6 @@ func TestBlockExclusivityAcrossTiers(t *testing.T) {
 	store := newMemStore()
 	m := storage.NewManager(store)
 
-	// Assign block to Tier 1
 	_ = m.Upsert(storage.Tier{
 		ID:      1,
 		Name:    "Tier 1 · Hot",
@@ -246,7 +245,6 @@ func TestBlockExclusivityAcrossTiers(t *testing.T) {
 		},
 	})
 
-	// Assign /mnt/nvme to Tier 2 (should remove /mnt/nvme from Tier 1)
 	_ = m.Upsert(storage.Tier{
 		ID:      2,
 		Name:    "Tier 2 · Warm",
@@ -284,5 +282,45 @@ func TestBlockDeduplicationWithinTier(t *testing.T) {
 				t.Fatalf("expected 1 deduplicated block, got %d", len(tier.Blocks))
 			}
 		}
+	}
+}
+
+func TestBlockPublicHostPreservation(t *testing.T) {
+	store := newMemStore()
+	m := storage.NewManager(store)
+	err := m.Upsert(storage.Tier{
+		ID:      1,
+		Name:    "Tier 1 · Hot",
+		Blocks: []storage.Block{
+			{NodeID: "vps-01", Path: "/mnt/ssd", DiskType: "SSD", PublicHost: "cdn1.streammesh.com:2053"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("upsert failed: %v", err)
+	}
+
+	saved, err := store.GetTier(1)
+	if err != nil || len(saved.Blocks) != 1 {
+		t.Fatalf("expected 1 saved block: %v", err)
+	}
+	if saved.Blocks[0].PublicHost != "cdn1.streammesh.com:2053" {
+		t.Fatalf("expected PublicHost 'cdn1.streammesh.com:2053', got '%s'", saved.Blocks[0].PublicHost)
+	}
+
+	nodes := testNodes()
+	statuses := m.Resolve(nodes, nil)
+	found := false
+	for _, st := range statuses {
+		for _, b := range st.Blocks {
+			if b.Block.Path == "/mnt/ssd" {
+				found = true
+				if b.Block.PublicHost != "cdn1.streammesh.com:2053" {
+					t.Fatalf("expected resolved PublicHost 'cdn1.streammesh.com:2053', got '%s'", b.Block.PublicHost)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected to find /mnt/ssd block in resolved statuses")
 	}
 }

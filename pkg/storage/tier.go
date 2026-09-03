@@ -60,6 +60,7 @@ type Block struct {
 	Path       string `json:"path"`
 	DiskType   string `json:"disk_type"`
 	QuotaBytes uint64 `json:"quota_bytes"`          // 0 = unlimited, use full free capacity
+	PublicHost string `json:"public_host,omitempty"` // custom streaming domain/host (e.g. "cdn1.streammesh.com" or "https://cdn1.streammesh.com:2053")
 	TotalBytes uint64 `json:"total_bytes,omitempty"` // populated for unassigned block inspection
 	FreeBytes  uint64 `json:"free_bytes,omitempty"`  // populated for unassigned block inspection
 }

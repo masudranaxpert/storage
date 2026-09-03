@@ -126,6 +126,8 @@ function renderTiers(force = false) {
             const inputId = `tier-${t.id}-block-${idx}-quota`;
             const quotaGB = block.quota_bytes > 0 ? Math.round(block.quota_bytes / (1024 * 1024 * 1024)) : '';
             const liveQuotaGB = dirtyInputs[inputId] !== undefined ? dirtyInputs[inputId] : (quotaGB || '');
+            const hostInputId = `tier-${t.id}-block-${idx}-host`;
+            const liveHost = dirtyInputs[hostInputId] !== undefined ? dirtyInputs[hostInputId] : (block.public_host || '');
 
             return `
                 <div class="tier-block-row">
@@ -144,7 +146,14 @@ function renderTiers(force = false) {
                                 onclick="removeTierBlock(${t.id}, ${idx})">&#10005;</button>
                         </div>
                     </div>
-                    <div class="gauge-track" style="height:5px;margin:4px 0;">
+                    <div class="tier-block-host-wrap" title="Custom streaming domain or CDN host for files stored on this drive">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--text-secondary);"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                        <span style="font-size:10.5px;font-weight:700;color:var(--text-secondary);white-space:nowrap;">Host / CDN:</span>
+                        <input type="text" placeholder="e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053"
+                            value="${escapeHtml(liveHost)}" id="${hostInputId}"
+                            class="tier-block-host-input" oninput="onInputChange('${hostInputId}', this.value)">
+                    </div>
+                    <div class="gauge-track" style="height:5px;margin:5px 0 4px 0;">
                         <div class="gauge-fill" style="width:${pct}%;background:${barColor};"></div>
                     </div>
                     <div class="tier-block-meta">
@@ -171,6 +180,8 @@ function renderTiers(force = false) {
         const liveTierName = dirtyInputs[tierNameId] !== undefined ? dirtyInputs[tierNameId] : t.name;
         const addQuotaId = `tier-${t.id}-add-quota`;
         const liveAddQuota = dirtyInputs[addQuotaId] !== undefined ? dirtyInputs[addQuotaId] : '';
+        const addHostId = `tier-${t.id}-add-host`;
+        const liveAddHost = dirtyInputs[addHostId] !== undefined ? dirtyInputs[addHostId] : '';
         const isSystem = !!t.system;
 
         return `
@@ -203,15 +214,25 @@ function renderTiers(force = false) {
                 </div>
 
                 ${unassigned.length > 0 ? `
-                <div class="tier-add-bar">
-                    <select id="tier-${t.id}-add-select" class="tier-add-select"
-                        onchange="onTierSelectChange(${t.id}, this.value)"
-                        oninput="onTierSelectChange(${t.id}, this.value)">
-                        ${unassignedOpts}
-                    </select>
-                    <input type="number" min="0" placeholder="Quota GB (0=all)" id="${addQuotaId}" value="${escapeHtml(liveAddQuota)}"
-                        class="tier-add-quota" title="0 or empty = unlimited full free space" oninput="onInputChange('${addQuotaId}', this.value)">
-                    <button class="btn btn-primary tier-add-btn" style="padding:6px 12px;font-size:12px;" onclick="assignBlockToTier(${t.id})">+ Bag Block</button>
+                <div class="tier-add-bar" style="display:flex;flex-direction:column;gap:6px;">
+                    <div style="display:flex;gap:6px;align-items:center;width:100%;">
+                        <select id="tier-${t.id}-add-select" class="tier-add-select" style="flex:1;"
+                            onchange="onTierSelectChange(${t.id}, this.value)"
+                            oninput="onTierSelectChange(${t.id}, this.value)">
+                            ${unassignedOpts}
+                        </select>
+                        <input type="number" min="0" placeholder="Quota GB (0=all)" id="${addQuotaId}" value="${escapeHtml(liveAddQuota)}"
+                            class="tier-add-quota" style="width:110px;" title="0 or empty = unlimited full free space" oninput="onInputChange('${addQuotaId}', this.value)">
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center;width:100%;">
+                        <div class="tier-block-host-wrap" style="margin-top:0;flex:1;" title="Custom domain/CDN link (e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053)">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--text-secondary);"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+                            <span style="font-size:10.5px;font-weight:700;color:var(--text-secondary);white-space:nowrap;">Host / CDN:</span>
+                            <input type="text" placeholder="cdn1.streammesh.com or https://... (optional)" id="${addHostId}" value="${escapeHtml(liveAddHost)}"
+                                class="tier-block-host-input" oninput="onInputChange('${addHostId}', this.value)">
+                        </div>
+                        <button class="btn btn-primary tier-add-btn" style="padding:5px 12px;font-size:12px;white-space:nowrap;" onclick="assignBlockToTier(${t.id})">+ Bag Block</button>
+                    </div>
                 </div>` : `
                 <div style="font-size:11px;color:var(--text-muted);padding:8px 0;text-align:center;font-style:italic;">
                     All available node storage drives are assigned to tiers.
@@ -261,7 +282,8 @@ function tierPayloadFromStatus(t, overrides) {
             node_id: b.block.node_id,
             path: b.block.path,
             disk_type: b.block.disk_type,
-            quota_bytes: b.block.quota_bytes
+            quota_bytes: b.block.quota_bytes,
+            public_host: b.block.public_host || ''
         }))
     }, overrides || {});
 }
@@ -276,6 +298,12 @@ async function saveTier(id) {
         if (payload.blocks[idx]) {
             const gb = parseInt(input.value) || 0;
             payload.blocks[idx].quota_bytes = gb > 0 ? gb * 1024 * 1024 * 1024 : 0;
+        }
+    });
+    document.querySelectorAll(`[id^="tier-${id}-block-"][id$="-host"]`).forEach(input => {
+        const idx = parseInt(input.id.replace(`tier-${id}-block-`, '').replace('-host', ''));
+        if (payload.blocks[idx]) {
+            payload.blocks[idx].public_host = (input.value || '').trim();
         }
     });
 
@@ -305,6 +333,7 @@ async function assignBlockToTier(id) {
     const t = currentTierById(id);
     const select = document.getElementById(`tier-${id}-add-select`);
     const quotaInput = document.getElementById(`tier-${id}-add-quota`);
+    const hostInput = document.getElementById(`tier-${id}-add-host`);
     if (!t || !select || !tiersCache) return;
 
     const chosenKey = select.value;
@@ -312,7 +341,8 @@ async function assignBlockToTier(id) {
     const chosen = unassigned.find(b => makeBlockKey(b.node_id, b.path) === chosenKey);
     if (!chosen) return;
 
-    const gb = parseInt(quotaInput.value) || 0;
+    const gb = parseInt(quotaInput ? quotaInput.value : 0) || 0;
+    const publicHost = (hostInput ? hostInput.value : '').trim();
     const payload = tierPayloadFromStatus(t);
 
     // Prevent duplicate block in same tier
@@ -326,14 +356,17 @@ async function assignBlockToTier(id) {
         node_id: chosen.node_id,
         path: chosen.path,
         disk_type: chosen.disk_type,
-        quota_bytes: gb > 0 ? gb * 1024 * 1024 * 1024 : 0
+        quota_bytes: gb > 0 ? gb * 1024 * 1024 * 1024 : 0,
+        public_host: publicHost
     });
 
     const ok = await upsertTier(payload);
     if (ok) {
         delete dirtyInputs[`tier-${id}-add-quota`];
+        delete dirtyInputs[`tier-${id}-add-host`];
         delete selectedTierBlocks[String(id)];
         if (quotaInput) quotaInput.value = '';
+        if (hostInput) hostInput.value = '';
     }
 }
 

@@ -2272,6 +2272,37 @@ body {
     box-shadow: 0 0 0 2px var(--orange-glow);
 }
 
+.tier-block-host-wrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+    background: var(--bg-body);
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.tier-block-host-wrap:focus-within {
+    border-color: var(--orange-primary);
+    box-shadow: 0 0 0 2px var(--orange-glow);
+}
+
+.tier-block-host-input {
+    flex: 1;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 11.5px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.tier-block-host-input:focus {
+    outline: none;
+}
+
 .tier-block-meta {
     display: flex;
     justify-content: space-between;
