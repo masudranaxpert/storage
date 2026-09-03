@@ -15,8 +15,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/disk"
@@ -286,7 +288,8 @@ func newTransferHTTPClient() *http.Client {
 			Proxy:                 http.ProxyFromEnvironment,
 			DialContext:           dialer.DialContext,
 			ForceAttemptHTTP2:     false, // one long HTTP/1.1 upload stream
-			MaxIdleConns:          32,
+			MaxIdleConns:          64,
+			MaxIdleConnsPerHost:   32,
 			IdleConnTimeout:       90 * time.Second,
 			TLSHandshakeTimeout:   20 * time.Second,
 			ExpectContinueTimeout: 0,
@@ -673,6 +676,155 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Write([]byte(fmt.Sprintf(`{"status":"stored","files":%d}`, files)))
 	})
 
+	// Parallel Chunk Ingest Engine (SeaweedFS/MinIO multi-stream high throughput)
+	mux.HandleFunc("/api/v1/ingest-init", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
+			return
+		}
+		key := r.URL.Query().Get("key")
+		if !validKey(key) {
+			http.Error(w, "invalid key", http.StatusBadRequest)
+			return
+		}
+		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
+		dir := a.resolveTargetDir(rawDir)
+		if dir == "" || dir == "." || strings.HasPrefix(dir, "..") || strings.Contains(dir, "..") {
+			http.Error(w, "dir required", http.StatusBadRequest)
+			return
+		}
+		dest := filepath.Join(dir, key)
+		_ = os.RemoveAll(dest)
+		if err := os.MkdirAll(dest, 0755); err != nil {
+			http.Error(w, "mkdir failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"initialized"}`))
+	})
+
+	mux.HandleFunc("/api/v1/ingest-file-init", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
+			return
+		}
+		key := r.URL.Query().Get("key")
+		filename := filepath.Base(r.URL.Query().Get("file"))
+		if !validKey(key) || filename == "" || filename == "." {
+			http.Error(w, "invalid key or filename", http.StatusBadRequest)
+			return
+		}
+		dir := a.resolveTargetDir(filepath.Clean(r.URL.Query().Get("dir")))
+		dest := filepath.Join(dir, key, filename)
+		size, _ := strconv.ParseInt(r.URL.Query().Get("size"), 10, 64)
+
+		f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			http.Error(w, "create file failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if size > 0 {
+			_ = f.Truncate(size)
+		}
+		f.Close()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"file_ready"}`))
+	})
+
+	mux.HandleFunc("/api/v1/ingest-chunk", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
+			return
+		}
+		key := r.URL.Query().Get("key")
+		filename := filepath.Base(r.URL.Query().Get("file"))
+		offset, _ := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
+		if !validKey(key) || filename == "" || filename == "." {
+			http.Error(w, "invalid key or filename", http.StatusBadRequest)
+			return
+		}
+		dir := a.resolveTargetDir(filepath.Clean(r.URL.Query().Get("dir")))
+		dest := filepath.Join(dir, key, filename)
+
+		f, err := os.OpenFile(dest, os.O_WRONLY, 0644)
+		if err != nil {
+			http.Error(w, "open file failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer f.Close()
+
+		buf := make([]byte, 1024*1024)
+		var written int64
+		curOffset := offset
+		for {
+			nr, readErr := r.Body.Read(buf)
+			if nr > 0 {
+				nw, writeErr := f.WriteAt(buf[:nr], curOffset)
+				if writeErr != nil {
+					http.Error(w, "write error: "+writeErr.Error(), http.StatusInternalServerError)
+					return
+				}
+				written += int64(nw)
+				curOffset += int64(nw)
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					break
+				}
+				http.Error(w, "read stream error: "+readErr.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(fmt.Sprintf(`{"status":"chunk_written","written":%d}`, written)))
+	})
+
+	mux.HandleFunc("/api/v1/ingest-complete", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
+			return
+		}
+		key := r.URL.Query().Get("key")
+		if !validKey(key) {
+			http.Error(w, "invalid key", http.StatusBadRequest)
+			return
+		}
+		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
+		dir := a.resolveTargetDir(rawDir)
+		dest := filepath.Join(dir, key)
+
+		if _, err := os.Stat(filepath.Join(dest, "metadata.json")); err != nil {
+			_ = os.RemoveAll(dest)
+			http.Error(w, "metadata.json missing", http.StatusUnprocessableEntity)
+			return
+		}
+		a.registerRoot(dir)
+		fmt.Printf("[Agent %s] 📥 Parallel ingest complete for key '%s' into block %s\n", a.NodeID, key, dir)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"stored"}`))
+	})
+
 	// POST /api/v1/ingest-delete?key=&dir=: removes a placed file folder.
 	mux.HandleFunc("/api/v1/ingest-delete", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -989,21 +1141,274 @@ func formatTransferSpeed(bps float64) string {
 	return fmt.Sprintf("%.1f %cB/s", bps/float64(div), "KMGTPE"[exp])
 }
 
-// transferFolder streams the finished media folder (uncompressed tar for maximum network throughput)
-// to the block owner's ingest-receive endpoint with live speed/progress reporting.
+// transferFolder streams the finished media folder to the block owner. It attempts
+// high-speed 8-stream parallel chunk transfer first (saturating 1Gbps WAN links),
+// falling back to uncompressed tar single-stream if the remote node is an older version.
 func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *TransferTarget,
 	report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
 	totalBytes, _ := media.CalculateFolderSize(baseDir)
-	report("transferring", 90.5, "Starting transfer to "+final.NodeID, "", nil)
+	report("transferring", 90.0, "Starting parallel transfer to "+final.NodeID, "", nil)
 
-	fmt.Printf("[Agent %s] 🚀 Starting node-to-node transfer for '%s' -> %s (%s, Total: %s)\n",
+	// Step 1: Probe if the target node supports parallel chunk ingest
+	initURL := fmt.Sprintf("%s/api/v1/ingest-init?key=%s&dir=%s",
+		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
+	initReq, err := http.NewRequestWithContext(ctx, http.MethodPost, initURL, nil)
+	if err == nil {
+		if a.Secret != "" {
+			initReq.Header.Set("X-Cluster-Secret", a.Secret)
+		}
+		initResp, initErr := a.transferClient.Do(initReq)
+		if initErr == nil {
+			initResp.Body.Close()
+			if initResp.StatusCode == http.StatusOK {
+				// Target node supports parallel multi-stream chunk ingest!
+				return a.transferFolderParallel(ctx, key, baseDir, final, totalBytes, report)
+			}
+		}
+	}
+
+	// Fallback to legacy single-stream tar transfer for older nodes
+	return a.transferFolderClassic(ctx, key, baseDir, final, totalBytes, report)
+}
+
+func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string, final *TransferTarget,
+	totalBytes int64, report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
+
+	startTime := time.Now()
+	fmt.Printf("[Agent %s] 🚀 Starting 8-stream parallel transfer for '%s' -> %s (%s, Total: %s)\n",
+		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
+
+	type fileEntry struct {
+		relPath string
+		absPath string
+		size    int64
+	}
+	var files []fileEntry
+	_ = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return nil
+		}
+		files = append(files, fileEntry{
+			relPath: filepath.ToSlash(rel),
+			absPath: path,
+			size:    info.Size(),
+		})
+		return nil
+	})
+
+	// Initialize all target files on the remote node with preallocated disk space
+	for _, f := range files {
+		initFileURL := fmt.Sprintf("%s/api/v1/ingest-file-init?key=%s&dir=%s&file=%s&size=%d",
+			strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir),
+			url.QueryEscape(f.relPath), f.size)
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, initFileURL, nil)
+		if a.Secret != "" {
+			req.Header.Set("X-Cluster-Secret", a.Secret)
+		}
+		resp, err := a.transferClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to init remote file %s: %w", f.relPath, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 300 {
+			return fmt.Errorf("receiver refused file %s: %s", f.relPath, resp.Status)
+		}
+	}
+
+	type chunkTask struct {
+		file   fileEntry
+		offset int64
+		length int64
+	}
+
+	const chunkSize = int64(8 * 1024 * 1024) // 8 MB chunks
+	var tasks []chunkTask
+	for _, f := range files {
+		if f.size == 0 {
+			continue
+		}
+		for off := int64(0); off < f.size; off += chunkSize {
+			l := chunkSize
+			if off+l > f.size {
+				l = f.size - off
+			}
+			tasks = append(tasks, chunkTask{
+				file:   f,
+				offset: off,
+				length: l,
+			})
+		}
+	}
+
+	var transferred atomic.Int64
+	taskChan := make(chan chunkTask, len(tasks))
+	for _, t := range tasks {
+		taskChan <- t
+	}
+	close(taskChan)
+
+	tickerDone := make(chan struct{})
+	var lastLoggedTime time.Time
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		lastBytes := int64(0)
+		lastTick := time.Now()
+
+		for {
+			select {
+			case <-tickerDone:
+				return
+			case now := <-ticker.C:
+				cur := transferred.Load()
+				elapsed := now.Sub(lastTick).Seconds()
+				if elapsed > 0 {
+					speedBps := float64(cur-lastBytes) / elapsed
+					speedStr := formatTransferSpeed(speedBps)
+					var transferPct float64
+					if totalBytes > 0 {
+						transferPct = (float64(cur) / float64(totalBytes)) * 100.0
+					}
+					overallPct := 90.0 + (transferPct * 0.09) // 90.0% to 99.0%
+
+					detailedSpeed := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%) [8 streams]",
+						speedStr,
+						float64(cur)/(1024*1024),
+						float64(totalBytes)/(1024*1024),
+						transferPct)
+
+					report("transferring", overallPct, detailedSpeed, "", nil)
+
+					if time.Since(lastLoggedTime) >= 3*time.Second {
+						lastLoggedTime = time.Now()
+						fmt.Printf("[Agent %s] 🔀 Transferring '%s' -> %s: %.1f%% | %s\n",
+							a.NodeID, key, final.NodeID, overallPct, detailedSpeed)
+					}
+					lastBytes = cur
+					lastTick = now
+				}
+			}
+		}
+	}()
+
+	const numWorkers = 8
+	var wg sync.WaitGroup
+	var workerErr error
+	var errMu sync.Mutex
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			buf := make([]byte, chunkSize)
+
+			for task := range taskChan {
+				if ctx.Err() != nil {
+					return
+				}
+				errMu.Lock()
+				if workerErr != nil {
+					errMu.Unlock()
+					return
+				}
+				errMu.Unlock()
+
+				f, err := os.Open(task.file.absPath)
+				if err != nil {
+					errMu.Lock()
+					workerErr = err
+					errMu.Unlock()
+					return
+				}
+				_, err = f.ReadAt(buf[:task.length], task.offset)
+				f.Close()
+				if err != nil && err != io.EOF {
+					errMu.Lock()
+					workerErr = err
+					errMu.Unlock()
+					return
+				}
+
+				var uploadSuccess bool
+				for attempt := 1; attempt <= 3; attempt++ {
+					chunkURL := fmt.Sprintf("%s/api/v1/ingest-chunk?key=%s&dir=%s&file=%s&offset=%d",
+						strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir),
+						url.QueryEscape(task.file.relPath), task.offset)
+					req, err := http.NewRequestWithContext(ctx, http.MethodPost, chunkURL, bytes.NewReader(buf[:task.length]))
+					if err != nil {
+						break
+					}
+					req.Header.Set("Content-Type", "application/octet-stream")
+					if a.Secret != "" {
+						req.Header.Set("X-Cluster-Secret", a.Secret)
+					}
+					resp, err := a.transferClient.Do(req)
+					if err == nil {
+						resp.Body.Close()
+						if resp.StatusCode == http.StatusOK {
+							uploadSuccess = true
+							break
+						}
+					}
+					time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+				}
+
+				if !uploadSuccess {
+					errMu.Lock()
+					workerErr = fmt.Errorf("failed chunk %s at offset %d after 3 retries", task.file.relPath, task.offset)
+					errMu.Unlock()
+					return
+				}
+
+				transferred.Add(task.length)
+			}
+		}(i)
+	}
+
+	wg.Wait()
+	close(tickerDone)
+
+	if workerErr != nil {
+		return fmt.Errorf("parallel transfer error: %w", workerErr)
+	}
+
+	completeURL := fmt.Sprintf("%s/api/v1/ingest-complete?key=%s&dir=%s",
+		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
+	compReq, _ := http.NewRequestWithContext(ctx, http.MethodPost, completeURL, nil)
+	if a.Secret != "" {
+		compReq.Header.Set("X-Cluster-Secret", a.Secret)
+	}
+	compResp, err := a.transferClient.Do(compReq)
+	if err != nil {
+		return fmt.Errorf("complete request failed: %w", err)
+	}
+	compResp.Body.Close()
+	if compResp.StatusCode >= 300 {
+		return fmt.Errorf("remote node rejected complete with %s", compResp.Status)
+	}
+
+	elapsed := time.Since(startTime)
+	avgSpeed := float64(totalBytes) / elapsed.Seconds()
+	fmt.Printf("[Agent %s] ✅ Parallel transfer complete: '%s' -> %s in %s (Avg: %s) [8 parallel streams]\n",
+		a.NodeID, key, final.NodeID, elapsed.Round(time.Millisecond), formatTransferSpeed(avgSpeed))
+	return nil
+}
+
+func (a *Agent) transferFolderClassic(ctx context.Context, key, baseDir string, final *TransferTarget,
+	totalBytes int64, report func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage)) error {
+
+	fmt.Printf("[Agent %s] 🚀 Starting classic single-stream transfer for '%s' -> %s (%s, Total: %s)\n",
 		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
 
 	pipeR, pipeW := io.Pipe()
 	defer pipeR.Close()
 	go func() {
 		err := media.PackFolder(pipeW, baseDir)
-		pipeW.CloseWithError(err) // nil error → plain EOF for the reader
+		pipeW.CloseWithError(err)
 	}()
 
 	bufferedPipeR := bufio.NewReaderSize(pipeR, 1024*1024)
