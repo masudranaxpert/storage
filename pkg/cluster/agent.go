@@ -945,18 +945,29 @@ var chunkBufPool = sync.Pool{
 		requestedDir := r.URL.Query().Get("dir")
 
 		var dirsToClean []string
-		if requestedDir != "" {
-			if strings.Contains(requestedDir, "stream") {
-				dirsToClean = append(dirsToClean, requestedDir)
+		seen := make(map[string]bool)
+		addCleanDir := func(d string) {
+			if d != "" && !seen[d] && strings.Contains(d, "stream") {
+				seen[d] = true
+				dirsToClean = append(dirsToClean, d)
 			}
+		}
+
+		if requestedDir != "" {
+			addCleanDir(requestedDir)
 		} else {
 			drives := a.getStreamDrives()
 			for _, d := range drives {
 				if target == "processing" || target == "scratch" {
-					dirsToClean = append(dirsToClean, d.ProcessingDir)
+					addCleanDir(d.ProcessingDir)
 				} else if target == "media" {
-					dirsToClean = append(dirsToClean, d.MediaDir)
+					addCleanDir(d.MediaDir)
 				}
+			}
+			if target == "processing" || target == "scratch" {
+				addCleanDir(a.ScratchDir)
+				addCleanDir("/stream/processing")
+				addCleanDir("/var/lib/stream/processing")
 			}
 		}
 
@@ -1723,33 +1734,23 @@ func measureDir(dir string) (uint64, int) {
 	if dir == "" || dir == "/" || dir == "." || dir == "\\" {
 		return 0, 0
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, 0
-	}
 	var size uint64
 	var count int
-	for _, e := range entries {
-		info, err := e.Info()
-		if err != nil {
-			continue
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil || d == nil {
+			return nil
 		}
-		if e.IsDir() {
-			subEntries, err := os.ReadDir(filepath.Join(dir, e.Name()))
-			if err == nil {
-				for _, se := range subEntries {
-					sinfo, err := se.Info()
-					if err == nil && !se.IsDir() {
-						size += uint64(sinfo.Size())
-						count++
-					}
-				}
+		if !d.IsDir() {
+			if info, err := d.Info(); err == nil {
+				size += uint64(info.Size())
 			}
-		} else {
-			size += uint64(info.Size())
-			count++
+		} else if path != dir {
+			if filepath.Dir(path) == dir {
+				count++
+			}
 		}
-	}
+		return nil
+	})
 	return size, count
 }
 
@@ -1765,14 +1766,15 @@ func cleanDirContents(dir string) (uint64, int, error) {
 	var freedCount int
 	for _, e := range entries {
 		p := filepath.Join(dir, e.Name())
-		info, err := e.Info()
-		if err == nil && !e.IsDir() {
-			freedBytes += uint64(info.Size())
-			freedCount++
-		} else if err == nil && e.IsDir() {
-			s, c := measureDir(p)
+		if !e.IsDir() {
+			if info, err := e.Info(); err == nil {
+				freedBytes += uint64(info.Size())
+				freedCount++
+			}
+		} else {
+			s, _ := measureDir(p)
 			freedBytes += s
-			freedCount += c
+			freedCount++
 		}
 		_ = os.RemoveAll(p)
 	}

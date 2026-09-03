@@ -184,11 +184,11 @@
             border: 1px solid var(--border-light, #ede6da);
         }
 
-        /* Modern Action Buttons in Folders Table */
+        /* Modern Action Icon Buttons in Folders Table */
         .folder-actions-wrap {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             white-space: nowrap;
             justify-content: flex-end;
         }
@@ -196,23 +196,21 @@
             background: #eff6ff;
             color: #1d4ed8;
             border: 1px solid #bfdbfe;
-            padding: 5px 9px;
-            border-radius: 7px;
-            font-size: 11.5px;
-            font-weight: 600;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            transition: all 0.15s ease;
-            white-space: nowrap;
-            line-height: 1;
+            justify-content: center;
+            transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 0;
         }
         .btn-clean-scratch:hover {
             background: #2563eb;
             color: #ffffff;
             border-color: #2563eb;
-            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
+            box-shadow: 0 3px 10px rgba(37, 99, 235, 0.28);
             transform: translateY(-1px);
         }
         .btn-clean-scratch:active {
@@ -222,23 +220,21 @@
             background: #fef2f2;
             color: #dc2626;
             border: 1px solid #fecaca;
-            padding: 5px 9px;
-            border-radius: 7px;
-            font-size: 11.5px;
-            font-weight: 600;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 4px;
-            transition: all 0.15s ease;
-            white-space: nowrap;
-            line-height: 1;
+            justify-content: center;
+            transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+            padding: 0;
         }
         .btn-clean-media:hover {
             background: #dc2626;
             color: #ffffff;
             border-color: #dc2626;
-            box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
+            box-shadow: 0 3px 10px rgba(220, 38, 38, 0.28);
             transform: translateY(-1px);
         }
         .btn-clean-media:active {
@@ -360,7 +356,7 @@
                         </svg>
                         <span>Clean All Scratch</span>
                     </button>
-                    <button onclick="fetchStorageFolders()" class="btn btn-secondary" style="padding:8px 14px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px;">
+                    <button id="btn-storage-refresh" onclick="refreshStorageView(this)" class="btn btn-secondary" style="padding:8px 14px; font-size:12.5px; display:inline-flex; align-items:center; gap:6px;">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <polyline points="23 4 23 10 17 10"></polyline>
                             <polyline points="1 20 1 14 7 14"></polyline>
@@ -377,12 +373,12 @@
             <table class="custom-table">
                 <thead>
                     <tr>
-                        <th style="width:18%;">NODE &amp; HOST</th>
-                        <th style="width:13%;">STREAM ROOT</th>
-                        <th style="width:23%;">MEDIA FOLDER</th>
-                        <th style="width:23%;">PROCESSING FOLDER</th>
-                        <th style="width:9%;">TOTAL USAGE</th>
-                        <th style="text-align:right; width:14%;">ACTIONS</th>
+                        <th style="width:22%;">NODE &amp; HOST</th>
+                        <th style="width:14%;">STREAM ROOT</th>
+                        <th style="width:25%;">MEDIA FOLDER</th>
+                        <th style="width:25%;">PROCESSING FOLDER</th>
+                        <th style="width:8%;">TOTAL USAGE</th>
+                        <th style="text-align:right; width:6%;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody id="storage-folders-table-body">

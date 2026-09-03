@@ -1098,18 +1098,16 @@ function renderStorageFolders(nodes) {
                     </td>
                     <td>
                         <div class="folder-actions-wrap">
-                            <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean temporary scratch workspace in ${d.processing_dir}">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
-                                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"></path>
+                            <button class="btn-clean-scratch" onclick="cleanDriveFolder('${n.node_id}', '${d.processing_dir}', 'processing')" title="Clean Scratch (${escapeHtml(d.processing_dir)})" aria-label="Clean Scratch">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
                                 </svg>
-                                <span>Clean Scratch</span>
                             </button>
-                            <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge media stored in ${d.media_dir}">
-                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
+                            <button class="btn-clean-media" onclick="cleanDriveFolder('${n.node_id}', '${d.media_dir}', 'media')" title="Purge Media (${escapeHtml(d.media_dir)})" aria-label="Purge Media">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3">
                                     <polyline points="3 6 5 6 21 6"></polyline>
                                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                                 </svg>
-                                <span>Purge Media</span>
                             </button>
                         </div>
                     </td>
@@ -1131,9 +1129,42 @@ function renderStorageFolders(nodes) {
     if (procCountEl) procCountEl.innerText = `${totalProcFiles} temporary processing artifacts`;
 }
 
+async function refreshStorageView(btnEl) {
+    const icon = btnEl ? btnEl.querySelector('svg') : document.querySelector('#btn-storage-refresh svg');
+    const label = btnEl ? btnEl.querySelector('span') : document.querySelector('#btn-storage-refresh span');
+
+    if (icon) icon.classList.add('spin-fast');
+    if (label) label.innerText = 'Refreshing...';
+    if (btnEl) btnEl.disabled = true;
+
+    try {
+        await Promise.all([
+            fetchStorageFolders(),
+            typeof fetchStorage === 'function' ? fetchStorage() : Promise.resolve()
+        ]);
+        if (label) label.innerText = 'Refreshed!';
+        setTimeout(() => {
+            if (label) label.innerText = 'Refresh';
+        }, 1200);
+    } catch (err) {
+        if (label) label.innerText = 'Failed';
+        setTimeout(() => {
+            if (label) label.innerText = 'Refresh';
+        }, 1500);
+    } finally {
+        if (icon) icon.classList.remove('spin-fast');
+        if (btnEl) btnEl.disabled = false;
+    }
+}
+
 async function cleanDriveFolder(nodeId, dirPath, target) {
-    const actionLabel = target === 'processing' ? 'temporary processing/scratch files' : 'ALL media packages';
-    if (!confirm(`Are you sure you want to clean ${actionLabel} in '${dirPath}' on node '${nodeId}'? This action cannot be undone.`)) {
+    const isMedia = target === 'media';
+    const actionLabel = isMedia ? 'ALL stored media packages' : 'temporary processing/scratch files';
+    const confirmPrompt = isMedia
+        ? `⚠️ WARNING: This will permanently DELETE all stored media packages in '${dirPath}' on node '${nodeId}'.\n\nAre you sure you want to proceed?`
+        : `Clean temporary processing/scratch files in '${dirPath}' on node '${nodeId}'?`;
+
+    if (!confirm(confirmPrompt)) {
         return;
     }
 
@@ -1145,15 +1176,22 @@ async function cleanDriveFolder(nodeId, dirPath, target) {
         });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
-        alert(`Cleaned successfully! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
-        fetchStorageFolders();
+        const freed = data.freed_bytes || 0;
+        const items = data.freed_items || 0;
+        if (freed === 0 && items === 0) {
+            alert(`Folder '${dirPath}' was already clean (0 B).`);
+        } else {
+            alert(`✅ Successfully cleaned! Freed ${formatBytes(freed)} (${items} items removed).`);
+        }
+        refreshStorageView();
     } catch (err) {
         alert('Failed to clean: ' + err.message);
     }
 }
 
 async function cleanNodeFolder(nodeId, target) {
-    const actionLabel = target === 'processing' ? 'temporary processing/scratch files' : 'ALL media files';
+    const isMedia = target === 'media';
+    const actionLabel = isMedia ? 'ALL stored media files' : 'temporary processing/scratch files';
     if (!confirm(`Are you sure you want to clean ${actionLabel} on node '${nodeId}'? This action cannot be undone.`)) {
         return;
     }
@@ -1166,8 +1204,14 @@ async function cleanNodeFolder(nodeId, target) {
         });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
-        alert(`Cleaned successfully! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
-        fetchStorageFolders();
+        const freed = data.freed_bytes || 0;
+        const items = data.freed_items || 0;
+        if (freed === 0 && items === 0) {
+            alert(`Node '${nodeId}' was already clean (0 B).`);
+        } else {
+            alert(`✅ Successfully cleaned! Freed ${formatBytes(freed)} (${items} items removed).`);
+        }
+        refreshStorageView();
     } catch (err) {
         alert('Failed to clean: ' + err.message);
     }
@@ -1186,8 +1230,14 @@ async function cleanAllProcessingScratch() {
         });
         if (!res.ok) throw new Error(await res.text());
         const data = await res.json();
-        alert(`All scratch folders cleaned! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
-        fetchStorageFolders();
+        const freed = data.freed_bytes || 0;
+        const items = data.freed_items || 0;
+        if (freed === 0 && items === 0) {
+            alert('✨ All scratch workspaces are already clean! (0 B temporary files found across cluster).');
+        } else {
+            alert(`✅ Cleaned scratch workspaces! Freed ${formatBytes(freed)} (${items} temporary items removed).`);
+        }
+        refreshStorageView();
     } catch (err) {
         alert('Failed to clean all scratch: ' + err.message);
     }
