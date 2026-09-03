@@ -455,7 +455,7 @@ function renderProcessing(force = false) {
                     <div>
                         <label class="proc-toggle-label" for="${enabledId}">
                             <span class="proc-switch">
-                                <input type="checkbox" id="${enabledId}" ${enabled ? 'checked' : ''} onchange="dirtyInputs['${enabledId}'] = this.checked">
+                                <input type="checkbox" id="${enabledId}" ${enabled ? 'checked' : ''} onchange="toggleSingleNodeProcessing('${escapeHtml(n.node_id)}', this.checked)">
                                 <span class="proc-slider"></span>
                             </span>
                             <span class="proc-toggle-text">Use for Processing</span>
@@ -538,6 +538,47 @@ async function saveProcessingProfile(nodeId) {
         await fetchTiersView(true);
     } catch (err) {
         alert('Network error saving processing reservation: ' + err.message);
+    }
+}
+
+async function toggleSingleNodeProcessing(nodeId, enabled) {
+    dirtyInputs[`proc-${nodeId}-enabled`] = enabled;
+    try {
+        const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/processing`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ node_id: nodeId, enabled: enabled })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        delete dirtyInputs[`proc-${nodeId}-enabled`];
+        await fetchTiersView(true);
+    } catch (err) {
+        alert('Failed to toggle worker: ' + err.message);
+        delete dirtyInputs[`proc-${nodeId}-enabled`];
+        await fetchTiersView(true);
+    }
+}
+
+async function bulkSetProcessing(enabled) {
+    const actionName = enabled ? 'ENABLE' : 'DISABLE';
+    if (!confirm(`Are you sure you want to ${actionName} processing across all worker nodes in the pool?`)) {
+        return;
+    }
+    try {
+        const res = await fetch('/api/processing', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled: enabled })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        for (const k in dirtyInputs) {
+            if (k.startsWith('proc-') && k.endsWith('-enabled')) {
+                delete dirtyInputs[k];
+            }
+        }
+        await fetchTiersView(true);
+    } catch (err) {
+        alert('Failed to update workers: ' + err.message);
     }
 }
 

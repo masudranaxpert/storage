@@ -32,9 +32,9 @@ type Eligibility struct {
 	Disks            []telemetry.DiskStat `json:"disks"`
 }
 
-// DefaultProfile keeps unconfigured nodes schedulable with no reservation.
+// DefaultProfile keeps unconfigured nodes disabled by default for processing.
 func DefaultProfile(nodeID string) ProcessingProfile {
-	return ProcessingProfile{NodeID: nodeID, Enabled: true}
+	return ProcessingProfile{NodeID: nodeID, Enabled: false}
 }
 
 // CheckEligibility evaluates a node's live telemetry against a reservation.

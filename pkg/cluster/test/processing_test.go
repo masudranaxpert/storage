@@ -148,7 +148,7 @@ func TestSelectProcessingWorkerErrorWhenAllReservedNodesStarve(t *testing.T) {
 func TestEvaluateProcessingDefaultsUnconfiguredNodes(t *testing.T) {
 	nodes := []*cluster.NodeRecord{procNode("fresh", 2, 2<<30, nil)}
 	out := cluster.EvaluateProcessing(nodes, map[string]cluster.ProcessingProfile{})
-	if !out["fresh"].Eligible {
-		t.Fatal("unconfigured nodes must default to eligible")
+	if out["fresh"].Eligible {
+		t.Fatal("unconfigured nodes must default to disabled")
 	}
 }

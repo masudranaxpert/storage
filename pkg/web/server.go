@@ -95,6 +95,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/tiers", s.handleTiers)
 	mux.HandleFunc("/api/tiers/", s.handleTiers)
 	mux.HandleFunc("/api/processing", s.handleProcessing)
+	mux.HandleFunc("/api/processing/", s.handleProcessing)
 	mux.HandleFunc("/api/nodes/provision", s.handleProvisionNode)
 	mux.HandleFunc("/api/nodes/", s.handleNodeAllocation)
 	mux.HandleFunc("/api/dbadmin/", s.handleDBAdmin)
@@ -897,6 +898,34 @@ func (s *Server) processingProfiles() map[string]cluster.ProcessingProfile {
 }
 
 func (s *Server) handleProcessing(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodPost {
+		var req struct {
+			Enabled bool `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, "invalid json payload", http.StatusBadRequest)
+			return
+		}
+		if s.store != nil {
+			nodes := s.coord.GetNodes()
+			for _, n := range nodes {
+				cfg, _ := s.store.GetNodeConfig(n.Metrics.NodeID)
+				if cfg == nil {
+					cfg = &db.NodeConfig{NodeID: n.Metrics.NodeID, Enabled: true}
+				}
+				cfg.ProcessingEnabled = req.Enabled
+				_ = s.store.SaveNodeConfig(cfg)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ok",
+			"enabled": req.Enabled,
+		})
+		return
+	}
+
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -911,7 +940,6 @@ func (s *Server) handleProcessing(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"nodes": list,
 	})

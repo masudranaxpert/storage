@@ -13,9 +13,21 @@
     </div>
     <div id="tiers-grid" class="tiers-grid"></div>
 
-    <div class="tiers-section-header">
-        <div class="tiers-section-title">Processing VPS Pool</div>
-        <span class="node-tag" id="processing-eligible-count" style="font-family:'JetBrains Mono',monospace;">-</span>
+    <div class="tiers-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+            <div class="tiers-section-title">Processing VPS Pool</div>
+            <span class="node-tag" id="processing-eligible-count" style="font-family:'JetBrains Mono',monospace;">-</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="bulkSetProcessing(true)" title="Enable processing across all cluster nodes">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                <span>Enable All</span>
+            </button>
+            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="bulkSetProcessing(false)" title="Disable processing across all cluster nodes">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                <span>Disable All</span>
+            </button>
+        </div>
     </div>
     <div id="processing-grid" class="processing-grid"></div>
 </div>
