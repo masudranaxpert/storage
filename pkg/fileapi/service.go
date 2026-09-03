@@ -48,13 +48,45 @@ type Service struct {
 // as funcs so the service always sees live values.
 func NewService(store JobStore, tiers TierSource, coord *cluster.Coordinator,
 	profiles func() map[string]cluster.ProcessingProfile, usage func() map[string]uint64) *Service {
-	return &Service{
+	s := &Service{
 		store:    store,
 		tiers:    tiers,
 		coord:    coord,
 		profiles: profiles,
 		usage:    usage,
 		client:   &http.Client{Timeout: 30 * time.Second},
+	}
+	go s.startWatchdogLoop()
+	return s
+}
+
+// startWatchdogLoop scans active jobs periodically. If a worker goes offline for > 3m,
+// the job is marked as failed to prevent permanent UI lockup.
+func (s *Service) startWatchdogLoop() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		jobs, err := s.store.ListFileJobs()
+		if err != nil {
+			continue
+		}
+		now := time.Now().UTC()
+		for _, job := range jobs {
+			if job.State == StateCompleted || job.State == StateFailed {
+				continue
+			}
+			if now.Sub(job.UpdatedAt) > 3*time.Minute {
+				worker := s.nodeByID(job.NodeID)
+				if worker == nil || worker.Status == cluster.StatusOffline {
+					job.State = StateFailed
+					job.Error = fmt.Sprintf("worker node '%s' went offline or timed out", job.NodeID)
+					job.UpdatedAt = now
+					_ = s.store.SaveFileJob(job)
+					fmt.Printf("[FileAPI Watchdog] ⚠️ File job '%s' on %s marked failed: worker went offline\n", job.Key, job.NodeID)
+				}
+			}
+		}
 	}
 }
 

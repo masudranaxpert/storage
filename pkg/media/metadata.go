@@ -228,6 +228,11 @@ func isWebAudioCodec(codec string) bool {
 	return c == "aac" || c == "mp4a"
 }
 
+func isTextSubtitle(codec string) bool {
+	c := strings.ToLower(strings.TrimSpace(codec))
+	return c == "subrip" || c == "srt" || c == "ass" || c == "ssa" || c == "webvtt" || c == "vtt" || c == "mov_text" || c == "text"
+}
+
 // RemuxToStreamableMP4 processes a video according to streaming specifications:
 // - Single audio stream: Keeps audio in the MP4 directly (zero external audio files).
 // - Multiple audio streams: Produces video-only MP4 (-an) + extracts each audio track
@@ -334,9 +339,12 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		}
 	}
 
-	// Subtitles: extract each subtitle to WebVTT (.vtt)
+	// Subtitles: extract each text-based subtitle to WebVTT (.vtt)
 	if ffmpegPath != "" && len(srcMeta.Subtitles) > 0 {
 		for idx, sTrack := range srcMeta.Subtitles {
+			if !isTextSubtitle(sTrack.Codec) {
+				continue // Skip bitmap subtitles (e.g. PGS / VobSub) which cannot be converted to WebVTT without OCR
+			}
 			lang := sTrack.Language
 			if lang == "" {
 				lang = fmt.Sprintf("sub_%d", idx+1)

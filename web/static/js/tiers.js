@@ -214,27 +214,33 @@ function renderTiers(force = false) {
                 </div>
 
                 ${unassigned.length > 0 ? `
-                <div class="tier-add-bar" style="display:flex;flex-direction:column;gap:6px;">
-                    <div style="display:flex;gap:6px;align-items:center;width:100%;">
-                        <select id="tier-${t.id}-add-select" class="tier-add-select" style="flex:1;"
+                <div class="tier-add-box">
+                    <div class="tier-add-row">
+                        <select id="tier-${t.id}-add-select" class="tier-add-select"
                             onchange="onTierSelectChange(${t.id}, this.value)"
-                            oninput="onTierSelectChange(${t.id}, this.value)">
+                            oninput="onTierSelectChange(${t.id}, this.value)"
+                            title="Select an unassigned node drive to attach to this tier">
                             ${unassignedOpts}
                         </select>
-                        <input type="number" min="0" placeholder="Quota GB (0=all)" id="${addQuotaId}" value="${escapeHtml(liveAddQuota)}"
-                            class="tier-add-quota" style="width:110px;" title="0 or empty = unlimited full free space" oninput="onInputChange('${addQuotaId}', this.value)">
+                        <div class="tier-add-quota-wrap" title="Quota limit in GB (empty or 0 = unlimited full space)">
+                            <input type="number" min="0" placeholder="Quota" id="${addQuotaId}" value="${escapeHtml(liveAddQuota)}"
+                                class="tier-add-quota" oninput="onInputChange('${addQuotaId}', this.value)">
+                            <span class="quota-unit">GB</span>
+                        </div>
                     </div>
-                    <div style="display:flex;gap:6px;align-items:center;width:100%;">
-                        <div class="tier-block-host-wrap" style="margin-top:0;flex:1;" title="Custom domain/CDN link (e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053)">
+                    <div class="tier-add-row">
+                        <div class="tier-block-host-wrap" style="margin-top:0;flex:1;min-width:0;" title="Custom domain/CDN link (e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053)">
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;color:var(--text-secondary);"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
                             <span style="font-size:10.5px;font-weight:700;color:var(--text-secondary);white-space:nowrap;">Host / CDN:</span>
                             <input type="text" placeholder="cdn1.streammesh.com or https://... (optional)" id="${addHostId}" value="${escapeHtml(liveAddHost)}"
                                 class="tier-block-host-input" oninput="onInputChange('${addHostId}', this.value)">
                         </div>
-                        <button class="btn btn-primary tier-add-btn" style="padding:5px 12px;font-size:12px;white-space:nowrap;" onclick="assignBlockToTier(${t.id})">+ Bag Block</button>
+                        <button class="btn btn-primary tier-add-btn" onclick="assignBlockToTier(${t.id})">
+                            <span style="font-size:13px;line-height:1;font-weight:700;">+</span> Bag Block
+                        </button>
                     </div>
                 </div>` : `
-                <div style="font-size:11px;color:var(--text-muted);padding:8px 0;text-align:center;font-style:italic;">
+                <div class="tier-empty-drives-hint">
                     All available node storage drives are assigned to tiers.
                 </div>`}
 
