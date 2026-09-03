@@ -81,6 +81,7 @@ function navigateTo(pageId, pushHistory = true) {
     if (cachedPoolData) renderAllViews(cachedPoolData);
     if (pageId === 'media') fetchMediaList();
     if (pageId === 'tiers') fetchTiersView();
+    if (pageId === 'storage' && typeof fetchStorageFolders === 'function' && currentStorageTab === 'folders') fetchStorageFolders();
     if (pageId === 'database' && window.DBStudio) DBStudio.refresh();
 }
 
@@ -952,6 +953,155 @@ function renderStorage(data) {
     });
 
     tbody.innerHTML = rows || '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-secondary);">No storage drives pooled yet.</td></tr>';
+}
+
+let currentStorageTab = 'disks';
+
+function switchStorageTab(tab) {
+    currentStorageTab = tab;
+    document.querySelectorAll('.storage-tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.storage-tab-content').forEach(content => content.style.display = 'none');
+
+    const btn = document.getElementById(`tab-btn-${tab}`);
+    const content = document.getElementById(`storage-tab-${tab}`);
+    if (btn) btn.classList.add('active');
+    if (content) content.style.display = 'block';
+
+    if (tab === 'folders') {
+        fetchStorageFolders();
+    }
+}
+
+async function fetchStorageFolders() {
+    const tbody = document.getElementById('storage-folders-table-body');
+    if (!tbody) return;
+
+    try {
+        const res = await fetch('/api/storage/folders');
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        renderStorageFolders(data.nodes || []);
+    } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--status-offline);">Failed to load storage folders: ${err.message}</td></tr>`;
+    }
+}
+
+function renderStorageFolders(nodes) {
+    const tbody = document.getElementById('storage-folders-table-body');
+    if (!tbody) return;
+
+    let totalMedia = 0;
+    let totalMediaFiles = 0;
+    let totalProc = 0;
+    let totalProcFiles = 0;
+
+    let rows = '';
+    nodes.forEach(n => {
+        totalMedia += n.media_size_bytes || 0;
+        totalMediaFiles += n.media_file_count || 0;
+        totalProc += n.processing_size_bytes || 0;
+        totalProcFiles += n.processing_file_count || 0;
+
+        const isOnline = n.status === 'online';
+        const statusBadge = `<span class="node-badge ${n.status}">${n.status}</span>`;
+
+        rows += `
+            <tr>
+                <td>
+                    <strong style="font-size:14px;">${n.node_id}</strong>
+                    <div style="font-size:12px; color:var(--text-secondary);">${n.hostname || ''} (${(n.ips || []).join(', ')})</div>
+                    <div style="margin-top:4px;">${statusBadge}</div>
+                </td>
+                <td>
+                    <span class="folder-pill" style="background:rgba(255,255,255,0.05); color:var(--text-secondary);">
+                        <i class="fas fa-folder"></i> ${n.stream_root || '/stream'}
+                    </span>
+                </td>
+                <td>
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <span class="folder-pill media"><i class="fas fa-film"></i> ${n.media_dir || '/stream/media'}</span>
+                        <div style="font-size:12px; color:var(--text-primary); font-weight:600;">
+                            ${formatBytes(n.media_size_bytes || 0)} <span style="font-size:11px; font-weight:400; color:var(--text-secondary);">(${n.media_file_count || 0} packages)</span>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <div style="display:flex; flex-direction:column; gap:4px;">
+                        <span class="folder-pill proc"><i class="fas fa-gears"></i> ${n.processing_dir || '/stream/processing'}</span>
+                        <div style="font-size:12px; color:var(--text-primary); font-weight:600;">
+                            ${formatBytes(n.processing_size_bytes || 0)} <span style="font-size:11px; font-weight:400; color:var(--text-secondary);">(${n.processing_file_count || 0} temp files)</span>
+                        </div>
+                    </div>
+                </td>
+                <td>
+                    <strong style="color:var(--orange-primary); font-size:14px;">${formatBytes(n.total_stream_bytes || 0)}</strong>
+                </td>
+                <td>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button class="btn-clean-proc" onclick="cleanNodeFolder('${n.node_id}', 'processing')" title="Clear all temporary processing artifacts">
+                            <i class="fas fa-broom"></i> Clean Processing
+                        </button>
+                        <button class="btn-clean-media" onclick="cleanNodeFolder('${n.node_id}', 'media')" title="Purge all media stored on this node">
+                            <i class="fas fa-trash"></i> Clean Media
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = rows || '<tr><td colspan="6" style="text-align:center; padding:24px; color:var(--text-secondary);">No nodes connected.</td></tr>';
+
+    const mediaEl = document.getElementById('summary-total-media');
+    const mediaCountEl = document.getElementById('summary-total-media-files');
+    const procEl = document.getElementById('summary-total-processing');
+    const procCountEl = document.getElementById('summary-total-processing-files');
+
+    if (mediaEl) mediaEl.innerText = formatBytes(totalMedia);
+    if (mediaCountEl) mediaCountEl.innerText = `${totalMediaFiles} packages stored across cluster`;
+    if (procEl) procEl.innerText = formatBytes(totalProc);
+    if (procCountEl) procCountEl.innerText = `${totalProcFiles} temporary processing artifacts`;
+}
+
+async function cleanNodeFolder(nodeId, target) {
+    const actionLabel = target === 'processing' ? 'temporary processing/scratch files' : 'ALL media files';
+    if (!confirm(`Are you sure you want to clean ${actionLabel} on node '${nodeId}'? This action cannot be undone.`)) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/storage/clean', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ node_id: nodeId, target: target })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        alert(`Cleaned successfully! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
+        fetchStorageFolders();
+    } catch (err) {
+        alert('Failed to clean: ' + err.message);
+    }
+}
+
+async function cleanAllProcessingScratch() {
+    if (!confirm('Are you sure you want to clean all temporary processing scratch files across ALL connected nodes?')) {
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/storage/clean', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ node_id: 'all', target: 'processing' })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        alert(`All scratch folders cleaned! Freed ${formatBytes(data.freed_bytes || 0)} (${data.freed_items || 0} items removed).`);
+        fetchStorageFolders();
+    } catch (err) {
+        alert('Failed to clean all scratch: ' + err.message);
+    }
 }
 
 function renderSettings(data) {

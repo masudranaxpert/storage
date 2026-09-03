@@ -908,6 +908,66 @@ var chunkBufPool = sync.Pool{
 		w.Write([]byte(`{"status":"deleted"}`))
 	})
 
+	// GET /api/v1/storage-folders: inspect sizes and paths of media and processing directories.
+	mux.HandleFunc("/api/v1/storage-folders", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		mediaSize, mediaCount := measureDir(a.MediaDir)
+		procSize, procCount := measureDir(a.ScratchDir)
+
+		streamRoot := filepath.Dir(a.MediaDir)
+		if streamRoot == "." || streamRoot == "/" {
+			streamRoot = "/stream"
+		}
+
+		resp := map[string]interface{}{
+			"node_id":               a.NodeID,
+			"stream_root":           streamRoot,
+			"media_dir":             a.MediaDir,
+			"media_size_bytes":      mediaSize,
+			"media_file_count":      mediaCount,
+			"processing_dir":        a.ScratchDir,
+			"processing_size_bytes": procSize,
+			"processing_file_count": procCount,
+			"total_stream_bytes":    mediaSize + procSize,
+		}
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	// POST /api/v1/storage-clean?target=processing|media: cleans files inside the requested directory.
+	mux.HandleFunc("/api/v1/storage-clean", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		target := r.URL.Query().Get("target")
+		var cleanDir string
+		switch target {
+		case "processing", "scratch":
+			cleanDir = a.ScratchDir
+		case "media":
+			cleanDir = a.MediaDir
+		default:
+			http.Error(w, "target must be 'processing' or 'media'", http.StatusBadRequest)
+			return
+		}
+
+		freedBytes, freedCount, err := cleanDirContents(cleanDir)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		_ = os.MkdirAll(cleanDir, 0755)
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "cleaned",
+			"target":      target,
+			"dir":         cleanDir,
+			"freed_bytes": freedBytes,
+			"freed_items": freedCount,
+		})
+	})
+
 	mediaHandler := func(w http.ResponseWriter, r *http.Request) {
 		subPath := strings.TrimPrefix(r.URL.Path, "/media/")
 		subPath = strings.TrimPrefix(subPath, "/stream/")
@@ -1546,4 +1606,64 @@ func validKey(key string) bool {
 		}
 	}
 	return true
+}
+
+func measureDir(dir string) (uint64, int) {
+	if dir == "" {
+		return 0, 0
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0
+	}
+	var size uint64
+	var count int
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if e.IsDir() {
+			subEntries, err := os.ReadDir(filepath.Join(dir, e.Name()))
+			if err == nil {
+				for _, se := range subEntries {
+					sinfo, err := se.Info()
+					if err == nil && !se.IsDir() {
+						size += uint64(sinfo.Size())
+						count++
+					}
+				}
+			}
+		} else {
+			size += uint64(info.Size())
+			count++
+		}
+	}
+	return size, count
+}
+
+func cleanDirContents(dir string) (uint64, int, error) {
+	if dir == "" || dir == "/" || dir == "." {
+		return 0, 0, fmt.Errorf("invalid or protected directory: %s", dir)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0, 0, err
+	}
+	var freedBytes uint64
+	var freedCount int
+	for _, e := range entries {
+		p := filepath.Join(dir, e.Name())
+		info, err := e.Info()
+		if err == nil && !e.IsDir() {
+			freedBytes += uint64(info.Size())
+			freedCount++
+		} else if err == nil && e.IsDir() {
+			s, c := measureDir(p)
+			freedBytes += s
+			freedCount += c
+		}
+		_ = os.RemoveAll(p)
+	}
+	return freedBytes, freedCount, nil
 }

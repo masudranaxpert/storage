@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -87,6 +90,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/heartbeat", s.handleHeartbeat)
 	mux.HandleFunc("/api/nodes", s.handleGetNodes)
 	mux.HandleFunc("/api/pool", s.handleGetPool)
+	mux.HandleFunc("/api/storage/folders", s.handleStorageFolders)
+	mux.HandleFunc("/api/storage/clean", s.handleStorageClean)
 	mux.HandleFunc("/api/tiers", s.handleTiers)
 	mux.HandleFunc("/api/tiers/", s.handleTiers)
 	mux.HandleFunc("/api/processing", s.handleProcessing)
@@ -257,6 +262,158 @@ func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.coord.GetPoolSummary())
+}
+
+func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	nodes := s.coord.GetNodes()
+
+	type NodeFolderResponse struct {
+		NodeID              string   `json:"node_id"`
+		Hostname            string   `json:"hostname"`
+		IPs                 []string `json:"ips"`
+		Status              string   `json:"status"`
+		StreamRoot          string   `json:"stream_root"`
+		MediaDir            string   `json:"media_dir"`
+		MediaSizeBytes      uint64   `json:"media_size_bytes"`
+		MediaFileCount      int      `json:"media_file_count"`
+		ProcessingDir       string   `json:"processing_dir"`
+		ProcessingSizeBytes uint64   `json:"processing_size_bytes"`
+		ProcessingFileCount int      `json:"processing_file_count"`
+		TotalStreamBytes    uint64   `json:"total_stream_bytes"`
+	}
+
+	var results []NodeFolderResponse
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	client := &http.Client{Timeout: 3 * time.Second}
+
+	for _, n := range nodes {
+		if !cluster.IsPoolVPS(n.Metrics) {
+			continue
+		}
+		wg.Add(1)
+		go func(node *cluster.NodeRecord) {
+			defer wg.Done()
+			item := NodeFolderResponse{
+				NodeID:   node.Metrics.NodeID,
+				Hostname: node.Metrics.Hostname,
+				IPs:      node.Metrics.IPs,
+				Status:   string(node.Status),
+			}
+
+			baseURL := fileapi.AgentBaseURL(node)
+			resp, err := client.Get(baseURL + "/api/v1/storage-folders")
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var folderStats struct {
+					StreamRoot          string `json:"stream_root"`
+					MediaDir            string `json:"media_dir"`
+					MediaSizeBytes      uint64 `json:"media_size_bytes"`
+					MediaFileCount      int    `json:"media_file_count"`
+					ProcessingDir       string `json:"processing_dir"`
+					ProcessingSizeBytes uint64 `json:"processing_size_bytes"`
+					ProcessingFileCount int    `json:"processing_file_count"`
+					TotalStreamBytes    uint64 `json:"total_stream_bytes"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
+					item.StreamRoot = folderStats.StreamRoot
+					item.MediaDir = folderStats.MediaDir
+					item.MediaSizeBytes = folderStats.MediaSizeBytes
+					item.MediaFileCount = folderStats.MediaFileCount
+					item.ProcessingDir = folderStats.ProcessingDir
+					item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
+					item.ProcessingFileCount = folderStats.ProcessingFileCount
+					item.TotalStreamBytes = folderStats.TotalStreamBytes
+				}
+				resp.Body.Close()
+			}
+			mu.Lock()
+			results = append(results, item)
+			mu.Unlock()
+		}(n)
+	}
+	wg.Wait()
+
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].NodeID < results[j].NodeID
+	})
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"nodes": results,
+	})
+}
+
+func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		NodeID string `json:"node_id"`
+		Target string `json:"target"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	nodes := s.coord.GetNodes()
+
+	if req.NodeID == "all" || req.NodeID == "*" {
+		var totalFreedBytes uint64
+		var totalFreedItems int
+		for _, n := range nodes {
+			if !cluster.IsPoolVPS(n.Metrics) {
+				continue
+			}
+			baseURL := fileapi.AgentBaseURL(n)
+			resp, err := client.Post(baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), "application/json", nil)
+			if err == nil && resp.StatusCode == http.StatusOK {
+				var res struct {
+					FreedBytes uint64 `json:"freed_bytes"`
+					FreedItems int    `json:"freed_items"`
+				}
+				if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+					totalFreedBytes += res.FreedBytes
+					totalFreedItems += res.FreedItems
+				}
+				resp.Body.Close()
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "cleaned_all",
+			"target":      req.Target,
+			"freed_bytes": totalFreedBytes,
+			"freed_items": totalFreedItems,
+		})
+		return
+	}
+
+	var targetNode *cluster.NodeRecord
+	for _, n := range nodes {
+		if n.Metrics.NodeID == req.NodeID {
+			targetNode = n
+			break
+		}
+	}
+	if targetNode == nil {
+		http.Error(w, "node not found", http.StatusNotFound)
+		return
+	}
+
+	baseURL := fileapi.AgentBaseURL(targetNode)
+	resp, err := client.Post(baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), "application/json", nil)
+	if err != nil {
+		http.Error(w, "failed to dial agent: "+err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer resp.Body.Close()
+
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
 }
 
 func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
