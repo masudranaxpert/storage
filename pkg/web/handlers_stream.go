@@ -63,24 +63,45 @@ func (s *Server) processingProfiles() map[string]cluster.ProcessingProfile {
 
 func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	subPath := strings.TrimPrefix(r.URL.Path, "/stream/")
-	parts := strings.Split(subPath, "/")
-	if len(parts) < 2 {
+	cleanSubPath := filepath.Clean(subPath)
+	if strings.Contains(cleanSubPath, "..") || cleanSubPath == "." || cleanSubPath == "" {
 		http.NotFound(w, r)
 		return
 	}
 
+	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	mediaID := parts[0]
-	filePath := filepath.Join("data", "media", mediaID, filepath.Join(parts[1:]...))
+	var filePath string
+	if len(parts) == 1 {
+		filePath = filepath.Join("data", "media", mediaID, "video.mp4")
+		if _, err := os.Stat(filePath); err != nil {
+			filePath = filepath.Join("data", "media", mediaID)
+		}
+	} else {
+		filePath = filepath.Join("data", "media", mediaID, filepath.Join(parts[1:]...))
+	}
 
-	if _, err := os.Stat(filePath); err != nil {
+	stat, err := os.Stat(filePath)
+	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if stat.IsDir() {
+		candidate := filepath.Join(filePath, "video.mp4")
+		if _, err := os.Stat(candidate); err == nil {
+			filePath = candidate
+		} else {
+			http.NotFound(w, r)
+			return
+		}
 	}
 
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Accept-Encoding, Origin")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Accept-Encoding, Origin, Content-Type")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 	w.Header().Set("Accept-Ranges", "bytes")
+	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 
 	if strings.HasSuffix(filePath, ".m3u8") {
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
@@ -88,6 +109,11 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "video/mp4")
 	} else if strings.HasSuffix(filePath, ".m4s") {
 		w.Header().Set("Content-Type", "video/iso.segment")
+	}
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
 	}
 
 	http.ServeFile(w, r, filePath)

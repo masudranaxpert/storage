@@ -51,7 +51,8 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 		"-c:v", "copy",
 		"-c:a", "aac",
 		"-b:a", "192k",
-		"-movflags", "+faststart+frag_keyframe+empty_moov+default_base_moof",
+		"-max_muxing_queue_size", "1024",
+		"-movflags", "+faststart",
 		targetMP4Path,
 	)
 	if out, err := cmd.CombinedOutput(); err != nil {
