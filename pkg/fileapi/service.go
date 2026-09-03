@@ -65,8 +65,14 @@ func NewService(store JobStore, tiers TierSource, coord *cluster.Coordinator,
 func (s *Service) startWatchdogLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
+	reconcileCounter := 0
 
 	for range ticker.C {
+		reconcileCounter++
+		if reconcileCounter%2 == 0 { // Every 60 seconds
+			s.reconcileGhostRecords()
+		}
+
 		jobs, err := s.store.ListFileJobs()
 		if err != nil {
 			continue
@@ -85,6 +91,38 @@ func (s *Service) startWatchdogLoop() {
 					_ = s.store.SaveFileJob(job)
 					fmt.Printf("[FileAPI Watchdog] ⚠️ File job '%s' on %s marked failed: worker went offline\n", job.Key, job.NodeID)
 				}
+			}
+		}
+	}
+}
+
+// reconcileGhostRecords verifies that completed file records actually exist on the target worker.
+// If an admin manually deleted files from the disk (e.g. rm -rf /stream/media/<key>),
+// this cleans the ghost record from BadgerDB so cluster state reflects physical storage.
+func (s *Service) reconcileGhostRecords() {
+	recs, err := s.store.ListFileRecords()
+	if err != nil {
+		return
+	}
+	client := &http.Client{Timeout: 2 * time.Second}
+	for _, rec := range recs {
+		job, err := s.store.GetFileJob(rec.Key)
+		if err != nil || job == nil || job.State != StateCompleted {
+			continue
+		}
+		worker := s.nodeByID(job.Placement.NodeID)
+		if worker == nil || worker.Status != cluster.StatusOnline {
+			continue
+		}
+		probeURL := fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), rec.Key)
+		resp, err := client.Head(probeURL)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusNotFound {
+				fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing on %s disk — cleaning DB record\n",
+					rec.Key, rec.Filename, job.Placement.NodeID)
+				_ = s.store.DeleteFileJob(rec.Key)
+				_ = s.store.DeleteFileRecord(rec.Key)
 			}
 		}
 	}
@@ -128,29 +166,11 @@ func (s *Service) tierByID(statuses []storage.TierStatus, id int) *storage.TierS
 	return nil
 }
 
-// resolveUsage starts from the injected usage hook, then adds every non-failed
-// fileapi library entry (bytes counted against the placement block owner).
+// resolveUsage starts from the injected usage hook without double-counting.
 func (s *Service) resolveUsage() map[string]uint64 {
 	merged := make(map[string]uint64)
-	for nodeID, bytes := range s.usage() {
-		merged[nodeID] += bytes
-	}
-	if recs, err := s.store.ListFileRecords(); err == nil {
-		jobs := map[string]*FileJob{}
-		if list, err := s.store.ListFileJobs(); err == nil {
-			for _, j := range list {
-				jobs[j.Key] = j
-			}
-		}
-		for _, rec := range recs {
-			if job, ok := jobs[rec.Key]; ok && job.State != StateFailed {
-				bytes := uint64(rec.SizeBytes)
-				merged[job.Placement.NodeID] += bytes
-				if job.Placement.Path != "" {
-					merged[job.Placement.NodeID+"|"+job.Placement.Path] += bytes
-				}
-			}
-		}
+	for k, bytes := range s.usage() {
+		merged[k] += bytes
 	}
 	return merged
 }
