@@ -140,6 +140,11 @@ func (a *Agent) resolveTargetDir(dir string) string {
 	return filepath.Join(dir, "stream", "media")
 }
 
+// ResolveTargetDir exports resolveTargetDir for testing and external callers.
+func (a *Agent) ResolveTargetDir(dir string) string {
+	return a.resolveTargetDir(dir)
+}
+
 // resolveMediaPath maps a request sub-path onto the primary media dir first,
 // then any registered block roots. If the path targets a media directory,
 // it automatically serves the primary .mp4 video file inside it. Returns "" when nothing matches.

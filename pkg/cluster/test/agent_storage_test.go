@@ -1,13 +1,15 @@
-﻿package cluster
+package cluster_test
 
 import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"stream/pkg/cluster"
 )
 
 func TestResolveTargetDir(t *testing.T) {
-	agent := NewAgent("test-node", "http://127.0.0.1:8080", 5*time.Second, 2052, filepath.Join("data", "media"), "", "")
+	agent := cluster.NewAgent("test-node", "http://127.0.0.1:8080", 5*time.Second, 2052, filepath.Join("data", "media"), "", "")
 
 	tests := []struct {
 		input    string
@@ -23,9 +25,9 @@ func TestResolveTargetDir(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		got := agent.resolveTargetDir(tc.input)
+		got := agent.ResolveTargetDir(tc.input)
 		if filepath.Clean(got) != filepath.Clean(tc.expected) {
-			t.Errorf("resolveTargetDir(%q) = %q, expected %q", tc.input, got, tc.expected)
+			t.Errorf("ResolveTargetDir(%q) = %q, expected %q", tc.input, got, tc.expected)
 		}
 	}
 }

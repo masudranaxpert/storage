@@ -1,4 +1,4 @@
-package media
+package media_test
 
 import (
 	"os"
@@ -8,22 +8,23 @@ import (
 	"time"
 
 	"github.com/Eyevinn/mp4ff/mp4"
+	"stream/pkg/media"
 )
 
 func TestHLSManifestGeneration(t *testing.T) {
-	pkg := &CMAFPackage{
+	pkg := &media.CMAFPackage{
 		MediaID:     "test_media_01",
 		TotalChunks: 3,
 		TotalBytes:  1024 * 1024 * 5,
 		DurationSec: 12.0,
-		InitChunk: &MediaChunk{
+		InitChunk: &media.MediaChunk{
 			Index:     0,
 			Filename:  "test_media_01_init.mp4",
 			SizeBytes: 1024,
 			TrackType: "init",
 			Tier:      0,
 		},
-		Chunks: []MediaChunk{
+		Chunks: []media.MediaChunk{
 			{Index: 1, Filename: "test_media_01_seg_0001.m4s", DurationSec: 4.0, SizeBytes: 10000, Tier: 0},
 			{Index: 2, Filename: "test_media_01_seg_0002.m4s", DurationSec: 4.0, SizeBytes: 12000, Tier: 0},
 			{Index: 3, Filename: "test_media_01_seg_0003.m4s", DurationSec: 4.0, SizeBytes: 15000, Tier: 2},
@@ -31,7 +32,7 @@ func TestHLSManifestGeneration(t *testing.T) {
 		CreatedAt: time.Now(),
 	}
 
-	manifest := GenerateHLSManifest(pkg, "http://10.0.0.1:1212/chunks")
+	manifest := media.GenerateHLSManifest(pkg, "http://10.0.0.1:1212/chunks")
 
 	if !strings.Contains(manifest, "#EXT-X-VERSION:7") {
 		t.Errorf("expected HLS v7 header, got:\n%s", manifest)
@@ -67,8 +68,8 @@ func TestCMAFInitSegmentEncoding(t *testing.T) {
 		t.Fatalf("failed to encode init segment: %v", err)
 	}
 
-	stat, err := f.Stat()
-	if err != nil || stat.Size() == 0 {
-		t.Errorf("init segment file is empty")
+	stat, _ := os.Stat(outPath)
+	if stat == nil || stat.Size() == 0 {
+		t.Errorf("expected non-empty init segment file")
 	}
 }
