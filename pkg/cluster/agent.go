@@ -911,10 +911,78 @@ var chunkBufPool = sync.Pool{
 	// GET /api/v1/storage-folders: inspect sizes and paths of media and processing directories.
 	mux.HandleFunc("/api/v1/storage-folders", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		mediaSize, mediaCount := measureDir(a.MediaDir)
-		procSize, procCount := measureDir(a.ScratchDir)
 
-		streamRoot := filepath.Dir(a.MediaDir)
+		// Discover all potential media directories on this node
+		candidateDirs := make(map[string]struct{})
+		if a.MediaDir != "" {
+			candidateDirs[filepath.Clean(a.MediaDir)] = struct{}{}
+		}
+		candidateDirs["/stream/media"] = struct{}{}
+		candidateDirs["/var/lib/stream/media"] = struct{}{}
+		candidateDirs["/mnt/hdd/stream/media"] = struct{}{}
+
+		a.rootMu.RLock()
+		for root := range a.extraRoots {
+			candidateDirs[filepath.Clean(root)] = struct{}{}
+			candidateDirs[filepath.Clean(a.resolveTargetDir(root))] = struct{}{}
+		}
+		a.rootMu.RUnlock()
+
+		var totalMediaSize uint64
+		var totalMediaCount int
+		primaryMediaDir := a.MediaDir
+		var maxDirBytes uint64
+
+		for dir := range candidateDirs {
+			if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+				s, c := measureDir(dir)
+				if s > 0 || c > 0 {
+					totalMediaSize += s
+					totalMediaCount += c
+					if s > maxDirBytes || primaryMediaDir == "" {
+						maxDirBytes = s
+						primaryMediaDir = dir
+					}
+				}
+			}
+		}
+		if primaryMediaDir == "" {
+			primaryMediaDir = a.MediaDir
+		}
+
+		// Also discover processing/scratch directories
+		candidateProcDirs := make(map[string]struct{})
+		if a.ScratchDir != "" {
+			candidateProcDirs[filepath.Clean(a.ScratchDir)] = struct{}{}
+		}
+		candidateProcDirs["/stream/processing"] = struct{}{}
+		candidateProcDirs["/var/lib/stream/processing"] = struct{}{}
+		candidateProcDirs["/mnt/hdd/stream/processing"] = struct{}{}
+		candidateProcDirs[filepath.Join(filepath.Dir(primaryMediaDir), "processing")] = struct{}{}
+
+		var totalProcSize uint64
+		var totalProcCount int
+		primaryProcDir := a.ScratchDir
+		var maxProcBytes uint64
+
+		for dir := range candidateProcDirs {
+			if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+				s, c := measureDir(dir)
+				if s > 0 || c > 0 {
+					totalProcSize += s
+					totalProcCount += c
+					if s > maxProcBytes || primaryProcDir == "" {
+						maxProcBytes = s
+						primaryProcDir = dir
+					}
+				}
+			}
+		}
+		if primaryProcDir == "" {
+			primaryProcDir = filepath.Join(filepath.Dir(primaryMediaDir), "processing")
+		}
+
+		streamRoot := filepath.Dir(primaryMediaDir)
 		if streamRoot == "." || streamRoot == "/" {
 			streamRoot = "/stream"
 		}
@@ -922,18 +990,18 @@ var chunkBufPool = sync.Pool{
 		resp := map[string]interface{}{
 			"node_id":               a.NodeID,
 			"stream_root":           streamRoot,
-			"media_dir":             a.MediaDir,
-			"media_size_bytes":      mediaSize,
-			"media_file_count":      mediaCount,
-			"processing_dir":        a.ScratchDir,
-			"processing_size_bytes": procSize,
-			"processing_file_count": procCount,
-			"total_stream_bytes":    mediaSize + procSize,
+			"media_dir":             primaryMediaDir,
+			"media_size_bytes":      totalMediaSize,
+			"media_file_count":      totalMediaCount,
+			"processing_dir":        primaryProcDir,
+			"processing_size_bytes": totalProcSize,
+			"processing_file_count": totalProcCount,
+			"total_stream_bytes":    totalMediaSize + totalProcSize,
 		}
 		json.NewEncoder(w).Encode(resp)
 	})
 
-	// POST /api/v1/storage-clean?target=processing|media: cleans files inside the requested directory.
+	// POST /api/v1/storage-clean?target=processing|media: cleans files inside the requested directories.
 	mux.HandleFunc("/api/v1/storage-clean", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -941,30 +1009,46 @@ var chunkBufPool = sync.Pool{
 			return
 		}
 		target := r.URL.Query().Get("target")
-		var cleanDir string
+
+		var dirsToClean []string
 		switch target {
 		case "processing", "scratch":
-			cleanDir = a.ScratchDir
+			seen := make(map[string]bool)
+			for _, d := range []string{a.ScratchDir, "/stream/processing", "/var/lib/stream/processing", "/mnt/hdd/stream/processing"} {
+				if d != "" && !seen[d] {
+					seen[d] = true
+					dirsToClean = append(dirsToClean, d)
+				}
+			}
 		case "media":
-			cleanDir = a.MediaDir
+			seen := make(map[string]bool)
+			for _, d := range []string{a.MediaDir, "/stream/media", "/var/lib/stream/media", "/mnt/hdd/stream/media"} {
+				if d != "" && !seen[d] {
+					seen[d] = true
+					dirsToClean = append(dirsToClean, d)
+				}
+			}
 		default:
 			http.Error(w, "target must be 'processing' or 'media'", http.StatusBadRequest)
 			return
 		}
 
-		freedBytes, freedCount, err := cleanDirContents(cleanDir)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		var totalFreedBytes uint64
+		var totalFreedItems int
+		for _, dir := range dirsToClean {
+			if stat, err := os.Stat(dir); err == nil && stat.IsDir() {
+				fb, fi, _ := cleanDirContents(dir)
+				totalFreedBytes += fb
+				totalFreedItems += fi
+				_ = os.MkdirAll(dir, 0755)
+			}
 		}
-		_ = os.MkdirAll(cleanDir, 0755)
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":      "cleaned",
 			"target":      target,
-			"dir":         cleanDir,
-			"freed_bytes": freedBytes,
-			"freed_items": freedCount,
+			"freed_bytes": totalFreedBytes,
+			"freed_items": totalFreedItems,
 		})
 	})
 

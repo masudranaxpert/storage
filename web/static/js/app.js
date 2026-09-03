@@ -1002,47 +1002,63 @@ function renderStorageFolders(nodes) {
         totalProc += n.processing_size_bytes || 0;
         totalProcFiles += n.processing_file_count || 0;
 
+        const primaryIP = n.primary_ip || (n.ips && n.ips[0]) || '127.0.0.1';
+        const hostname = n.hostname || 'Host';
         const isOnline = n.status === 'online';
         const statusBadge = `<span class="node-badge ${n.status}">${n.status}</span>`;
 
         rows += `
             <tr>
                 <td>
-                    <strong style="font-size:14px;">${n.node_id}</strong>
-                    <div style="font-size:12px; color:var(--text-secondary);">${n.hostname || ''} (${(n.ips || []).join(', ')})</div>
-                    <div style="margin-top:4px;">${statusBadge}</div>
+                    <div style="font-size:15px; font-weight:700; color:var(--text-primary); letter-spacing:-0.2px;">${n.node_id}</div>
+                    <div style="font-size:12px; color:var(--text-secondary); margin:3px 0 6px 0; display:flex; align-items:center; gap:6px;">
+                        <span>${hostname}</span>
+                        <span class="ip-chip">${primaryIP}</span>
+                    </div>
+                    <div>${statusBadge}</div>
                 </td>
                 <td>
-                    <span class="folder-pill" style="background:rgba(255,255,255,0.05); color:var(--text-secondary);">
-                        <i class="fas fa-folder"></i> ${n.stream_root || '/stream'}
-                    </span>
+                    <div class="path-chip">
+                        <i class="fas fa-folder" style="color:var(--text-muted);"></i>
+                        <span>${n.stream_root || '/stream'}</span>
+                    </div>
                 </td>
                 <td>
-                    <div style="display:flex; flex-direction:column; gap:4px;">
-                        <span class="folder-pill media"><i class="fas fa-film"></i> ${n.media_dir || '/stream/media'}</span>
-                        <div style="font-size:12px; color:var(--text-primary); font-weight:600;">
-                            ${formatBytes(n.media_size_bytes || 0)} <span style="font-size:11px; font-weight:400; color:var(--text-secondary);">(${n.media_file_count || 0} packages)</span>
+                    <div>
+                        <div class="path-chip media">
+                            <i class="fas fa-film"></i>
+                            <span>${n.media_dir || '/stream/media'}</span>
+                        </div>
+                        <div class="folder-stat-line">
+                            <span class="size">${formatBytes(n.media_size_bytes || 0)}</span>
+                            <span class="count">• ${n.media_file_count || 0} packages</span>
                         </div>
                     </div>
                 </td>
                 <td>
-                    <div style="display:flex; flex-direction:column; gap:4px;">
-                        <span class="folder-pill proc"><i class="fas fa-gears"></i> ${n.processing_dir || '/stream/processing'}</span>
-                        <div style="font-size:12px; color:var(--text-primary); font-weight:600;">
-                            ${formatBytes(n.processing_size_bytes || 0)} <span style="font-size:11px; font-weight:400; color:var(--text-secondary);">(${n.processing_file_count || 0} temp files)</span>
+                    <div>
+                        <div class="path-chip proc">
+                            <i class="fas fa-microchip"></i>
+                            <span>${n.processing_dir || '/stream/processing'}</span>
+                        </div>
+                        <div class="folder-stat-line">
+                            <span class="size" style="${n.processing_size_bytes > 0 ? 'color:#2563eb;' : 'color:var(--text-muted);'}">
+                                ${formatBytes(n.processing_size_bytes || 0)}
+                            </span>
+                            <span class="count">• ${n.processing_file_count || 0} temp files</span>
                         </div>
                     </div>
                 </td>
                 <td>
-                    <strong style="color:var(--orange-primary); font-size:14px;">${formatBytes(n.total_stream_bytes || 0)}</strong>
+                    <span class="total-usage-pill">${formatBytes(n.total_stream_bytes || 0)}</span>
                 </td>
                 <td>
-                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                        <button class="btn-clean-proc" onclick="cleanNodeFolder('${n.node_id}', 'processing')" title="Clear all temporary processing artifacts">
-                            <i class="fas fa-broom"></i> Clean Processing
+                    <div class="folder-actions-wrap">
+                        <button class="btn-clean-scratch" onclick="cleanNodeFolder('${n.node_id}', 'processing')" title="Clean temporary scratch workspace">
+                            <i class="fas fa-broom"></i> Clean Scratch
                         </button>
-                        <button class="btn-clean-media" onclick="cleanNodeFolder('${n.node_id}', 'media')" title="Purge all media stored on this node">
-                            <i class="fas fa-trash"></i> Clean Media
+                        <button class="btn-clean-media" onclick="cleanNodeFolder('${n.node_id}', 'media')" title="Purge media on this node">
+                            <i class="fas fa-trash-can"></i> Purge Media
                         </button>
                     </div>
                 </td>

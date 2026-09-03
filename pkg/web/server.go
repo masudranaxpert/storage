@@ -271,6 +271,7 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 	type NodeFolderResponse struct {
 		NodeID              string   `json:"node_id"`
 		Hostname            string   `json:"hostname"`
+		PrimaryIP           string   `json:"primary_ip"`
 		IPs                 []string `json:"ips"`
 		Status              string   `json:"status"`
 		StreamRoot          string   `json:"stream_root"`
@@ -296,10 +297,11 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 		go func(node *cluster.NodeRecord) {
 			defer wg.Done()
 			item := NodeFolderResponse{
-				NodeID:   node.Metrics.NodeID,
-				Hostname: node.Metrics.Hostname,
-				IPs:      node.Metrics.IPs,
-				Status:   string(node.Status),
+				NodeID:    node.Metrics.NodeID,
+				Hostname:  node.Metrics.Hostname,
+				PrimaryIP: cluster.PreferAgentAddr(node.Metrics.IPs),
+				IPs:       node.Metrics.IPs,
+				Status:    string(node.Status),
 			}
 
 			baseURL := fileapi.AgentBaseURL(node)
