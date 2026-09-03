@@ -1480,6 +1480,19 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 	return a.transferFolderClassic(ctx, key, baseDir, final, totalBytes, report)
 }
 
+type progressCountingReader struct {
+	r      io.Reader
+	onRead func(n int)
+}
+
+func (pcr *progressCountingReader) Read(p []byte) (int, error) {
+	n, err := pcr.r.Read(p)
+	if n > 0 && pcr.onRead != nil {
+		pcr.onRead(n)
+	}
+	return n, err
+}
+
 func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string, final *TransferTarget,
 	totalBytes int64, report ProgressReporterFunc) error {
 
@@ -1535,9 +1548,6 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 	}
 
 	chunkSize := int64(16 * 1024 * 1024) // 16 MB chunks for optimal TCP window ramp-up
-	if totalBytes > 1024*1024*1024 {
-		chunkSize = int64(32 * 1024 * 1024) // 32 MB for files > 1GB
-	}
 	var tasks []chunkTask
 	for _, f := range files {
 		if f.size == 0 {
@@ -1653,11 +1663,21 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 				var uploadSuccess bool
 				for attempt := 1; attempt <= 3; attempt++ {
 					_, _ = sr.Seek(0, io.SeekStart)
+					var attemptBytes int64
+					pr := &progressCountingReader{
+						r: sr,
+						onRead: func(n int) {
+							attemptBytes += int64(n)
+							transferred.Add(int64(n))
+						},
+					}
+
 					chunkURL := fmt.Sprintf("%s/api/v1/ingest-chunk?key=%s&dir=%s&file=%s&offset=%d",
 						strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir),
 						url.QueryEscape(task.file.relPath), task.offset)
-					req, err := http.NewRequestWithContext(ctx, http.MethodPost, chunkURL, sr)
+					req, err := http.NewRequestWithContext(ctx, http.MethodPost, chunkURL, pr)
 					if err != nil {
+						transferred.Add(-attemptBytes)
 						break
 					}
 					req.ContentLength = task.length
@@ -1674,6 +1694,8 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 							break
 						}
 					}
+					// If attempt failed or rejected, rollback byte progress before retry
+					transferred.Add(-attemptBytes)
 					time.Sleep(time.Duration(attempt*200) * time.Millisecond)
 				}
 				f.Close()
@@ -1684,8 +1706,6 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 					errMu.Unlock()
 					return
 				}
-
-				transferred.Add(task.length)
 			}
 		}(i)
 	}
