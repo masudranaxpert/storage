@@ -489,6 +489,7 @@ func tuneLinuxTCPBuffers() {
 		{"sysctl", "-w", "net.core.wmem_max=33554432"},
 		{"sysctl", "-w", "net.ipv4.tcp_rmem=4096 87380 33554432"},
 		{"sysctl", "-w", "net.ipv4.tcp_wmem=4096 65536 33554432"},
+		{"sysctl", "-w", "fs.file-max=2097152"},
 	}
 	for _, cmd := range commands {
 		_ = exec.Command(cmd[0], cmd[1:]...).Run()
