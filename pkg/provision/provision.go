@@ -103,27 +103,27 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 		logMsg("Media engine tools (aria2, ffmpeg, rclone) active.")
 	}
 
-	// Step 3: Upload stream Linux binary
-	if len(linuxBinData) > 0 {
-		logMsg("Uploading stream worker daemon to /usr/local/bin/stream...")
-		// Stop previous service or processes to release any active file execution locks
-		_, _ = runRemote(client, "systemctl stop stream-agent 2>/dev/null || killall -9 stream 2>/dev/null || true", req.User, req.Password, req.UseSudo)
-		if err := uploadData(client, linuxBinData, "/usr/local/bin/stream", req.User, req.Password, req.UseSudo); err != nil {
-			errFormatted := fmt.Sprintf("failed to upload binary: %v", err)
-			logMsg("❌ " + errFormatted)
-			return result, fmt.Errorf("%s", errFormatted)
-		}
-		if _, err := runRemote(client, "chmod +x /usr/local/bin/stream", req.User, req.Password, req.UseSudo); err != nil {
-			errFormatted := fmt.Sprintf("failed to chmod binary: %v", err)
-			logMsg("❌ " + errFormatted)
-			return result, fmt.Errorf("%s", errFormatted)
-		}
-		logMsg("Binary deployed to /usr/local/bin/stream.")
-	}
-
-	// Step 3: Configure Systemd Service for persistent 24/7 background agent
 	resolvedCoordinator := ResolveCoordinatorURL(req.CoordinatorURL)
 	logMsg(fmt.Sprintf("Coordinator mesh target resolved to: %s", resolvedCoordinator))
+
+	// Step 2: Deploy stream Linux binary
+	logMsg("Deploying stream worker daemon to /usr/local/bin/stream...")
+	// Safely stop stream-agent service or process only, NEVER kill coordinator
+	_, _ = runRemote(client, "systemctl stop stream-agent 2>/dev/null || pkill -9 -f 'stream agent' 2>/dev/null || true", req.User, req.Password, req.UseSudo)
+
+	curlDeployCmd := fmt.Sprintf("curl -fsSL %s/download/stream-linux-amd64 -o /usr/local/bin/stream && chmod +x /usr/local/bin/stream", resolvedCoordinator)
+	if _, err := runRemote(client, curlDeployCmd, req.User, req.Password, req.UseSudo); err != nil {
+		if len(linuxBinData) > 0 {
+			logMsg("HTTP binary pull failed, uploading binary via SSH...")
+			if err := uploadData(client, linuxBinData, "/usr/local/bin/stream", req.User, req.Password, req.UseSudo); err != nil {
+				errFormatted := fmt.Sprintf("failed to upload binary: %v", err)
+				logMsg("❌ " + errFormatted)
+				return result, fmt.Errorf("%s", errFormatted)
+			}
+			_, _ = runRemote(client, "chmod +x /usr/local/bin/stream", req.User, req.Password, req.UseSudo)
+		}
+	}
+	logMsg("Binary deployed to /usr/local/bin/stream.")
 
 	advertise := strings.TrimSpace(req.AdvertiseAddr)
 	if advertise == "" {
@@ -354,7 +354,7 @@ func StopServiceOverSSH(ctx context.Context, req Request) error {
 		`systemctl disable stream-agent 2>/dev/null || true; ` +
 		`rm -f /etc/systemd/system/stream-agent.service; ` +
 		`systemctl daemon-reload 2>/dev/null || true; ` +
-		`killall -9 stream 2>/dev/null || true; ` +
+		`pkill -9 -f 'stream agent' 2>/dev/null || true; ` +
 		`MEDIA_REAL=$(readlink -f /var/lib/stream/media 2>/dev/null); ` +
 		`if [ -n "$MEDIA_REAL" ] && [ "$MEDIA_REAL" != "/" ]; then rm -rf "$MEDIA_REAL"; fi; ` +
 		`rm -rf /var/lib/stream; ` +
