@@ -45,18 +45,41 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 		return nil, fmt.Errorf("ffmpeg not found on node: required for CMAF packaging")
 	}
 
-	cmd := exec.Command(ffmpegPath,
-		"-y",
-		"-i", srcPath,
-		"-map", "0:v:0?",
-		"-map", "0:a?",
-		"-c:v", "copy",
-		"-c:a", "aac",
-		"-b:a", "192k",
-		"-max_muxing_queue_size", "1024",
-		"-movflags", "+faststart",
-		targetMP4Path,
-	)
+	ffprobePath, _ := exec.LookPath("ffprobe")
+	srcMeta := &MediaMetadata{}
+	if ffprobePath != "" {
+		_ = enrichViaFFprobe(ffprobePath, srcPath, srcMeta)
+	}
+	numAudios := len(srcMeta.AudioTracks)
+
+	var ffmpegArgs []string
+	if numAudios > 1 {
+		ffmpegArgs = []string{
+			"-y",
+			"-i", srcPath,
+			"-map", "0:v:0?",
+			"-an",
+			"-c:v", "copy",
+			"-max_muxing_queue_size", "1024",
+			"-movflags", "+faststart",
+			targetMP4Path,
+		}
+	} else {
+		ffmpegArgs = []string{
+			"-y",
+			"-i", srcPath,
+			"-map", "0:v:0?",
+			"-map", "0:a:0?",
+			"-c:v", "copy",
+			"-c:a", "aac",
+			"-b:a", "192k",
+			"-max_muxing_queue_size", "1024",
+			"-movflags", "+faststart",
+			targetMP4Path,
+		}
+	}
+
+	cmd := exec.Command(ffmpegPath, ffmpegArgs...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return nil, fmt.Errorf("ffmpeg remux failed: %v, output: %s", err, string(out))
 	}

@@ -223,25 +223,53 @@ func parseFPS(val string) float64 {
 	return 0
 }
 
-// RemuxToStreamableMP4 normalizes audio to web AAC and writes a fast-start MP4 at dstPath.
-// It maps ALL video and audio streams (-map 0:v:0? -map 0:a?), and extracts individual
-// audio tracks as external .m4a files and subtitles as .vtt sidecars in the media directory.
+// RemuxToStreamableMP4 processes a video according to streaming specifications:
+// - Single audio stream: Keeps audio in the MP4 directly (zero external audio files).
+// - Multiple audio streams: Produces video-only MP4 (-an) + extracts each audio track
+//   as a standalone web-optimized .m4a file (avoiding duplicate audio bytes).
+// - Subtitle streams: Extracts each subtitle track as a standalone WebVTT (.vtt) sidecar.
 func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*MediaMetadata, error) {
 	dstDir := filepath.Dir(dstPath)
 	ffmpegPath, err := exec.LookPath("ffmpeg")
+	ffprobePath, _ := exec.LookPath("ffprobe")
+
+	srcMeta := &MediaMetadata{}
+	if ffprobePath != "" {
+		_ = enrichViaFFprobe(ffprobePath, srcPath, srcMeta)
+	}
+	numAudios := len(srcMeta.AudioTracks)
+
 	if err == nil && ffmpegPath != "" {
-		cmd := exec.Command(ffmpegPath,
-			"-y",
-			"-i", srcPath,
-			"-map", "0:v:0?",
-			"-map", "0:a?",
-			"-c:v", "copy",
-			"-c:a", "aac",
-			"-b:a", "192k",
-			"-max_muxing_queue_size", "1024",
-			"-movflags", "+faststart",
-			dstPath,
-		)
+		var ffmpegArgs []string
+		if numAudios > 1 {
+			// Multi-audio: create pure video stream (-an), audio lives in isolated .m4a files
+			ffmpegArgs = []string{
+				"-y",
+				"-i", srcPath,
+				"-map", "0:v:0?",
+				"-an",
+				"-c:v", "copy",
+				"-max_muxing_queue_size", "1024",
+				"-movflags", "+faststart",
+				dstPath,
+			}
+		} else {
+			// Single or zero audio: keep audio inside the MP4
+			ffmpegArgs = []string{
+				"-y",
+				"-i", srcPath,
+				"-map", "0:v:0?",
+				"-map", "0:a:0?",
+				"-c:v", "copy",
+				"-c:a", "aac",
+				"-b:a", "192k",
+				"-max_muxing_queue_size", "1024",
+				"-movflags", "+faststart",
+				dstPath,
+			}
+		}
+
+		cmd := exec.Command(ffmpegPath, ffmpegArgs...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			_ = os.Remove(dstPath)
 			// If copy failed due to incompatible container/codecs, fallback to direct copy
@@ -260,69 +288,61 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		return nil, err
 	}
 
-	// Extract external audio files (.m4a) and subtitles (.vtt) if ffmpeg is available
-	if ffmpegPath != "" {
-		extractSidecars(ffmpegPath, srcPath, dstDir, meta)
+	// Multi-audio: extract each audio track to external .m4a
+	if ffmpegPath != "" && numAudios > 1 {
+		meta.AudioTracks = make([]AudioTrackInfo, 0, numAudios)
+		for idx, aTrack := range srcMeta.AudioTracks {
+			lang := aTrack.Language
+			if lang == "" {
+				lang = fmt.Sprintf("track_%d", idx+1)
+			}
+			audioFilename := fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
+			audioOutPath := filepath.Join(dstDir, audioFilename)
+
+			aCmd := exec.Command(ffmpegPath,
+				"-y",
+				"-i", srcPath,
+				"-map", fmt.Sprintf("0:a:%d", idx),
+				"-c:a", "aac",
+				"-b:a", "192k",
+				audioOutPath,
+			)
+			if _, aErr := aCmd.CombinedOutput(); aErr == nil {
+				if stat, statErr := os.Stat(audioOutPath); statErr == nil && stat.Size() > 0 {
+					aTrack.File = audioFilename
+					aTrack.Codec = "aac"
+					meta.AudioTracks = append(meta.AudioTracks, aTrack)
+				}
+			}
+		}
+	}
+
+	// Subtitles: extract each subtitle to WebVTT (.vtt)
+	if ffmpegPath != "" && len(srcMeta.Subtitles) > 0 {
+		for idx, sTrack := range srcMeta.Subtitles {
+			lang := sTrack.Language
+			if lang == "" {
+				lang = fmt.Sprintf("sub_%d", idx+1)
+			}
+			vttFilename := fmt.Sprintf("subtitle_%d_%s.vtt", idx+1, lang)
+			vttOutPath := filepath.Join(dstDir, vttFilename)
+
+			sCmd := exec.Command(ffmpegPath,
+				"-y",
+				"-i", srcPath,
+				"-map", fmt.Sprintf("0:s:%d", idx),
+				vttOutPath,
+			)
+			if _, sErr := sCmd.CombinedOutput(); sErr == nil {
+				if stat, statErr := os.Stat(vttOutPath); statErr == nil && stat.Size() > 0 {
+					sTrack.File = vttFilename
+					meta.Subtitles = append(meta.Subtitles, sTrack)
+				}
+			}
+		}
 	}
 
 	return meta, nil
-}
-
-// extractSidecars exports isolated .m4a audio tracks and .vtt subtitles into the media folder.
-func extractSidecars(ffmpegPath, srcPath, dstDir string, meta *MediaMetadata) {
-	ffprobePath, _ := exec.LookPath("ffprobe")
-
-	// 1. Extract external audio tracks (.m4a) for each audio stream
-	for idx, aTrack := range meta.AudioTracks {
-		lang := aTrack.Language
-		if lang == "" {
-			lang = fmt.Sprintf("track_%d", idx+1)
-		}
-		audioFilename := fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
-		audioOutPath := filepath.Join(dstDir, audioFilename)
-
-		cmd := exec.Command(ffmpegPath,
-			"-y",
-			"-i", srcPath,
-			"-map", fmt.Sprintf("0:a:%d", idx),
-			"-c:a", "aac",
-			"-b:a", "192k",
-			audioOutPath,
-		)
-		if _, err := cmd.CombinedOutput(); err == nil {
-			if stat, err := os.Stat(audioOutPath); err == nil && stat.Size() > 0 {
-				meta.AudioTracks[idx].File = audioFilename
-			}
-		}
-	}
-
-	// 2. Extract subtitles as WebVTT (.vtt) from the source container
-	if ffprobePath != "" {
-		srcMeta := &MediaMetadata{}
-		if err := enrichViaFFprobe(ffprobePath, srcPath, srcMeta); err == nil {
-			for idx, sTrack := range srcMeta.Subtitles {
-				lang := sTrack.Language
-				if lang == "" {
-					lang = fmt.Sprintf("sub_%d", idx+1)
-				}
-				vttFilename := fmt.Sprintf("subtitle_%d_%s.vtt", idx+1, lang)
-				vttOutPath := filepath.Join(dstDir, vttFilename)
-
-				cmd := exec.Command(ffmpegPath,
-					"-y",
-					"-i", srcPath,
-					"-map", fmt.Sprintf("0:s:%d", idx),
-					vttOutPath,
-				)
-				if _, err := cmd.CombinedOutput(); err == nil {
-					if stat, err := os.Stat(vttOutPath); err == nil && stat.Size() > 0 {
-						sTrack.File = vttFilename
-						meta.Subtitles = append(meta.Subtitles, sTrack)
-					}
-				}
-			}
-		}
-	}
 }
 
 // CopyFileSimple copies data from src to dst.
