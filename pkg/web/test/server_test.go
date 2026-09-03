@@ -31,7 +31,7 @@ func TestWebServerAPIs(t *testing.T) {
 	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, store)
 	hub := cluster.NewGRPCHub(coord, store, "")
 	tiers := storage.NewManager(store)
-	srv := web.NewServer(":0", coord, hub, store, tiers, "../../web/static", "../../web/templates")
+	srv := web.NewServer(":0", coord, hub, store, tiers, "../../../web/static", "../../../web/templates")
 	handler := srv.Handler()
 
 	// 1. Test POST /api/heartbeat
@@ -99,10 +99,10 @@ func TestWebServerAPIs(t *testing.T) {
 
 	// 5. POST /api/tiers — bag the test node disk into tier 1 with a quota
 	nodeRecord := coord.RegisterHeartbeat(telemetry.NodeMetrics{
-		NodeID:  "web-test-vps",
-		CPU:     telemetry.CPUStat{Cores: 4},
-		Memory:  telemetry.MemoryStat{TotalBytes: 4 << 30, AvailableBytes: 2 << 30},
-		Disks:   []telemetry.DiskStat{{Path: "/mnt/ssd", DiskType: "SSD", TotalBytes: 100 << 30, FreeBytes: 90 << 30}},
+		NodeID: "web-test-vps",
+		CPU:    telemetry.CPUStat{Cores: 4},
+		Memory: telemetry.MemoryStat{TotalBytes: 4 << 30, AvailableBytes: 2 << 30},
+		Disks:  []telemetry.DiskStat{{Path: "/mnt/ssd", DiskType: "SSD", TotalBytes: 100 << 30, FreeBytes: 90 << 30}},
 	})
 	_ = nodeRecord
 
