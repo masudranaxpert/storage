@@ -65,18 +65,23 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 			targetMP4Path,
 		}
 	} else {
+		codecArg := []string{"-c:a", "copy"}
+		if numAudios == 1 && !isWebAudioCodec(srcMeta.AudioTracks[0].Codec) {
+			codecArg = []string{"-c:a", "aac", "-b:a", "192k", "-threads", "2"}
+		}
 		ffmpegArgs = []string{
 			"-y",
 			"-i", srcPath,
 			"-map", "0:v:0?",
 			"-map", "0:a:0?",
 			"-c:v", "copy",
-			"-c:a", "aac",
-			"-b:a", "192k",
+		}
+		ffmpegArgs = append(ffmpegArgs, codecArg...)
+		ffmpegArgs = append(ffmpegArgs,
 			"-max_muxing_queue_size", "1024",
 			"-movflags", "+faststart",
 			targetMP4Path,
-		}
+		)
 	}
 
 	cmd := exec.Command(ffmpegPath, ffmpegArgs...)
