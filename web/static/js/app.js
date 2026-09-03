@@ -1157,114 +1157,222 @@ async function refreshStorageView(btnEl) {
     }
 }
 
-async function cleanDriveFolder(nodeId, dirPath, target) {
+let currentCleanTask = null;
+
+function openStorageCleanModal(config) {
+    currentCleanTask = config;
+
+    const modal = document.getElementById('storage-clean-modal');
+    if (!modal) return;
+
+    const titleEl = document.getElementById('clean-modal-title');
+    const subEl = document.getElementById('clean-modal-sub');
+    const descEl = document.getElementById('clean-modal-desc');
+    const nodeBadge = document.getElementById('clean-modal-node-badge');
+    const pathBadge = document.getElementById('clean-modal-path-badge');
+    const iconWrap = document.getElementById('clean-modal-icon-wrap');
+    const iconEl = document.getElementById('clean-modal-icon');
+    const actionBtn = document.getElementById('clean-modal-action-btn');
+    const actionText = document.getElementById('clean-modal-action-text');
+    const cancelBtn = document.getElementById('clean-modal-cancel-btn');
+    const doneBtn = document.getElementById('clean-modal-done-btn');
+    const progressEl = document.getElementById('clean-modal-progress');
+    const resultEl = document.getElementById('clean-modal-result');
+    const confirmWrap = document.getElementById('clean-modal-confirm-wrap');
+    const confirmInput = document.getElementById('clean-modal-confirm-input');
+
+    if (titleEl) titleEl.innerText = config.title || 'Clean Storage';
+    if (subEl) subEl.innerText = config.sub || 'Storage Maintenance';
+    if (descEl) descEl.innerHTML = config.desc || 'Are you sure you want to clean this directory?';
+    if (nodeBadge) nodeBadge.innerText = config.nodeId === 'all' ? 'All Connected Nodes' : config.nodeId;
+    if (pathBadge) pathBadge.innerText = config.dirPath || (config.target === 'media' ? 'All /stream/media Folders' : 'All /stream/processing Folders');
+
+    if (config.target === 'media') {
+        if (iconWrap) {
+            iconWrap.style.background = '#fef2f2';
+            iconWrap.style.color = '#dc2626';
+        }
+        if (iconEl) {
+            iconEl.innerHTML = '<polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>';
+        }
+        if (actionBtn) {
+            actionBtn.className = 'btn btn-clean-media';
+            actionBtn.style.padding = '8px 16px';
+        }
+    } else {
+        if (iconWrap) {
+            iconWrap.style.background = '#eff6ff';
+            iconWrap.style.color = '#2563eb';
+        }
+        if (iconEl) {
+            iconEl.innerHTML = '<path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>';
+        }
+        if (actionBtn) {
+            actionBtn.className = 'btn btn-primary';
+            actionBtn.style.padding = '8px 16px';
+        }
+    }
+
+    if (actionText) actionText.innerText = config.actionLabel || 'Confirm & Clean';
+
+    if (config.requireConfirmation) {
+        if (confirmWrap) confirmWrap.style.display = 'block';
+        if (confirmInput) confirmInput.value = '';
+        if (actionBtn) actionBtn.disabled = true;
+    } else {
+        if (confirmWrap) confirmWrap.style.display = 'none';
+        if (actionBtn) actionBtn.disabled = false;
+    }
+
+    if (progressEl) progressEl.style.display = 'none';
+    if (resultEl) resultEl.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'inline-block';
+    if (actionBtn) actionBtn.style.display = 'inline-block';
+    if (doneBtn) doneBtn.style.display = 'none';
+
+    modal.classList.add('open', 'active');
+}
+
+function onCleanConfirmInput(val) {
+    const actionBtn = document.getElementById('clean-modal-action-btn');
+    if (!actionBtn || !currentCleanTask || !currentCleanTask.requireConfirmation) return;
+    actionBtn.disabled = (val.trim().toUpperCase() !== 'DELETE');
+}
+
+function closeStorageCleanModal() {
+    const modal = document.getElementById('storage-clean-modal');
+    if (modal) modal.classList.remove('open', 'active');
+    currentCleanTask = null;
+}
+
+async function executeStorageCleanAction() {
+    if (!currentCleanTask) return;
+
+    const actionBtn = document.getElementById('clean-modal-action-btn');
+    const cancelBtn = document.getElementById('clean-modal-cancel-btn');
+    const doneBtn = document.getElementById('clean-modal-done-btn');
+    const progressEl = document.getElementById('clean-modal-progress');
+    const resultEl = document.getElementById('clean-modal-result');
+    const resultTitle = document.getElementById('clean-modal-result-title');
+    const resultMsg = document.getElementById('clean-modal-result-msg');
+    const confirmWrap = document.getElementById('clean-modal-confirm-wrap');
+
+    if (actionBtn) actionBtn.style.display = 'none';
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    if (confirmWrap) confirmWrap.style.display = 'none';
+    if (progressEl) progressEl.style.display = 'block';
+
+    const payload = {
+        node_id: currentCleanTask.nodeId,
+        target: currentCleanTask.target
+    };
+    if (currentCleanTask.dirPath) {
+        payload.dir = currentCleanTask.dirPath;
+    }
+
+    try {
+        const res = await fetch('/api/storage/clean', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        const freed = data.freed_bytes || 0;
+        const items = data.freed_items || 0;
+
+        if (progressEl) progressEl.style.display = 'none';
+        if (resultEl) {
+            resultEl.style.display = 'block';
+            resultEl.style.background = '#f0fdf4';
+            resultEl.style.borderColor = '#bbf7d0';
+            if (resultTitle) {
+                resultTitle.innerText = 'Cleanup Complete!';
+                resultTitle.style.color = '#16a34a';
+            }
+            if (resultMsg) {
+                if (freed === 0 && items === 0) {
+                    resultMsg.innerText = 'Folder was already clean (0 B used).';
+                } else {
+                    resultMsg.innerText = `Freed ${formatBytes(freed)} (${items} item${items === 1 ? '' : 's'} removed).`;
+                }
+                resultMsg.style.color = '#15803d';
+            }
+        }
+        if (doneBtn) doneBtn.style.display = 'inline-block';
+        refreshStorageView();
+    } catch (err) {
+        if (progressEl) progressEl.style.display = 'none';
+        if (resultEl) {
+            resultEl.style.display = 'block';
+            resultEl.style.background = '#fef2f2';
+            resultEl.style.borderColor = '#fecaca';
+            if (resultTitle) {
+                resultTitle.innerText = 'Cleanup Failed';
+                resultTitle.style.color = '#dc2626';
+            }
+            if (resultMsg) {
+                resultMsg.innerText = err.message || 'An error occurred during cleaning.';
+                resultMsg.style.color = '#b91c1c';
+            }
+        }
+        if (doneBtn) doneBtn.style.display = 'inline-block';
+    }
+}
+
+function cleanDriveFolder(nodeId, dirPath, target) {
     const isMedia = target === 'media';
-    const actionLabel = isMedia ? 'ALL stored media packages' : 'temporary processing/scratch files';
-    const confirmPrompt = isMedia
-        ? `⚠️ WARNING: This will permanently DELETE all stored media packages in '${dirPath}' on node '${nodeId}'.\n\nAre you sure you want to proceed?`
-        : `Clean temporary processing/scratch files in '${dirPath}' on node '${nodeId}'?`;
-
-    if (!confirm(confirmPrompt)) {
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/storage/clean', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: nodeId, dir: dirPath, target: target })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const freed = data.freed_bytes || 0;
-        const items = data.freed_items || 0;
-        if (freed === 0 && items === 0) {
-            alert(`Folder '${dirPath}' was already clean (0 B).`);
-        } else {
-            alert(`✅ Successfully cleaned! Freed ${formatBytes(freed)} (${items} items removed).`);
-        }
-        refreshStorageView();
-    } catch (err) {
-        alert('Failed to clean: ' + err.message);
-    }
+    openStorageCleanModal({
+        nodeId: nodeId,
+        dirPath: dirPath,
+        target: target,
+        title: isMedia ? 'Purge Stored Media' : 'Clean Scratch Workspace',
+        sub: `Drive cleanup on ${nodeId}`,
+        desc: isMedia
+            ? `⚠️ <strong>Warning:</strong> This will permanently delete <strong>all media video files</strong> inside <code style="background:#fee2e2; padding:2px 6px; border-radius:4px; font-size:12px;">${escapeHtml(dirPath)}</code> on node <strong>${escapeHtml(nodeId)}</strong>. This will set its storage usage to 0 B.`
+            : `This will remove all temporary download and remuxing artifacts from <code style="background:#eff6ff; padding:2px 6px; border-radius:4px; font-size:12px;">${escapeHtml(dirPath)}</code> on node <strong>${escapeHtml(nodeId)}</strong>.`,
+        actionLabel: isMedia ? 'Purge Media Now' : 'Clean Scratch Now',
+        requireConfirmation: false
+    });
 }
 
-async function cleanNodeFolder(nodeId, target) {
+function cleanNodeFolder(nodeId, target) {
     const isMedia = target === 'media';
-    const actionLabel = isMedia ? 'ALL stored media files' : 'temporary processing/scratch files';
-    if (!confirm(`Are you sure you want to clean ${actionLabel} on node '${nodeId}'? This action cannot be undone.`)) {
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/storage/clean', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: nodeId, target: target })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const freed = data.freed_bytes || 0;
-        const items = data.freed_items || 0;
-        if (freed === 0 && items === 0) {
-            alert(`Node '${nodeId}' was already clean (0 B).`);
-        } else {
-            alert(`✅ Successfully cleaned! Freed ${formatBytes(freed)} (${items} items removed).`);
-        }
-        refreshStorageView();
-    } catch (err) {
-        alert('Failed to clean: ' + err.message);
-    }
+    openStorageCleanModal({
+        nodeId: nodeId,
+        target: target,
+        title: isMedia ? 'Purge Node Media' : 'Clean Node Scratch',
+        sub: `Cluster maintenance on ${nodeId}`,
+        desc: isMedia
+            ? `⚠️ <strong>Warning:</strong> This will permanently delete all stored media packages across all drives on node <strong>${escapeHtml(nodeId)}</strong>.`
+            : `This will clean all temporary scratch artifacts on node <strong>${escapeHtml(nodeId)}</strong>.`,
+        actionLabel: isMedia ? 'Purge Node Media' : 'Clean Scratch',
+        requireConfirmation: false
+    });
 }
 
-async function cleanAllProcessingScratch() {
-    if (!confirm('Are you sure you want to clean all temporary processing scratch files across ALL connected nodes?')) {
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/storage/clean', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: 'all', target: 'processing' })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const freed = data.freed_bytes || 0;
-        const items = data.freed_items || 0;
-        if (freed === 0 && items === 0) {
-            alert('✨ All scratch workspaces are already clean! (0 B temporary files found across cluster).');
-        } else {
-            alert(`✅ Cleaned scratch workspaces! Freed ${formatBytes(freed)} (${items} temporary items removed).`);
-        }
-        refreshStorageView();
-    } catch (err) {
-        alert('Failed to clean all scratch: ' + err.message);
-    }
+function cleanAllProcessingScratch() {
+    openStorageCleanModal({
+        nodeId: 'all',
+        target: 'processing',
+        title: 'Clean Scratch Workspaces',
+        sub: 'Cluster-wide Maintenance',
+        desc: 'This will remove all temporary processing, remuxing, and download files from <strong>all connected nodes</strong>. Active video streams will not be affected.',
+        actionLabel: 'Clean All Scratch Workspaces',
+        requireConfirmation: false
+    });
 }
 
-async function purgeAllMedia() {
-    const confirmation = prompt('⚠️ DANGER: This will permanently DELETE ALL stored media files across ALL nodes in the cluster!\n\nThis will reset Media Storage to 0 B.\nTo confirm, type "DELETE" below:');
-    if (confirmation !== 'DELETE') {
-        if (confirmation !== null) alert('Action cancelled. You must type DELETE to confirm.');
-        return;
-    }
-
-    try {
-        const res = await fetch('/api/storage/clean', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ node_id: 'all', target: 'media' })
-        });
-        if (!res.ok) throw new Error(await res.text());
-        const data = await res.json();
-        const freed = data.freed_bytes || 0;
-        const items = data.freed_items || 0;
-        alert(`✅ All media purged! Freed ${formatBytes(freed)} (${items} files removed across cluster).`);
-        refreshStorageView();
-    } catch (err) {
-        alert('Failed to purge all media: ' + err.message);
-    }
+function purgeAllMedia() {
+    openStorageCleanModal({
+        nodeId: 'all',
+        target: 'media',
+        title: 'Purge All Cluster Media',
+        sub: 'Destructive Cluster Operation',
+        desc: '⚠️ <strong>CRITICAL WARNING:</strong> This action will permanently <strong>DELETE ALL media video files</strong> across the ENTIRE cluster, resetting total media storage to 0 B across all nodes.',
+        actionLabel: 'Permanently Delete All Media',
+        requireConfirmation: true
+    });
 }
 
 function renderSettings(data) {

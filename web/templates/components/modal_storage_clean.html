@@ -1,0 +1,76 @@
+<div class="modal-overlay" id="storage-clean-modal">
+    <div class="modal-dialog" style="max-width: 500px;">
+        <!-- Header -->
+        <div class="modal-header">
+            <div style="display: flex; align-items: center; gap: 12px;">
+                <div id="clean-modal-icon-wrap" style="width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: #eff6ff; color: #2563eb; flex-shrink: 0;">
+                    <svg id="clean-modal-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h3 class="modal-title" id="clean-modal-title" style="font-size: 16px; margin: 0;">Confirm Cleanup</h3>
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-top: 2px;" id="clean-modal-sub">Cluster Storage Maintenance</div>
+                </div>
+            </div>
+            <button class="modal-close-btn" onclick="closeStorageCleanModal()">&times;</button>
+        </div>
+
+        <!-- Body -->
+        <div class="modal-body" style="padding: 20px 24px;">
+            <!-- Target Information Box -->
+            <div style="background: var(--bg-body); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 14px; margin-bottom: 16px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Target Node</span>
+                    <span id="clean-modal-node-badge" class="ip-chip" style="font-weight: 600;">all</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-size: 12px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase;">Directory Path</span>
+                    <span id="clean-modal-path-badge" class="path-chip" style="font-size: 11px; white-space: nowrap;">/stream/processing</span>
+                </div>
+            </div>
+
+            <!-- Description / Warning -->
+            <div id="clean-modal-desc" style="font-size: 13.5px; color: var(--text-primary); line-height: 1.5; margin-bottom: 16px;">
+                This will delete temporary processing/scratch artifacts across the selected target.
+            </div>
+
+            <!-- Safety confirmation typing (shown only when required) -->
+            <div id="clean-modal-confirm-wrap" style="display: none; margin-bottom: 12px;">
+                <label class="form-label" style="font-size: 12px; color: #dc2626;" id="clean-modal-confirm-label">
+                    To confirm this destructive action, please type <strong>DELETE</strong> below:
+                </label>
+                <input type="text" id="clean-modal-confirm-input" class="form-input" placeholder="Type DELETE to confirm" autocomplete="off" oninput="onCleanConfirmInput(this.value)">
+            </div>
+
+            <!-- In-Progress State -->
+            <div id="clean-modal-progress" style="display: none; text-align: center; padding: 16px 0;">
+                <div style="display: inline-flex; align-items: center; gap: 10px; color: var(--text-primary); font-weight: 600;">
+                    <svg class="spin-fast" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="23 4 23 10 17 10"></polyline>
+                        <polyline points="1 20 1 14 7 14"></polyline>
+                        <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                    </svg>
+                    <span id="clean-modal-progress-text">Cleaning storage folders...</span>
+                </div>
+            </div>
+
+            <!-- Result State -->
+            <div id="clean-modal-result" style="display: none; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: var(--radius-md); padding: 14px; text-align: center;">
+                <div style="color: #16a34a; font-weight: 700; font-size: 14px; margin-bottom: 4px;" id="clean-modal-result-title">Successfully Cleaned!</div>
+                <div style="color: #15803d; font-size: 13px;" id="clean-modal-result-msg">Freed 0 B (0 items removed).</div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="modal-footer" style="display: flex; justify-content: flex-end; gap: 10px;">
+            <button class="btn btn-secondary" id="clean-modal-cancel-btn" onclick="closeStorageCleanModal()">Cancel</button>
+            <button class="btn btn-primary" id="clean-modal-action-btn" onclick="executeStorageCleanAction()">
+                <span id="clean-modal-action-text">Confirm &amp; Clean</span>
+            </button>
+            <button class="btn btn-primary" id="clean-modal-done-btn" style="display: none;" onclick="closeStorageCleanModal()">
+                <span>Done</span>
+            </button>
+        </div>
+    </div>
+</div>
