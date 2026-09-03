@@ -771,6 +771,13 @@ var (
 		w.Write([]byte(`{"status":"file_ready"}`))
 	})
 
+var chunkBufPool = sync.Pool{
+	New: func() interface{} {
+		b := make([]byte, 1024*1024)
+		return &b
+	},
+}
+
 	mux.HandleFunc("/api/v1/ingest-chunk", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -805,7 +812,10 @@ var (
 			defer f.Close()
 		}
 
-		buf := make([]byte, 1024*1024)
+		bufPtr := chunkBufPool.Get().(*[]byte)
+		defer chunkBufPool.Put(bufPtr)
+		buf := *bufPtr
+
 		var written int64
 		curOffset := offset
 		for {
@@ -1361,7 +1371,6 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			buf := make([]byte, chunkSize)
 
 			for task := range taskChan {
 				if ctx.Err() != nil {
@@ -1381,21 +1390,15 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 					errMu.Unlock()
 					return
 				}
-				_, err = f.ReadAt(buf[:task.length], task.offset)
-				f.Close()
-				if err != nil && err != io.EOF {
-					errMu.Lock()
-					workerErr = err
-					errMu.Unlock()
-					return
-				}
+				sr := io.NewSectionReader(f, task.offset, task.length)
 
 				var uploadSuccess bool
 				for attempt := 1; attempt <= 3; attempt++ {
+					_, _ = sr.Seek(0, io.SeekStart)
 					chunkURL := fmt.Sprintf("%s/api/v1/ingest-chunk?key=%s&dir=%s&file=%s&offset=%d",
 						strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir),
 						url.QueryEscape(task.file.relPath), task.offset)
-					req, err := http.NewRequestWithContext(ctx, http.MethodPost, chunkURL, bytes.NewReader(buf[:task.length]))
+					req, err := http.NewRequestWithContext(ctx, http.MethodPost, chunkURL, sr)
 					if err != nil {
 						break
 					}
@@ -1415,6 +1418,7 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 					}
 					time.Sleep(time.Duration(attempt*200) * time.Millisecond)
 				}
+				f.Close()
 
 				if !uploadSuccess {
 					errMu.Lock()
