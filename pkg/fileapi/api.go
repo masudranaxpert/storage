@@ -22,6 +22,29 @@ func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("/api/v1/files", s.handleFiles)
 	mux.HandleFunc("/api/v1/files/", s.handleFileSub)
 	mux.HandleFunc("/api/v1/files-upload", s.handleReserveUpload)
+	mux.HandleFunc("/api/v1/files-sync", s.handleSyncFiles)
+}
+
+func (s *Service) handleSyncFiles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	purged, err := s.ReconcileGhostRecords()
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	remaining := 0
+	if recs, err := s.store.ListFileRecords(); err == nil {
+		remaining = len(recs)
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":    "synced",
+		"purged":    purged,
+		"remaining": remaining,
+	})
 }
 
 func (s *Service) handleFiles(w http.ResponseWriter, r *http.Request) {

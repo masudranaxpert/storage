@@ -1896,10 +1896,78 @@ function renderMediaTable() {
         const isFailed = item.state === 'failed';
         const filename = item.filename || item.key;
         const sizeStr = item.size_bytes ? formatBytes(item.size_bytes) : '-';
-        const dateStr = item.created_at ? new Date(item.created_at).toLocaleString() : '-';
-        const streamUrl = item.stream_url || '';
-        const nodeLabel = item.worker_node_id || item.placement?.node_id || 'Auto';
+        const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString() : '-';
+        const meta = item.metadata;
 
+        // 1. Specs & Tracks rendering
+        let specsHtml = '';
+        if (meta && (meta.video || (meta.audio_tracks && meta.audio_tracks.length > 0))) {
+            const v = meta.video || {};
+            const resLabel = v.height ? `${v.height}p` : (v.width ? `${v.width}x${v.height}` : '');
+            const fpsLabel = v.fps ? `${v.fps}fps` : '';
+            const durLabel = meta.duration_sec ? formatDuration(meta.duration_sec) : '';
+
+            let audioPills = '';
+            if (meta.audio_tracks && meta.audio_tracks.length > 0) {
+                audioPills = meta.audio_tracks.map(t => {
+                    const lang = t.language || t.title || 'Audio';
+                    const full = t.title || lang;
+                    return `<span class="badge-audio" title="${escapeHtml(full)} (${escapeHtml(t.codec || 'aac')})">🎵 ${escapeHtml(lang.toUpperCase())}</span>`;
+                }).join(' ');
+            }
+
+            let subPills = '';
+            if (meta.subtitles && meta.subtitles.length > 0) {
+                subPills = meta.subtitles.map(s => {
+                    const lang = s.language || s.title || 'Sub';
+                    return `<span class="badge-sub" title="${escapeHtml(s.title || lang)} (WebVTT)">💬 ${escapeHtml(lang.toUpperCase())}</span>`;
+                }).join(' ');
+            }
+
+            specsHtml = `
+                <div style="display:flex; flex-direction:column; gap:4px;">
+                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                        ${resLabel ? `<span class="badge-spec">${escapeHtml(resLabel)}</span>` : ''}
+                        ${fpsLabel ? `<span class="badge-spec">${escapeHtml(fpsLabel)}</span>` : ''}
+                        ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:600; margin-left:2px;">⏱ ${escapeHtml(durLabel)}</span>` : ''}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-top:1px;">
+                        ${audioPills}
+                        ${subPills}
+                    </div>
+                </div>
+            `;
+        } else {
+            specsHtml = `
+                <div style="display:flex; align-items:center; gap:4px;">
+                    <span class="badge-video">MP4 Stream</span>
+                </div>
+            `;
+        }
+
+        // 2. Storage Location rendering
+        const placement = item.placement || {};
+        const nodeID = placement.node_id || item.worker_node_id || 'Auto';
+        const tierLabel = placement.tier_label || (placement.tier_id === 2 ? 'Tier 2 · HDD' : (placement.tier_id === 1 ? 'Tier 1 · SSD' : 'Cluster Storage'));
+        const drivePath = placement.path || '/stream/media';
+        const hasCustomHost = placement.public_host ? true : false;
+
+        const locationHtml = `
+            <div style="display:flex; flex-direction:column; gap:3px;">
+                <div style="display:flex; align-items:center; gap:5px;">
+                    <span class="badge-location">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                        ${escapeHtml(nodeID)}
+                    </span>
+                    ${hasCustomHost ? `<span style="font-size:10px; font-weight:700; color:var(--orange-primary);" title="Custom CDN / Domain configured">⚡ CDN</span>` : ''}
+                </div>
+                <div style="font-size:11px; color:var(--text-secondary); font-family:'JetBrains Mono',monospace;">
+                    ${escapeHtml(tierLabel)} &bull; ${escapeHtml(drivePath)}
+                </div>
+            </div>
+        `;
+
+        // 3. Status & Pipeline rendering
         let statusHtml = '';
         if (isReady) {
             statusHtml = `<span class="badge-cmaf">✓ Ready Stream</span>`;
@@ -1924,7 +1992,7 @@ function renderMediaTable() {
             }
 
             statusHtml = `
-                <div style="min-width:220px;max-width:320px;">
+                <div style="min-width:200px;max-width:300px;">
                     ${renderPipelineStepper(item)}
                     <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;margin-bottom:4px;">
                         <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:5px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;" title="${escapeHtml(stageLabel)}">
@@ -1947,39 +2015,37 @@ function renderMediaTable() {
         return `
             <tr>
                 <td>
-                    <div style="font-weight:700;color:var(--text-primary);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">
+                    <div style="font-weight:700;color:var(--text-primary);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">
                         ${escapeHtml(filename)}
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
-                        ${escapeHtml(item.key)}
+                    <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">
+                        ${escapeHtml(item.key)} &bull; <span style="opacity:0.8;">${dateStr}</span>
                     </div>
                 </td>
                 <td>
-                    <span class="badge-video">Single-File CMAF</span>
+                    ${specsHtml}
                 </td>
                 <td>
-                    <strong style="color:var(--text-primary);">${sizeStr}</strong>
+                    ${locationHtml}
                 </td>
                 <td>
-                    <span style="font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--bg-body);padding:3px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">
-                        ${escapeHtml(nodeLabel)}
-                    </span>
+                    <strong style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;">${sizeStr}</strong>
                 </td>
                 <td>
                     ${statusHtml}
                 </td>
-                <td style="font-size:12px;color:var(--text-muted);white-space:nowrap;">
-                    ${dateStr}
-                </td>
                 <td style="text-align:right;white-space:nowrap;">
-                    ${isReady ? `
-                        <button class="btn btn-secondary" style="padding:4px 10px;font-size:12px;margin-right:4px;" onclick="openStreamDetailsModal('${escapeHtml(item.key)}')">
-                            ▶ Play / Links
+                    <div style="display:flex; align-items:center; justify-content:flex-end; gap:6px;">
+                        ${isReady ? `
+                            <button class="btn btn-primary" style="padding:5px 12px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px;box-shadow:0 2px 8px rgba(255,122,24,0.35);" onclick="openStreamDetailsModal('${escapeHtml(item.key)}')">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                <span>Play</span>
+                            </button>
+                        ` : ''}
+                        <button class="btn btn-secondary" style="padding:5px 9px;font-size:12px;color:var(--status-offline);border-color:rgba(239,68,68,0.25);" onclick="deleteMediaConfirm('${escapeHtml(item.key)}')" title="Delete from disk and database">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                         </button>
-                    ` : ''}
-                    <button class="btn btn-secondary" style="padding:4px 8px;font-size:12px;color:var(--status-offline);" onclick="deleteMediaConfirm('${escapeHtml(item.key)}')">
-                        Delete
-                    </button>
+                    </div>
                 </td>
             </tr>
         `;
@@ -2177,63 +2243,396 @@ async function startFileUpload() {
     xhr.send(formData);
 }
 
-let currentHlsInstance = null;
+// =============================================================================
+// Storage Audit & Reconcile Engine
+// =============================================================================
 
-function openStreamDetailsModal(mediaID) {
+async function triggerStorageSync() {
+    const btn = document.getElementById('btn-sync-storage');
+    const icon = document.getElementById('icon-sync-storage');
+    const text = document.getElementById('text-sync-storage');
+    if (btn) btn.disabled = true;
+    if (icon) icon.classList.add('spin-fast');
+    if (text) text.innerText = 'Auditing nodes...';
+
+    try {
+        const resp = await fetch('/api/v1/files-sync', { method: 'POST' });
+        const data = await resp.json();
+        if (resp.ok) {
+            let msg = `Storage audit complete!`;
+            if (data.purged > 0) {
+                msg += ` Cleaned ${data.purged} deleted ghost file(s).`;
+            } else {
+                msg += ` All physical disks are 100% in sync.`;
+            }
+            msg += ` (${data.remaining} active media assets)`;
+            alert(msg);
+            await fetchMediaList();
+            if (typeof fetchPoolMetrics === 'function') {
+                fetchPoolMetrics();
+            }
+        } else {
+            alert('Storage sync error: ' + (data.error || 'Server error'));
+        }
+    } catch(err) {
+        alert('Network error during storage audit: ' + err.message);
+    } finally {
+        if (btn) btn.disabled = false;
+        if (icon) icon.classList.remove('spin-fast');
+        if (text) text.innerText = 'Audit & Sync Storage';
+    }
+}
+
+// =============================================================================
+// ArtPlayer Studio & Multi-Audio Playback Controller
+// =============================================================================
+
+let currentArtPlayer = null;
+let currentExternalAudio = null;
+let audioSyncTimer = null;
+
+async function openStreamDetailsModal(mediaID) {
     const modal = document.getElementById('modal-stream-details');
     if (!modal) return;
 
     const job = mediaList.find(m => m.key === mediaID);
     if (!job) return;
 
-    safeSetText('stream-modal-title', job.filename || mediaID);
-    safeSetText('stream-modal-id', `Media ID: ${mediaID}`);
+    const filename = job.filename || mediaID;
+    safeSetText('stream-modal-title', filename);
 
     const streamUrl = job.stream_url || `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
-
-    const hlsInput = document.getElementById('stream-hls-url');
-    if (hlsInput) hlsInput.value = streamUrl;
 
     const directInput = document.getElementById('stream-direct-url');
     if (directInput) directInput.value = streamUrl;
 
-    const videoPlayer = document.getElementById('preview-video-player');
-    if (videoPlayer) {
-        if (currentHlsInstance) {
-            currentHlsInstance.destroy();
-            currentHlsInstance = null;
+    const hlsInput = document.getElementById('stream-hls-url');
+    if (hlsInput) hlsInput.value = streamUrl;
+
+    // Badges
+    const badgesWrap = document.getElementById('stream-modal-badges');
+    if (badgesWrap) {
+        let badges = `<span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">ID: ${escapeHtml(mediaID)}</span>`;
+        if (job.placement?.node_id) {
+            badges += `<span class="badge-location">🖥 ${escapeHtml(job.placement.node_id)}</span>`;
         }
-        videoPlayer.src = streamUrl;
-        videoPlayer.load();
+        if (job.placement?.tier_label) {
+            badges += `<span class="badge-spec">${escapeHtml(job.placement.tier_label)}</span>`;
+        }
+        badgesWrap.innerHTML = badges;
     }
 
     modal.classList.add('active');
+
+    // Fetch live metadata if not cached
+    let meta = job.metadata;
+    if (!meta) {
+        try {
+            const metaUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}/metadata.json`;
+            const r = await fetch(metaUrl);
+            if (r.ok) {
+                meta = await r.json();
+                job.metadata = meta;
+            }
+        } catch(e) {
+            console.warn('Could not fetch metadata.json:', e);
+        }
+    }
+
+    // Render Audio / Subtitle Drawers
+    renderMediaModalDrawers(job, meta, streamUrl);
+
+    // Initialize ArtPlayer
+    initArtPlayer(streamUrl, job, meta);
+}
+
+function renderMediaModalDrawers(job, meta, streamUrl) {
+    const tracksInfo = document.getElementById('stream-modal-tracks-info');
+    const audioDrawer = document.getElementById('stream-modal-audio-drawer');
+    const audioList = document.getElementById('stream-modal-audio-list');
+    const subDrawer = document.getElementById('stream-modal-sub-drawer');
+    const subList = document.getElementById('stream-modal-sub-list');
+
+    const key = job.key;
+    const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(key)}`;
+
+    if (meta && meta.audio_tracks && meta.audio_tracks.length > 1) {
+        if (tracksInfo) {
+            tracksInfo.style.display = 'block';
+            tracksInfo.innerHTML = `
+                <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:var(--orange-primary);">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                    <span>Studio Multi-Audio Engine Active (${meta.audio_tracks.length} Tracks)</span>
+                </div>
+                <div style="color:var(--text-secondary);margin-top:3px;font-size:11.5px;">
+                    Switch languages seamlessly via ArtPlayer's <strong>⚙️ Settings &rarr; Audio Track</strong> menu (${meta.audio_tracks.map(t => t.title || t.language).join(', ')}).
+                </div>
+            `;
+        }
+
+        if (audioDrawer && audioList) {
+            audioDrawer.style.display = 'block';
+            audioList.innerHTML = meta.audio_tracks.map((t, idx) => {
+                const trackUrl = `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`;
+                const title = t.title || t.language || `Track ${idx + 1}`;
+                return `
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:6px 10px;font-size:11.5px;">
+                        <span style="font-weight:600;">🎵 ${escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')}, ${t.channels || 2}ch)</span></span>
+                        <div style="display:flex;gap:6px;">
+                            <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(trackUrl)}', 'Audio URL copied!')">Copy Link</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    } else {
+        if (tracksInfo) tracksInfo.style.display = 'none';
+        if (audioDrawer) audioDrawer.style.display = 'none';
+    }
+
+    if (meta && meta.subtitles && meta.subtitles.length > 0) {
+        if (subDrawer && subList) {
+            subDrawer.style.display = 'block';
+            subList.innerHTML = meta.subtitles.map(s => {
+                const subUrl = `${baseDirUrl}/${s.file || `subtitle_${s.index}_${s.language}.vtt`}`;
+                const title = s.title || s.language || 'Subtitles';
+                return `
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:6px 10px;font-size:11.5px;">
+                        <span style="font-weight:600;">💬 ${escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(WebVTT)</span></span>
+                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(subUrl)}', 'Subtitle URL copied!')">Copy VTT</button>
+                    </div>
+                `;
+            }).join('');
+        }
+    } else {
+        if (subDrawer) subDrawer.style.display = 'none';
+    }
+}
+
+function initArtPlayer(streamUrl, job, meta) {
+    const container = document.getElementById('artplayer-container');
+    if (!container) return;
+    container.innerHTML = '';
+
+    const filename = job.filename || job.key;
+    const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(job.key)}`;
+    const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
+
+    let defaultSubtitle = {};
+    if (meta && meta.subtitles && meta.subtitles.length > 0) {
+        const firstSub = meta.subtitles[0];
+        defaultSubtitle = {
+            url: `${baseDirUrl}/${firstSub.file || `subtitle_${firstSub.index}_${firstSub.language}.vtt`}`,
+            type: 'vtt',
+            style: {
+                color: '#fff',
+                fontSize: '20px',
+                textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+            },
+            encoding: 'utf-8'
+        };
+    }
+
+    if (typeof Artplayer === 'undefined') {
+        container.innerHTML = `<video src="${escapeHtml(streamUrl)}" controls autoplay style="width:100%;height:100%;object-fit:contain;"></video>`;
+        return;
+    }
+
+    try {
+        currentArtPlayer = new Artplayer({
+            container: '#artplayer-container',
+            url: streamUrl,
+            title: filename,
+            volume: 0.8,
+            isLive: false,
+            muted: false,
+            autoplay: true,
+            pip: true,
+            autoSize: true,
+            autoMini: true,
+            screenshot: true,
+            setting: true,
+            loop: false,
+            playbackRate: true,
+            aspectRatio: true,
+            fullscreen: true,
+            fullscreenWeb: true,
+            subtitleOffset: true,
+            miniProgressBar: true,
+            theme: '#ff7a18',
+            moreVideoAttr: {
+                crossOrigin: 'anonymous',
+            },
+            subtitle: defaultSubtitle,
+            customType: {
+                m3u8: function(video, url, art) {
+                    if (window.Hls && Hls.isSupported()) {
+                        const hls = new Hls();
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+                        art.hls = hls;
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = url;
+                    }
+                }
+            }
+        });
+
+        if (hasMultiAudio) {
+            bindArtPlayerMultiAudio(currentArtPlayer, meta.audio_tracks, baseDirUrl);
+        }
+    } catch(err) {
+        console.error('ArtPlayer init error:', err);
+        container.innerHTML = `<video src="${escapeHtml(streamUrl)}" controls autoplay style="width:100%;height:100%;object-fit:contain;"></video>`;
+    }
+}
+
+function bindArtPlayerMultiAudio(art, audioTracks, baseDirUrl) {
+    if (!audioTracks || audioTracks.length === 0) return;
+
+    if (!currentExternalAudio) {
+        currentExternalAudio = new Audio();
+        currentExternalAudio.crossOrigin = 'anonymous';
+    }
+
+    let activeTrack = audioTracks[0];
+    const getTrackUrl = (t) => `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`;
+
+    currentExternalAudio.src = getTrackUrl(activeTrack);
+    currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
+    currentExternalAudio.load();
+
+    art.on('video:play', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.play().catch(() => {});
+        }
+    });
+
+    art.on('video:pause', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.pause();
+        }
+    });
+
+    art.on('video:seeking', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.currentTime = art.video.currentTime;
+        }
+    });
+
+    art.on('video:seeked', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.currentTime = art.video.currentTime;
+            if (!art.video.paused) {
+                currentExternalAudio.play().catch(() => {});
+            }
+        }
+    });
+
+    art.on('video:ratechange', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.playbackRate = art.video.playbackRate;
+        }
+    });
+
+    art.on('video:volumechange', () => {
+        if (currentExternalAudio) {
+            currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
+        }
+    });
+
+    if (audioSyncTimer) clearInterval(audioSyncTimer);
+    audioSyncTimer = setInterval(() => {
+        if (currentExternalAudio && !art.video.paused && !art.video.seeking) {
+            const diff = Math.abs(art.video.currentTime - currentExternalAudio.currentTime);
+            if (diff > 0.08) {
+                currentExternalAudio.currentTime = art.video.currentTime;
+            }
+        }
+    }, 1200);
+
+    art.setting.add({
+        width: 220,
+        html: 'Audio Track',
+        tooltip: activeTrack.title || activeTrack.language || 'Default',
+        selector: audioTracks.map((t, i) => ({
+            default: i === 0,
+            html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${escapeHtml(t.title || t.language || `Track ${i+1}`)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')})</span></span>`,
+            url: getTrackUrl(t),
+            track: t,
+        })),
+        onSelect: function(item) {
+            activeTrack = item.track;
+            const cur = art.video.currentTime;
+            const isPlaying = !art.video.paused;
+            currentExternalAudio.pause();
+            currentExternalAudio.src = item.url;
+            currentExternalAudio.currentTime = cur;
+            if (isPlaying) {
+                currentExternalAudio.play().catch(() => {});
+            }
+            return item.track.title || item.track.language;
+        }
+    });
+}
+
+function closeArtPlayer() {
+    if (audioSyncTimer) {
+        clearInterval(audioSyncTimer);
+        audioSyncTimer = null;
+    }
+    if (currentExternalAudio) {
+        currentExternalAudio.pause();
+        currentExternalAudio.removeAttribute('src');
+        currentExternalAudio.load();
+    }
+    if (currentArtPlayer) {
+        if (currentArtPlayer.hls) {
+            try { currentArtPlayer.hls.destroy(); } catch (_) {}
+        }
+        try { currentArtPlayer.destroy(false); } catch (_) {}
+        currentArtPlayer = null;
+    }
+    const container = document.getElementById('artplayer-container');
+    if (container) container.innerHTML = '';
 }
 
 function closeStreamDetailsModal() {
     const modal = document.getElementById('modal-stream-details');
     if (modal) {
         modal.classList.remove('active');
-        if (currentHlsInstance) {
-            currentHlsInstance.destroy();
-            currentHlsInstance = null;
-        }
-        const videoPlayer = document.getElementById('preview-video-player');
-        if (videoPlayer) {
-            videoPlayer.pause();
-            videoPlayer.removeAttribute('src');
-            videoPlayer.load();
-        }
+        closeArtPlayer();
     }
 }
 
-function copyStreamURL() {
+function copyDirectStreamURL() {
+    const input = document.getElementById('stream-direct-url');
+    if (input) copyToClipboard(input.value, 'Direct Streaming URL copied!');
+}
+
+function copyHlsStreamURL() {
     const input = document.getElementById('stream-hls-url');
-    if (input) {
-        input.select();
-        navigator.clipboard.writeText(input.value);
-        alert('HLS Stream URL copied to clipboard!');
+    if (input) copyToClipboard(input.value, 'HLS URL copied!');
+}
+
+function copyToClipboard(text, alertMsg) {
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(() => {
+        alert(alertMsg || 'Copied to clipboard!');
+    }).catch(() => {
+        prompt('Copy link:', text);
+    });
+}
+
+function formatDuration(sec) {
+    if (!sec || isNaN(sec)) return '';
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = Math.floor(sec % 60);
+    if (h > 0) {
+        return `${h}h ${m}m ${s}s`;
     }
+    return `${m}m ${s}s`;
 }
 
 function escapeHtml(str) {

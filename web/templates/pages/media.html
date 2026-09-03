@@ -9,6 +9,16 @@
         </div>
 
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <!-- Button: Audit & Sync Storage -->
+            <button class="btn btn-secondary" onclick="triggerStorageSync()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;" id="btn-sync-storage" title="Probe online workers, reconcile physical files on disk, and purge any deleted ghost records">
+                <svg id="icon-sync-storage" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                </svg>
+                <span id="text-sync-storage">Audit &amp; Sync Storage</span>
+            </button>
+
             <!-- Button: Ingest from URL -->
             <button class="btn btn-secondary" onclick="openIngestURLModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
@@ -102,13 +112,12 @@
         <table class="custom-table" id="media-data-table">
             <thead>
                 <tr>
-                    <th style="width:28%;">MEDIA / ASSET NAME</th>
-                    <th style="width:14%;">FORMAT</th>
-                    <th style="width:12%;">TOTAL SIZE</th>
-                    <th style="width:14%;">ASSIGNED NODE</th>
-                    <th style="width:16%;">STATUS & SPEED</th>
-                    <th style="width:16%;">CREATED AT</th>
-                    <th style="text-align: right; width:100px;">ACTIONS</th>
+                    <th style="width:26%;">MEDIA ASSET</th>
+                    <th style="width:16%;">SPECS &amp; TRACKS</th>
+                    <th style="width:16%;">STORAGE LOCATION</th>
+                    <th style="width:10%;">SIZE</th>
+                    <th style="width:18%;">STATUS &amp; PIPELINE</th>
+                    <th style="text-align: right; width:14%;">ACTIONS</th>
                 </tr>
             </thead>
             <tbody id="media-table-body">
@@ -234,48 +243,67 @@
     </div>
 </div>
 
-<!-- Modal 3: Stream Details & Preview Player -->
+<!-- Modal 3: ArtPlayer Studio & Media Details -->
 <div id="modal-stream-details" class="modal-overlay" onclick="if(event.target===this) closeStreamDetailsModal()">
-    <div class="modal-dialog" style="max-width: 640px;">
-        <div class="modal-header">
+    <div class="modal-dialog" style="max-width: 880px; width: 95%;">
+        <div class="modal-header" style="padding:16px 22px;">
             <div style="display:flex; align-items:center; gap:12px;">
                 <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);flex-shrink:0;">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
                 </div>
                 <div>
-                    <h3 class="modal-title" id="stream-modal-title" style="font-size:18px;">Stream Details & HLS Playback</h3>
-                    <div id="stream-modal-id" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Media ID: media_xxx</div>
+                    <h3 class="modal-title" id="stream-modal-title" style="font-size:17px;letter-spacing:-0.3px;max-width:600px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Stream Playback &amp; Player</h3>
+                    <div style="display:flex; align-items:center; gap:8px; margin-top:3px; flex-wrap:wrap;" id="stream-modal-badges">
+                        <span id="stream-modal-id" style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">ID: -</span>
+                    </div>
                 </div>
             </div>
             <button class="modal-close-btn" type="button" onclick="closeStreamDetailsModal()">&times;</button>
         </div>
 
-        <div class="modal-body" style="padding:22px 24px; display:flex; flex-direction:column; gap:16px;">
-            <!-- Video Preview Player Container -->
-            <div style="border-radius:var(--radius-md); overflow:hidden; background:#000000; aspect-ratio:16/9; display:flex; align-items:center; justify-content:center; border:1px solid var(--border-light);">
-                <video id="preview-video-player" controls style="width:100%; height:100%; object-fit:contain;"></video>
+        <div class="modal-body" style="padding:18px 22px; display:flex; flex-direction:column; gap:14px; max-height:80vh; overflow-y:auto;">
+            <!-- ArtPlayer Cinema Container -->
+            <div id="artplayer-container" style="width:100%; aspect-ratio:16/9; background:#000000; border-radius:var(--radius-md); overflow:hidden; border:1px solid var(--border-light); box-shadow:0 8px 32px rgba(0,0,0,0.45); position:relative;">
             </div>
 
-            <!-- Direct HLS Stream Link Box -->
+            <!-- Dynamic Multi-Audio & Subtitles Notice -->
+            <div id="stream-modal-tracks-info" style="display:none; background:var(--bg-body); border:1px solid var(--border-light); border-radius:var(--radius-md); padding:10px 14px; font-size:12px;">
+            </div>
+
+            <!-- Direct Stream Link (Byte-Range MP4) -->
             <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label">HLS Master Playlist URL (.m3u8)</label>
+                <label class="form-label" style="font-size:12px;font-weight:700;">Direct Byte-Range Streaming URL</label>
                 <div style="display:flex; gap:8px;">
-                    <input type="text" id="stream-hls-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:12px; background:var(--bg-body);">
-                    <button class="btn btn-secondary" type="button" onclick="copyStreamURL()" style="white-space:nowrap;">Copy URL</button>
+                    <input type="text" id="stream-direct-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:11.5px; background:var(--bg-body);">
+                    <button class="btn btn-secondary" type="button" onclick="copyDirectStreamURL()" style="white-space:nowrap;padding:6px 14px;font-size:12px;">Copy Video Link</button>
                 </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Compatible with HLS.js, Video.js, Safari, VLC, and Android/iOS players.</div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">Direct HTTP 206 Byte-Range URL for HTML5, VLC, ArtPlayer, MX Player, and Web TV.</div>
             </div>
 
-            <!-- Single-File Byte-Range Direct URL Box -->
+            <!-- HLS Playlist Link -->
             <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label">Single-File Byte-Range Direct File URL</label>
-                <input type="text" id="stream-direct-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:12px; background:var(--bg-body);">
-                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Direct HTTP 206 Byte-Range streaming from the assigned VPS node.</div>
+                <label class="form-label" style="font-size:12px;font-weight:700;">HLS Master Playlist URL (.m3u8)</label>
+                <div style="display:flex; gap:8px;">
+                    <input type="text" id="stream-hls-url" class="form-input" readonly style="font-family:'JetBrains Mono', monospace; font-size:11.5px; background:var(--bg-body);">
+                    <button class="btn btn-secondary" type="button" onclick="copyHlsStreamURL()" style="white-space:nowrap;padding:6px 14px;font-size:12px;">Copy HLS</button>
+                </div>
+            </div>
+
+            <!-- Individual Audio Tracks Drawer (for Multi-Audio assets) -->
+            <div id="stream-modal-audio-drawer" style="display:none;">
+                <label class="form-label" style="font-size:12px;font-weight:700;margin-bottom:6px;">Multi-Audio Isolated Tracks (.m4a)</label>
+                <div id="stream-modal-audio-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+            </div>
+
+            <!-- Individual Subtitles Drawer (for VTT assets) -->
+            <div id="stream-modal-sub-drawer" style="display:none;">
+                <label class="form-label" style="font-size:12px;font-weight:700;margin-bottom:6px;">Extracted WebVTT Subtitles (.vtt)</label>
+                <div id="stream-modal-sub-list" style="display:flex; flex-direction:column; gap:6px;"></div>
             </div>
         </div>
 
-        <div class="modal-footer">
-            <button type="button" class="btn btn-primary" onclick="closeStreamDetailsModal()">Close</button>
+        <div class="modal-footer" style="padding:12px 22px;">
+            <button type="button" class="btn btn-primary" onclick="closeStreamDetailsModal()">Done / Close</button>
         </div>
     </div>
 </div>

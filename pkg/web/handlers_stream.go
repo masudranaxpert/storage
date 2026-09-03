@@ -124,6 +124,18 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 
 	stat, err := os.Stat(filePath)
 	if err != nil {
+		if s.files != nil && s.store != nil {
+			if job, _ := s.store.GetFileJob(mediaID); job != nil && job.Placement.NodeID != "" {
+				targetURL := s.files.StreamURL(job)
+				if targetURL != "" {
+					if len(parts) > 1 {
+						targetURL += "/" + strings.Join(parts[1:], "/")
+					}
+					http.Redirect(w, r, targetURL, http.StatusTemporaryRedirect)
+					return
+				}
+			}
+		}
 		http.NotFound(w, r)
 		return
 	}

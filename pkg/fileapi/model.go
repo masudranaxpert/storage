@@ -84,12 +84,13 @@ type FileJob struct {
 	StageName        string     `json:"stage_name,omitempty"`
 	StagePercent     float64    `json:"stage_percent,omitempty"`
 	TransferredBytes int64      `json:"transferred_bytes,omitempty"`
-	TotalBytes       int64      `json:"total_bytes,omitempty"`
-	ETA              string     `json:"eta,omitempty"`
-	Details          string     `json:"details,omitempty"`
-	Attempts         int        `json:"attempts"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	TotalBytes       int64                  `json:"total_bytes,omitempty"`
+	ETA              string                 `json:"eta,omitempty"`
+	Details          string                 `json:"details,omitempty"`
+	Attempts         int                    `json:"attempts"`
+	MetadataJSON     []byte                 `json:"metadata_json,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
 }
 
 // ProgressUpdate is the wire shape workers POST back to the master.
@@ -148,9 +149,10 @@ type StatusResponse struct {
 	ETA              string     `json:"eta,omitempty"`
 	Details          string     `json:"details,omitempty"`
 	Source           SourceType `json:"source_type"`
-	WorkerNodeID     string     `json:"worker_node_id,omitempty"` // node running download/remux
-	Placement        Placement  `json:"placement,omitempty"`      // final storage block owner
-	StreamURL        string     `json:"stream_url,omitempty"`
-	CreatedAt        time.Time  `json:"created_at"`
-	UpdatedAt        time.Time  `json:"updated_at"`
+	WorkerNodeID     string                 `json:"worker_node_id,omitempty"` // node running download/remux
+	Placement        Placement              `json:"placement,omitempty"`      // final storage block owner
+	StreamURL        string                 `json:"stream_url,omitempty"`
+	Metadata         map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt        time.Time              `json:"created_at"`
+	UpdatedAt        time.Time              `json:"updated_at"`
 }

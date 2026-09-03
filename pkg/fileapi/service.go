@@ -70,7 +70,7 @@ func (s *Service) startWatchdogLoop() {
 	for range ticker.C {
 		reconcileCounter++
 		if reconcileCounter%2 == 0 { // Every 60 seconds
-			s.reconcileGhostRecords()
+			_, _ = s.ReconcileGhostRecords()
 		}
 
 		jobs, err := s.store.ListFileJobs()
@@ -96,15 +96,16 @@ func (s *Service) startWatchdogLoop() {
 	}
 }
 
-// reconcileGhostRecords verifies that completed file records actually exist on the target worker.
+// ReconcileGhostRecords verifies that completed file records actually exist on the target worker.
 // If an admin manually deleted files from the disk (e.g. rm -rf /stream/media/<key>),
 // this cleans the ghost record from BadgerDB so cluster state reflects physical storage.
-func (s *Service) reconcileGhostRecords() {
+func (s *Service) ReconcileGhostRecords() (int, error) {
 	recs, err := s.store.ListFileRecords()
 	if err != nil {
-		return
+		return 0, err
 	}
 	client := &http.Client{Timeout: 2 * time.Second}
+	purged := 0
 	for _, rec := range recs {
 		job, err := s.store.GetFileJob(rec.Key)
 		if err != nil || job == nil || job.State != StateCompleted {
@@ -123,9 +124,11 @@ func (s *Service) reconcileGhostRecords() {
 					rec.Key, rec.Filename, job.Placement.NodeID)
 				_ = s.store.DeleteFileJob(rec.Key)
 				_ = s.store.DeleteFileRecord(rec.Key)
+				purged++
 			}
 		}
 	}
+	return purged, nil
 }
 
 // uniqueKey generates a key until it is free in the file table.
@@ -575,6 +578,7 @@ func (s *Service) ApplyProgress(key string, up *ProgressUpdate) error {
 		job.Details = up.Details
 	}
 	if len(up.CMAFJSON) > 0 {
+		job.MetadataJSON = up.CMAFJSON
 		var cmaf struct {
 			TotalBytes int64 `json:"total_bytes"`
 		}
@@ -676,6 +680,12 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 	}
 	if resp.State == StateCompleted {
 		resp.Progress = 100
+	}
+	if len(job.MetadataJSON) > 0 {
+		var meta map[string]interface{}
+		if err := json.Unmarshal(job.MetadataJSON, &meta); err == nil {
+			resp.Metadata = meta
+		}
 	}
 	return resp, nil
 }
