@@ -48,6 +48,8 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 	cmd := exec.Command(ffmpegPath,
 		"-y",
 		"-i", srcPath,
+		"-map", "0:v:0?",
+		"-map", "0:a?",
 		"-c:v", "copy",
 		"-c:a", "aac",
 		"-b:a", "192k",
