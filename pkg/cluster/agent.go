@@ -170,11 +170,7 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			if !stat.IsDir() {
 				return candidate
 			}
-			// Folder requested: fast-path auto-locate primary video.mp4 directly
-			fastPath := filepath.Join(candidate, "video.mp4")
-			if fstat, err := os.Stat(fastPath); err == nil && !fstat.IsDir() {
-				return fastPath
-			}
+			// Folder requested: auto-locate primary video (.mp4)
 			entries, err := os.ReadDir(candidate)
 			if err == nil {
 				for _, e := range entries {

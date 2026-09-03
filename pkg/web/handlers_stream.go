@@ -73,10 +73,7 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	mediaID := parts[0]
 	var filePath string
 	if len(parts) == 1 {
-		filePath = filepath.Join("data", "media", mediaID, "video.mp4")
-		if _, err := os.Stat(filePath); err != nil {
-			filePath = filepath.Join("data", "media", mediaID)
-		}
+		filePath = filepath.Join("data", "media", mediaID)
 	} else {
 		filePath = filepath.Join("data", "media", mediaID, filepath.Join(parts[1:]...))
 	}
@@ -87,10 +84,29 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if stat.IsDir() {
-		candidate := filepath.Join(filePath, "video.mp4")
-		if _, err := os.Stat(candidate); err == nil {
-			filePath = candidate
-		} else {
+		entries, err := os.ReadDir(filePath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		found := false
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
+				filePath = filepath.Join(filePath, e.Name())
+				found = true
+				break
+			}
+		}
+		if !found {
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
+					filePath = filepath.Join(filePath, e.Name())
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
 			http.NotFound(w, r)
 			return
 		}
