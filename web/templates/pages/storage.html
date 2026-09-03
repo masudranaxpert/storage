@@ -107,19 +107,21 @@
             margin-top: 6px;
             font-weight: 500;
         }
-
         /* Path Chips */
         .path-chip {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 4px 9px;
+            gap: 5px;
+            padding: 3px 7px;
             border-radius: 6px;
             font-family: 'JetBrains Mono', monospace, sans-serif;
-            font-size: 12px;
+            font-size: 11.5px;
             background: var(--bg-subtle, #f4efe6);
             border: 1px solid var(--border-light, #ede6da);
             color: var(--text-primary, #1c1917);
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
             white-space: nowrap;
         }
         .path-chip.media {
@@ -135,16 +137,16 @@
         .folder-stat-line {
             display: flex;
             align-items: baseline;
-            gap: 6px;
-            margin-top: 6px;
+            gap: 5px;
+            margin-top: 4px;
         }
         .folder-stat-line .size {
-            font-size: 13.5px;
+            font-size: 12.5px;
             font-weight: 700;
             color: var(--text-primary, #1c1917);
         }
         .folder-stat-line .count {
-            font-size: 11.5px;
+            font-size: 11px;
             color: var(--text-secondary, #78716c);
         }
         
@@ -152,24 +154,21 @@
         .total-usage-pill {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-size: 13.5px;
+            gap: 4px;
+            font-size: 12.5px;
             font-weight: 800;
             color: var(--orange-dark, #ea580c);
             background: var(--bg-orange-soft, #fff7ed);
-            padding: 6px 14px;
+            padding: 4px 10px;
             border-radius: var(--radius-full, 9999px);
             border: 1px solid var(--border-hover, #fed7aa);
             font-variant-numeric: tabular-nums;
-            box-shadow: 0 1px 2px rgba(234, 88, 12, 0.04);
             white-space: nowrap;
-            letter-spacing: -0.2px;
         }
         .total-usage-pill.empty {
             color: var(--text-secondary, #78716c);
             background: var(--bg-subtle, #f4efe6);
             border-color: var(--border-light, #ede6da);
-            box-shadow: none;
         }
         
         .ip-chip {
@@ -187,33 +186,33 @@
 
         /* Modern Action Buttons in Folders Table */
         .folder-actions-wrap {
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 6px;
-            flex-wrap: nowrap;
+            white-space: nowrap;
             justify-content: flex-end;
         }
         .btn-clean-scratch {
             background: #eff6ff;
             color: #1d4ed8;
             border: 1px solid #bfdbfe;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-size: 12px;
+            padding: 5px 9px;
+            border-radius: 7px;
+            font-size: 11.5px;
             font-weight: 600;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+            gap: 4px;
+            transition: all 0.15s ease;
             white-space: nowrap;
-            line-height: 1.2;
+            line-height: 1;
         }
         .btn-clean-scratch:hover {
             background: #2563eb;
             color: #ffffff;
             border-color: #2563eb;
-            box-shadow: 0 3px 8px rgba(37, 99, 235, 0.25);
+            box-shadow: 0 2px 6px rgba(37, 99, 235, 0.25);
             transform: translateY(-1px);
         }
         .btn-clean-scratch:active {
@@ -223,29 +222,36 @@
             background: #fef2f2;
             color: #dc2626;
             border: 1px solid #fecaca;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-size: 12px;
+            padding: 5px 9px;
+            border-radius: 7px;
+            font-size: 11.5px;
             font-weight: 600;
             cursor: pointer;
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+            gap: 4px;
+            transition: all 0.15s ease;
             white-space: nowrap;
-            line-height: 1.2;
+            line-height: 1;
         }
         .btn-clean-media:hover {
             background: #dc2626;
             color: #ffffff;
             border-color: #dc2626;
-            box-shadow: 0 3px 8px rgba(220, 38, 38, 0.25);
+            box-shadow: 0 2px 6px rgba(220, 38, 38, 0.25);
             transform: translateY(-1px);
         }
         .btn-clean-media:active {
             transform: translateY(0);
         }
-    </style>
+        
+        /* Compact table cell padding for folders table */
+        #storage-tab-folders .custom-table th {
+            padding: 12px 14px;
+        }
+        #storage-tab-folders .custom-table td {
+            padding: 12px 14px;
+        }
 
     <!-- Header & Segmented Tab Switcher -->
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-bottom:24px; flex-wrap:wrap; gap:16px;">
@@ -370,12 +376,12 @@
             <table class="custom-table">
                 <thead>
                     <tr>
-                        <th style="width:20%;">NODE &amp; HOST</th>
-                        <th style="width:14%;">STREAM ROOT</th>
-                        <th style="width:24%;">MEDIA FOLDER</th>
-                        <th style="width:24%;">PROCESSING FOLDER</th>
-                        <th style="width:10%;">TOTAL USAGE</th>
-                        <th style="text-align:right; width:8%;">ACTIONS</th>
+                        <th style="width:18%;">NODE &amp; HOST</th>
+                        <th style="width:13%;">STREAM ROOT</th>
+                        <th style="width:23%;">MEDIA FOLDER</th>
+                        <th style="width:23%;">PROCESSING FOLDER</th>
+                        <th style="width:9%;">TOTAL USAGE</th>
+                        <th style="text-align:right; width:14%;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody id="storage-folders-table-body">
