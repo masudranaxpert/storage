@@ -170,7 +170,11 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			if !stat.IsDir() {
 				return candidate
 			}
-			// Folder requested: auto-locate primary video (.mp4)
+			// Folder requested: fast-path auto-locate primary video.mp4 directly
+			fastPath := filepath.Join(candidate, "video.mp4")
+			if fstat, err := os.Stat(fastPath); err == nil && !fstat.IsDir() {
+				return fastPath
+			}
 			entries, err := os.ReadDir(candidate)
 			if err == nil {
 				for _, e := range entries {
@@ -1058,9 +1062,9 @@ var chunkBufPool = sync.Pool{
 	}
 
 	a.httpServer = &http.Server{
-		Handler:      mux,
-		ReadTimeout:  30 * time.Minute, // Allow long range stream sessions
-		WriteTimeout: 30 * time.Minute,
+		Handler:           mux,
+		ReadHeaderTimeout: 15 * time.Second,
+		IdleTimeout:       2 * time.Minute,
 	}
 
 	fmt.Printf("[Agent %s] Direct Byte-Range Media Server active on %s (Media Root: %s)\n",
