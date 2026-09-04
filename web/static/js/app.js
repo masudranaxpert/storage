@@ -2664,6 +2664,9 @@ function initArtPlayer(streamUrl, job, meta) {
             customType: {
                 m3u8: function(video, url, art) {
                     if (window.Hls && Hls.isSupported()) {
+                        if (art.hls) {
+                            art.hls.destroy();
+                        }
                         const hls = new Hls({
                             enableWorker: true,
                             lowLatencyMode: false,
@@ -2672,6 +2675,7 @@ function initArtPlayer(streamUrl, job, meta) {
                         hls.loadSource(url);
                         hls.attachMedia(video);
                         art.hls = hls;
+                        art.on('destroy', () => hls.destroy());
 
                         hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
                             console.log('[HLS] Audio track switched to:', data.id);
