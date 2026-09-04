@@ -2316,6 +2316,7 @@ async function triggerStorageSync() {
 let currentArtPlayer = null;
 let currentExternalAudio = null;
 let audioSyncTimer = null;
+let isExternalAudioActive = false;
 
 async function openStreamDetailsModal(mediaID) {
     const modal = document.getElementById('modal-stream-details');
@@ -2544,6 +2545,7 @@ function initArtPlayer(streamUrl, job, meta) {
             html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${escapeHtml(t.title || t.language || `Track ${idx+1}`)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')}, ${t.channels || 2}ch)</span></span>`,
             url: `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`,
             track: t,
+            index: idx,
         }));
 
         customSettings.push({
@@ -2553,7 +2555,7 @@ function initArtPlayer(streamUrl, job, meta) {
             tooltip: activeTrack.title || activeTrack.language || 'Default',
             selector: audioSelectorItems,
             onSelect: function(item) {
-                switchArtPlayerAudio(item.url);
+                switchArtPlayerAudio(item.index, item.url);
                 return item.track.title || item.track.language;
             }
         });
@@ -2686,74 +2688,148 @@ function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
     if (!currentExternalAudio) {
         currentExternalAudio = new Audio();
         currentExternalAudio.crossOrigin = 'anonymous';
+    } else {
+        currentExternalAudio.pause();
+        currentExternalAudio.removeAttribute('src');
+        currentExternalAudio.load();
     }
+    isExternalAudioActive = false;
 
-    const firstTrack = audioTracks[0];
-    const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
-    currentExternalAudio.src = firstUrl;
-    currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
-    currentExternalAudio.load();
+    // By default, Track 0 is embedded in the MP4 directly.
+    // Native video plays with 100% hardware-enforced A/V lip sync.
+    art.video.muted = false;
 
-    art.on('video:play', () => {
-        if (currentExternalAudio && currentExternalAudio.src) {
+    // --- BIDIRECTIONAL MEDIA LOCKSTEP CONTROLLER ---
+    // When external audio is engaged (alternative track selected):
+
+    // 1. Audio only plays when video is ACTUALLY rendering frames on screen
+    art.on('video:playing', () => {
+        if (isExternalAudioActive && currentExternalAudio && currentExternalAudio.src) {
+            const diff = Math.abs(art.video.currentTime - currentExternalAudio.currentTime);
+            if (diff > 0.05) {
+                currentExternalAudio.currentTime = art.video.currentTime;
+            }
             currentExternalAudio.play().catch(() => {});
         }
     });
 
+    // 2. Audio MUST pause when video pauses, buffers, or seeks
     art.on('video:pause', () => {
-        if (currentExternalAudio) {
+        if (isExternalAudioActive && currentExternalAudio) {
+            currentExternalAudio.pause();
+        }
+    });
+
+    art.on('video:waiting', () => {
+        if (isExternalAudioActive && currentExternalAudio) {
             currentExternalAudio.pause();
         }
     });
 
     art.on('video:seeking', () => {
-        if (currentExternalAudio) {
+        if (isExternalAudioActive && currentExternalAudio) {
+            currentExternalAudio.pause();
             currentExternalAudio.currentTime = art.video.currentTime;
         }
     });
 
     art.on('video:seeked', () => {
-        if (currentExternalAudio) {
+        if (isExternalAudioActive && currentExternalAudio) {
             currentExternalAudio.currentTime = art.video.currentTime;
-            if (!art.video.paused) {
-                currentExternalAudio.play().catch(() => {});
-            }
+            // DO NOT call play() here! Wait for 'video:playing' to ensure
+            // the video frame has actually decoded and loaded before sound plays.
         }
     });
 
     art.on('video:ratechange', () => {
-        if (currentExternalAudio) {
+        if (isExternalAudioActive && currentExternalAudio) {
             currentExternalAudio.playbackRate = art.video.playbackRate;
         }
     });
 
     art.on('video:volumechange', () => {
-        if (currentExternalAudio) {
+        if (isExternalAudioActive && currentExternalAudio) {
             currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
         }
     });
 
+    // 3. Audio buffering protection: If external audio is buffering, pause video
+    currentExternalAudio.onwaiting = () => {
+        if (isExternalAudioActive && !art.video.paused) {
+            art.video.pause();
+        }
+    };
+    currentExternalAudio.oncanplay = () => {
+        if (isExternalAudioActive && art.video.paused && art.video.readyState >= 3) {
+            art.video.play().catch(() => {});
+        }
+    };
+
+    // 4. Smooth Micro-Drift Correction without stuttering or audio pops
     if (audioSyncTimer) clearInterval(audioSyncTimer);
     audioSyncTimer = setInterval(() => {
-        if (currentExternalAudio && !art.video.paused && !art.video.seeking) {
-            const diff = Math.abs(art.video.currentTime - currentExternalAudio.currentTime);
-            if (diff > 0.08) {
-                currentExternalAudio.currentTime = art.video.currentTime;
+        if (!isExternalAudioActive || !currentExternalAudio || art.video.paused || art.video.seeking) return;
+
+        const diff = art.video.currentTime - currentExternalAudio.currentTime;
+        const absDiff = Math.abs(diff);
+
+        if (absDiff > 0.3) {
+            // Significant drift -> snap directly
+            currentExternalAudio.currentTime = art.video.currentTime;
+            currentExternalAudio.playbackRate = art.video.playbackRate;
+        } else if (diff > 0.04) {
+            // Audio lagging slightly -> glide faster
+            currentExternalAudio.playbackRate = art.video.playbackRate * 1.04;
+        } else if (diff < -0.04) {
+            // Audio leading slightly -> glide slower
+            currentExternalAudio.playbackRate = art.video.playbackRate * 0.96;
+        } else {
+            // In sync -> normal rate
+            if (currentExternalAudio.playbackRate !== art.video.playbackRate) {
+                currentExternalAudio.playbackRate = art.video.playbackRate;
             }
         }
-    }, 1200);
+    }, 250);
 }
 
-function switchArtPlayerAudio(url) {
-    if (!currentExternalAudio || !currentArtPlayer) return;
-    const curTime = currentArtPlayer.video.currentTime;
-    const isPlaying = !currentArtPlayer.video.paused;
+function switchArtPlayerAudio(trackIndex, url) {
+    if (!currentArtPlayer) return;
+
+    if (trackIndex === 0) {
+        // Track 0 is the primary track embedded in the MP4!
+        isExternalAudioActive = false;
+        if (currentExternalAudio) {
+            currentExternalAudio.pause();
+            currentExternalAudio.removeAttribute('src');
+            currentExternalAudio.load();
+        }
+        currentArtPlayer.video.muted = false;
+        return;
+    }
+
+    // Alternative external audio track (e.g. Tamil or Telugu)
+    isExternalAudioActive = true;
+    currentArtPlayer.video.muted = true;
+
+    if (!currentExternalAudio) {
+        currentExternalAudio = new Audio();
+        currentExternalAudio.crossOrigin = 'anonymous';
+    }
+
+    const wasPlaying = !currentArtPlayer.video.paused;
     currentExternalAudio.pause();
     currentExternalAudio.src = url;
-    currentExternalAudio.currentTime = curTime;
-    if (isPlaying) {
-        currentExternalAudio.play().catch(() => {});
-    }
+    currentExternalAudio.volume = currentArtPlayer.video.volume;
+
+    const onAudioReady = () => {
+        currentExternalAudio.removeEventListener('canplay', onAudioReady);
+        currentExternalAudio.currentTime = currentArtPlayer.video.currentTime;
+        if (wasPlaying) {
+            currentArtPlayer.video.play().catch(() => {});
+        }
+    };
+    currentExternalAudio.addEventListener('canplay', onAudioReady, { once: true });
+    currentExternalAudio.load();
 }
 
 function closeArtPlayer() {
