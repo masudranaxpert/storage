@@ -2693,15 +2693,16 @@ function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
         currentExternalAudio.removeAttribute('src');
         currentExternalAudio.load();
     }
-    isExternalAudioActive = false;
+    isExternalAudioActive = true;
+    art.video.muted = true; // Video stream is video-only; audio is driven via lockstep audio controller
 
-    // By default, Track 0 is embedded in the MP4 directly.
-    // Native video plays with 100% hardware-enforced A/V lip sync.
-    art.video.muted = false;
+    const firstTrack = audioTracks[0];
+    const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
+    currentExternalAudio.src = firstUrl;
+    currentExternalAudio.volume = art.video.volume;
+    currentExternalAudio.load();
 
     // --- BIDIRECTIONAL MEDIA LOCKSTEP CONTROLLER ---
-    // When external audio is engaged (alternative track selected):
-
     // 1. Audio only plays when video is ACTUALLY rendering frames on screen
     art.on('video:playing', () => {
         if (isExternalAudioActive && currentExternalAudio && currentExternalAudio.src) {
@@ -2795,19 +2796,6 @@ function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
 function switchArtPlayerAudio(trackIndex, url) {
     if (!currentArtPlayer) return;
 
-    if (trackIndex === 0) {
-        // Track 0 is the primary track embedded in the MP4!
-        isExternalAudioActive = false;
-        if (currentExternalAudio) {
-            currentExternalAudio.pause();
-            currentExternalAudio.removeAttribute('src');
-            currentExternalAudio.load();
-        }
-        currentArtPlayer.video.muted = false;
-        return;
-    }
-
-    // Alternative external audio track (e.g. Tamil or Telugu)
     isExternalAudioActive = true;
     currentArtPlayer.video.muted = true;
 
@@ -2817,6 +2805,9 @@ function switchArtPlayerAudio(trackIndex, url) {
     }
 
     const wasPlaying = !currentArtPlayer.video.paused;
+
+    // Pause both while switching to guarantee 100% lockstep
+    currentArtPlayer.video.pause();
     currentExternalAudio.pause();
     currentExternalAudio.src = url;
     currentExternalAudio.volume = currentArtPlayer.video.volume;

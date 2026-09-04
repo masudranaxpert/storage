@@ -257,18 +257,11 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		ffmpegArgs = append(ffmpegArgs, "-y", "-i", srcPath)
 
 		if numAudios > 1 {
-			// Multi-audio: Output 1 is streamable MP4 with primary audio embedded for 100% native lip-sync
+			// Multi-audio: Output 1 is video-only MP4 (-an), each audio track is extracted as a standalone .m4a
 			ffmpegArgs = append(ffmpegArgs,
 				"-map", "0:v:0?",
-				"-map", "0:a:0?",
+				"-an",
 				"-c:v", "copy",
-			)
-			if isWebAudioCodec(srcMeta.AudioTracks[0].Codec) {
-				ffmpegArgs = append(ffmpegArgs, "-c:a", "copy")
-			} else {
-				ffmpegArgs = append(ffmpegArgs, "-c:a", "aac", "-b:a", "192k", "-threads", "2")
-			}
-			ffmpegArgs = append(ffmpegArgs,
 				"-max_muxing_queue_size", "1024",
 				"-movflags", "+faststart",
 				dstPath,
