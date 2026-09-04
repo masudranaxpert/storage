@@ -2802,11 +2802,38 @@ function copyDirectStreamURL() {
 
 function copyToClipboard(text, alertMsg) {
     if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-        alert(alertMsg || 'Copied to clipboard!');
-    }).catch(() => {
-        prompt('Copy link:', text);
-    });
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        navigator.clipboard.writeText(text).then(() => {
+            alert(alertMsg || 'Copied to clipboard!');
+        }).catch(() => {
+            fallbackCopyText(text, alertMsg);
+        });
+    } else {
+        fallbackCopyText(text, alertMsg);
+    }
+}
+
+function fallbackCopyText(text, alertMsg) {
+    try {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        textArea.setAttribute("readonly", "");
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (successful) {
+            alert(alertMsg || 'Copied to clipboard!');
+            return;
+        }
+    } catch (e) {
+        // Fall back to prompt
+    }
+    prompt('Copy link:', text);
 }
 
 function formatDuration(sec) {

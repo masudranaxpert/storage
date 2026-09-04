@@ -21,7 +21,8 @@ scratch/
 logs/
 
 # Go
-vendor/
+/vendor/
+!web/static/js/vendor/
 
 # IDE / OS
 .idea/
