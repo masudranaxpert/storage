@@ -2314,9 +2314,7 @@ async function triggerStorageSync() {
 // =============================================================================
 
 let currentArtPlayer = null;
-let currentExternalAudio = null;
-let audioSyncTimer = null;
-let isExternalAudioActive = false;
+let lockstepController = null;
 
 async function openStreamDetailsModal(mediaID) {
     const modal = document.getElementById('modal-stream-details');
@@ -2682,156 +2680,194 @@ function initArtPlayer(streamUrl, job, meta) {
     }
 }
 
+// =============================================================================
+// Lockstep Audio-Video Master-Slave Sync Engine
+// =============================================================================
+class LockstepAudioController {
+    constructor(art, initialAudioUrl) {
+        this.art = art;
+        this.video = art.video;
+        this.audio = new Audio();
+        this.audio.crossOrigin = 'anonymous';
+        this.audio.preload = 'auto';
+        this.active = true;
+        this.isSeeking = false;
+        this.syncInterval = null;
+
+        // Initialize audio source & mirror controls
+        this.audio.src = initialAudioUrl;
+        this.audio.volume = this.video.volume;
+        this.audio.muted = this.video.muted;
+        this.audio.load();
+
+        this.bindEvents();
+    }
+
+    bindEvents() {
+        const v = this.video;
+        const a = this.audio;
+        const art = this.art;
+
+        // Volume & Mute mirror
+        art.on('video:volumechange', () => {
+            if (!this.active || !this.audio) return;
+            a.volume = v.volume;
+            a.muted = v.muted;
+        });
+
+        // 1. SEEKING: User drags timeline or jumps
+        art.on('video:seeking', () => {
+            if (!this.active || !this.audio) return;
+            this.isSeeking = true;
+            a.pause();
+            a.currentTime = v.currentTime;
+        });
+
+        art.on('video:seeked', () => {
+            if (!this.active || !this.audio) return;
+            a.currentTime = v.currentTime;
+            // Never play audio here! Audio MUST wait for video frame to render (video:playing)
+        });
+
+        // 2. BUFFERING: If video buffers, audio stops immediately
+        art.on('video:waiting', () => {
+            if (!this.active || !this.audio) return;
+            a.pause();
+        });
+
+        art.on('video:pause', () => {
+            if (!this.active || !this.audio) return;
+            a.pause();
+        });
+
+        // 3. PLAYING: The golden event. Video has decoded and is moving on screen!
+        art.on('video:playing', () => {
+            if (!this.active || !this.audio || !this.audio.src) return;
+            this.isSeeking = false;
+
+            const startAudio = () => {
+                if (!this.active || !this.audio || v.paused) return;
+                const diff = Math.abs(v.currentTime - a.currentTime);
+                if (diff > 0.03) {
+                    a.currentTime = v.currentTime;
+                }
+                a.playbackRate = v.playbackRate;
+                a.play().catch(() => {});
+            };
+
+            if (a.readyState >= 2) {
+                startAudio();
+            } else {
+                a.addEventListener('canplay', startAudio, { once: true });
+            }
+        });
+
+        art.on('video:ratechange', () => {
+            if (!this.active || !this.audio) return;
+            a.playbackRate = v.playbackRate;
+        });
+
+        // 4. Audio buffering guard: If audio buffers, pause video until audio catches up
+        a.addEventListener('waiting', () => {
+            if (!this.active || !this.video || v.paused) return;
+            v.pause();
+            const onAudioResume = () => {
+                a.removeEventListener('canplay', onAudioResume);
+                if (this.active && this.video && v.paused) {
+                    v.play().catch(() => {});
+                }
+            };
+            a.addEventListener('canplay', onAudioResume);
+        });
+
+        // 5. Continuous drift steering (checked every 200ms)
+        this.syncInterval = setInterval(() => {
+            if (!this.active || !this.audio || v.paused || v.seeking || this.isSeeking || a.paused) return;
+
+            const diff = v.currentTime - a.currentTime;
+            const absDiff = Math.abs(diff);
+
+            if (absDiff > 0.3) {
+                // Major drift -> snap directly
+                a.currentTime = v.currentTime;
+                a.playbackRate = v.playbackRate;
+            } else if (diff > 0.03) {
+                // Audio is slightly behind -> glide 3% faster to catch up smoothly
+                a.playbackRate = v.playbackRate * 1.03;
+            } else if (diff < -0.03) {
+                // Audio is slightly ahead -> glide 3% slower to let video catch up
+                a.playbackRate = v.playbackRate * 0.97;
+            } else {
+                // In sync within 30ms -> match video rate
+                if (a.playbackRate !== v.playbackRate) {
+                    a.playbackRate = v.playbackRate;
+                }
+            }
+        }, 200);
+    }
+
+    switchTrack(newUrl) {
+        if (!this.active || !this.audio) return;
+        const v = this.video;
+        const a = this.audio;
+        const wasPlaying = !v.paused;
+
+        // Pause both while switching
+        v.pause();
+        a.pause();
+
+        a.src = newUrl;
+        a.volume = v.volume;
+        a.muted = v.muted;
+
+        const onReady = () => {
+            a.removeEventListener('canplay', onReady);
+            if (!this.active || !this.audio) return;
+            a.currentTime = v.currentTime;
+            if (wasPlaying) {
+                v.play().catch(() => {});
+            }
+        };
+        a.addEventListener('canplay', onReady, { once: true });
+        a.load();
+    }
+
+    destroy() {
+        this.active = false;
+        if (this.syncInterval) {
+            clearInterval(this.syncInterval);
+            this.syncInterval = null;
+        }
+        if (this.audio) {
+            this.audio.pause();
+            this.audio.removeAttribute('src');
+            this.audio.load();
+            this.audio = null;
+        }
+    }
+}
+
 function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
     if (!audioTracks || audioTracks.length === 0) return;
-
-    if (!currentExternalAudio) {
-        currentExternalAudio = new Audio();
-        currentExternalAudio.crossOrigin = 'anonymous';
-    } else {
-        currentExternalAudio.pause();
-        currentExternalAudio.removeAttribute('src');
-        currentExternalAudio.load();
+    if (lockstepController) {
+        lockstepController.destroy();
+        lockstepController = null;
     }
-    isExternalAudioActive = true;
-    art.video.muted = true; // Video stream is video-only; audio is driven via lockstep audio controller
-
     const firstTrack = audioTracks[0];
     const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
-    currentExternalAudio.src = firstUrl;
-    currentExternalAudio.volume = art.video.volume;
-    currentExternalAudio.load();
-
-    // --- BIDIRECTIONAL MEDIA LOCKSTEP CONTROLLER ---
-    // 1. Audio only plays when video is ACTUALLY rendering frames on screen
-    art.on('video:playing', () => {
-        if (isExternalAudioActive && currentExternalAudio && currentExternalAudio.src) {
-            const diff = Math.abs(art.video.currentTime - currentExternalAudio.currentTime);
-            if (diff > 0.05) {
-                currentExternalAudio.currentTime = art.video.currentTime;
-            }
-            currentExternalAudio.play().catch(() => {});
-        }
-    });
-
-    // 2. Audio MUST pause when video pauses, buffers, or seeks
-    art.on('video:pause', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.pause();
-        }
-    });
-
-    art.on('video:waiting', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.pause();
-        }
-    });
-
-    art.on('video:seeking', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.pause();
-            currentExternalAudio.currentTime = art.video.currentTime;
-        }
-    });
-
-    art.on('video:seeked', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.currentTime = art.video.currentTime;
-            // DO NOT call play() here! Wait for 'video:playing' to ensure
-            // the video frame has actually decoded and loaded before sound plays.
-        }
-    });
-
-    art.on('video:ratechange', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.playbackRate = art.video.playbackRate;
-        }
-    });
-
-    art.on('video:volumechange', () => {
-        if (isExternalAudioActive && currentExternalAudio) {
-            currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
-        }
-    });
-
-    // 3. Audio buffering protection: If external audio is buffering, pause video
-    currentExternalAudio.onwaiting = () => {
-        if (isExternalAudioActive && !art.video.paused) {
-            art.video.pause();
-        }
-    };
-    currentExternalAudio.oncanplay = () => {
-        if (isExternalAudioActive && art.video.paused && art.video.readyState >= 3) {
-            art.video.play().catch(() => {});
-        }
-    };
-
-    // 4. Smooth Micro-Drift Correction without stuttering or audio pops
-    if (audioSyncTimer) clearInterval(audioSyncTimer);
-    audioSyncTimer = setInterval(() => {
-        if (!isExternalAudioActive || !currentExternalAudio || art.video.paused || art.video.seeking) return;
-
-        const diff = art.video.currentTime - currentExternalAudio.currentTime;
-        const absDiff = Math.abs(diff);
-
-        if (absDiff > 0.3) {
-            // Significant drift -> snap directly
-            currentExternalAudio.currentTime = art.video.currentTime;
-            currentExternalAudio.playbackRate = art.video.playbackRate;
-        } else if (diff > 0.04) {
-            // Audio lagging slightly -> glide faster
-            currentExternalAudio.playbackRate = art.video.playbackRate * 1.04;
-        } else if (diff < -0.04) {
-            // Audio leading slightly -> glide slower
-            currentExternalAudio.playbackRate = art.video.playbackRate * 0.96;
-        } else {
-            // In sync -> normal rate
-            if (currentExternalAudio.playbackRate !== art.video.playbackRate) {
-                currentExternalAudio.playbackRate = art.video.playbackRate;
-            }
-        }
-    }, 250);
+    lockstepController = new LockstepAudioController(art, firstUrl);
 }
 
 function switchArtPlayerAudio(trackIndex, url) {
-    if (!currentArtPlayer) return;
-
-    isExternalAudioActive = true;
-    currentArtPlayer.video.muted = true;
-
-    if (!currentExternalAudio) {
-        currentExternalAudio = new Audio();
-        currentExternalAudio.crossOrigin = 'anonymous';
+    if (lockstepController) {
+        lockstepController.switchTrack(url);
     }
-
-    const wasPlaying = !currentArtPlayer.video.paused;
-
-    // Pause both while switching to guarantee 100% lockstep
-    currentArtPlayer.video.pause();
-    currentExternalAudio.pause();
-    currentExternalAudio.src = url;
-    currentExternalAudio.volume = currentArtPlayer.video.volume;
-
-    const onAudioReady = () => {
-        currentExternalAudio.removeEventListener('canplay', onAudioReady);
-        currentExternalAudio.currentTime = currentArtPlayer.video.currentTime;
-        if (wasPlaying) {
-            currentArtPlayer.video.play().catch(() => {});
-        }
-    };
-    currentExternalAudio.addEventListener('canplay', onAudioReady, { once: true });
-    currentExternalAudio.load();
 }
 
 function closeArtPlayer() {
-    if (audioSyncTimer) {
-        clearInterval(audioSyncTimer);
-        audioSyncTimer = null;
-    }
-    if (currentExternalAudio) {
-        currentExternalAudio.pause();
-        currentExternalAudio.removeAttribute('src');
-        currentExternalAudio.load();
+    if (lockstepController) {
+        lockstepController.destroy();
+        lockstepController = null;
     }
     if (currentArtPlayer) {
         if (currentArtPlayer.hls) {
