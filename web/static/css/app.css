@@ -2748,11 +2748,11 @@ body {
    ========================================================================== */
 .cinema-shell {
     position: relative;
-    border-radius: var(--radius-lg);
+    border-radius: 0;
     overflow: hidden;
-    background: #0c0a09;
-    border: 1px solid rgba(249, 115, 22, 0.22);
-    box-shadow: 0 14px 44px -10px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(249, 115, 22, 0.05);
+    background: #000000;
+    border: none;
+    box-shadow: none;
     flex-shrink: 0;
 }
 
@@ -3118,6 +3118,7 @@ body {
     width: 100% !important;
     height: 100% !important;
     max-width: 100% !important;
+    border-radius: 0 !important;
 }
 
 #artplayer-container .art-video-player video {
