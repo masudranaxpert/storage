@@ -147,10 +147,19 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		}
 		found := false
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
+			if !e.IsDir() && e.Name() == "master.m3u8" {
 				filePath = filepath.Join(filePath, e.Name())
 				found = true
 				break
+			}
+		}
+		if !found {
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
+					filePath = filepath.Join(filePath, e.Name())
+					found = true
+					break
+				}
 			}
 		}
 		if !found {

@@ -170,9 +170,14 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			if !stat.IsDir() {
 				return candidate
 			}
-			// Folder requested: auto-locate primary video (.mp4)
+			// Folder requested: auto-locate primary video (master.m3u8, .mp4, or .mkv)
 			entries, err := os.ReadDir(candidate)
 			if err == nil {
+				for _, e := range entries {
+					if !e.IsDir() && e.Name() == "master.m3u8" {
+						return filepath.Join(candidate, e.Name())
+					}
+				}
 				for _, e := range entries {
 					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
 						return filepath.Join(candidate, e.Name())
@@ -1221,7 +1226,7 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 	}
 	_ = folder.SaveMetadata(meta)
 
-	if _, err := os.Stat(folder.VideoFilePath); err == nil {
+	if meta != nil {
 		_ = folder.CleanRaw()
 	}
 
@@ -1357,7 +1362,7 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 	}
 	_ = folder.SaveMetadata(meta)
 
-	if _, err := os.Stat(folder.VideoFilePath); err == nil {
+	if meta != nil {
 		_ = folder.CleanRaw()
 	}
 

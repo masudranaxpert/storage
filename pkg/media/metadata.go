@@ -425,6 +425,11 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		if _, hlsErr := hlsCmd.CombinedOutput(); hlsErr == nil {
 			if _, statErr := os.Stat(filepath.Join(dstDir, masterM3U8)); statErr == nil {
 				meta.MasterM3U8 = masterM3U8
+				// Reclaim 50% disk storage: Remove intermediate unfragmented MP4 and M4A duplicates
+				_ = os.Remove(dstPath)
+				for _, a := range meta.AudioTracks {
+					_ = os.Remove(filepath.Join(dstDir, a.File))
+				}
 			}
 		}
 	}
