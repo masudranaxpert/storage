@@ -698,19 +698,28 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		// Probe worker's /media/{key}/metadata.json to backfill historical jobs
 		worker := s.nodeByID(job.Placement.NodeID)
 		if worker != nil && worker.Status == cluster.StatusOnline {
-			metaURL := fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), key)
-			client := &http.Client{Timeout: 800 * time.Millisecond}
-			if r, err := client.Get(metaURL); err == nil {
-				defer r.Body.Close()
-				if r.StatusCode == http.StatusOK {
-					data, _ := io.ReadAll(r.Body)
-					if len(data) > 0 {
-						var meta map[string]interface{}
-						if err := json.Unmarshal(data, &meta); err == nil {
-							resp.Metadata = meta
-							job.MetadataJSON = data
-							_ = s.store.SaveFileJob(job)
+			candidates := []string{
+				fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), key),
+				fmt.Sprintf("http://172.17.0.1:2052/media/%s/metadata.json", key),
+				fmt.Sprintf("http://127.0.0.1:2052/media/%s/metadata.json", key),
+			}
+			client := &http.Client{Timeout: 600 * time.Millisecond}
+			for _, metaURL := range candidates {
+				if r, err := client.Get(metaURL); err == nil {
+					if r.StatusCode == http.StatusOK {
+						data, _ := io.ReadAll(r.Body)
+						r.Body.Close()
+						if len(data) > 0 {
+							var meta map[string]interface{}
+							if err := json.Unmarshal(data, &meta); err == nil {
+								resp.Metadata = meta
+								job.MetadataJSON = data
+								_ = s.store.SaveFileJob(job)
+								break
+							}
 						}
+					} else {
+						r.Body.Close()
 					}
 				}
 			}
