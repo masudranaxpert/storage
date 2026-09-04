@@ -581,12 +581,19 @@ func (s *Service) ApplyProgress(key string, up *ProgressUpdate) error {
 		job.MetadataJSON = up.CMAFJSON
 		var cmaf struct {
 			TotalBytes int64 `json:"total_bytes"`
+			SizeBytes  int64 `json:"size_bytes"`
 		}
-		if err := json.Unmarshal(up.CMAFJSON, &cmaf); err == nil && cmaf.TotalBytes > 0 {
-			if rec, err := s.store.GetFileRecord(key); err == nil && rec != nil {
-				if rec.SizeBytes == 0 || rec.SizeBytes != cmaf.TotalBytes {
-					rec.SizeBytes = cmaf.TotalBytes
-					_ = s.store.SaveFileRecord(rec)
+		if err := json.Unmarshal(up.CMAFJSON, &cmaf); err == nil {
+			size := cmaf.TotalBytes
+			if size == 0 {
+				size = cmaf.SizeBytes
+			}
+			if size > 0 {
+				if rec, err := s.store.GetFileRecord(key); err == nil && rec != nil {
+					if rec.SizeBytes == 0 || rec.SizeBytes != size {
+						rec.SizeBytes = size
+						_ = s.store.SaveFileRecord(rec)
+					}
 				}
 			}
 		}
@@ -672,6 +679,7 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		ETA:              job.ETA,
 		Details:          job.Details,
 		Source:           rec.SourceType,
+		NodeID:           job.NodeID,
 		WorkerNodeID:     job.NodeID,
 		Placement:        job.Placement,
 		StreamURL:        s.StreamURL(job),
@@ -685,6 +693,27 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		var meta map[string]interface{}
 		if err := json.Unmarshal(job.MetadataJSON, &meta); err == nil {
 			resp.Metadata = meta
+		}
+	} else if resp.State == StateCompleted && job.Placement.NodeID != "" {
+		// Probe worker's /media/{key}/metadata.json to backfill historical jobs
+		worker := s.nodeByID(job.Placement.NodeID)
+		if worker != nil && worker.Status == cluster.StatusOnline {
+			metaURL := fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), key)
+			client := &http.Client{Timeout: 800 * time.Millisecond}
+			if r, err := client.Get(metaURL); err == nil {
+				defer r.Body.Close()
+				if r.StatusCode == http.StatusOK {
+					data, _ := io.ReadAll(r.Body)
+					if len(data) > 0 {
+						var meta map[string]interface{}
+						if err := json.Unmarshal(data, &meta); err == nil {
+							resp.Metadata = meta
+							job.MetadataJSON = data
+							_ = s.store.SaveFileJob(job)
+						}
+					}
+				}
+			}
 		}
 	}
 	return resp, nil

@@ -2129,6 +2129,20 @@ body {
     border: 1px solid var(--border-light);
 }
 
+.badge-compute {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+    border: 1px solid rgba(59, 130, 246, 0.25);
+    font-family: 'JetBrains Mono', monospace;
+}
+
 /* ==========================================================================
    Tier Storage & Processing VPS (Fully Responsive Layout)
    ========================================================================== */
@@ -2814,3 +2828,356 @@ body {
         max-height: 62vh;
     }
 }
+
+/* ==========================================================================
+   Stream Details Modal — Cinema Player & Media Sections
+   ========================================================================== */
+.cinema-shell {
+    position: relative;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    background: #0c0a09;
+    border: 1px solid rgba(249, 115, 22, 0.22);
+    box-shadow: 0 14px 44px -10px rgba(0, 0, 0, 0.55), 0 0 0 4px rgba(249, 115, 22, 0.05);
+}
+
+.cinema-stage {
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    background: #000000;
+    position: relative;
+}
+
+.cinema-stage video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.cinema-loading,
+.cinema-error {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    text-align: center;
+    padding: 20px;
+    background: radial-gradient(120% 140% at 50% 0%, #292524 0%, #0c0a09 70%);
+    color: #d6d3d1;
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.cinema-spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid rgba(249, 115, 22, 0.22);
+    border-top-color: var(--orange-primary);
+    animation: cinema-spin 0.8s linear infinite;
+}
+
+@keyframes cinema-spin {
+    to { transform: rotate(360deg); }
+}
+
+.cinema-error strong {
+    color: #ffffff;
+    font-size: 14.5px;
+    letter-spacing: -0.2px;
+}
+
+.cinema-error .cinema-error-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: var(--radius-md);
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #f87171;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cinema-error span {
+    font-size: 12px;
+    color: #a8a29e;
+    max-width: 440px;
+    line-height: 1.55;
+    font-weight: 500;
+}
+
+.cinema-error .cinema-retry-btn {
+    margin-top: 4px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: linear-gradient(135deg, var(--orange-primary), var(--orange-dark));
+    color: #ffffff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: var(--radius-md);
+    font-size: 12.5px;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 3px 10px var(--orange-glow);
+    transition: all 0.2s ease;
+}
+
+.cinema-error .cinema-retry-btn:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+}
+
+.studio-notice {
+    background: linear-gradient(135deg, rgba(249, 115, 22, 0.08), rgba(249, 115, 22, 0.015));
+    border: 1px solid var(--border-orange);
+    border-radius: var(--radius-md);
+    padding: 12px 16px;
+    font-size: 12px;
+}
+
+.stream-section {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    box-shadow: var(--shadow-sm);
+}
+
+.stream-section-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.1px;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.stream-section-head svg {
+    color: var(--orange-dark);
+    flex-shrink: 0;
+}
+
+.stream-url-row {
+    display: flex;
+    gap: 8px;
+}
+
+.stream-url-input {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11.5px;
+    background: var(--bg-subtle);
+}
+
+.stream-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 8px;
+}
+
+.track-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.track-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    background: var(--bg-body);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    padding: 8px 12px;
+    transition: all 0.15s ease;
+}
+
+.track-row:hover {
+    border-color: var(--border-orange);
+    background: var(--bg-orange-soft);
+}
+
+.track-row-title {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 0;
+}
+
+.track-row-title .track-icon {
+    color: var(--orange-dark);
+    flex-shrink: 0;
+    display: flex;
+}
+
+.track-row-meta {
+    font-size: 10px;
+    opacity: 0.65;
+    font-weight: 500;
+}
+
+.track-chip {
+    font-size: 9.5px;
+    padding: 2px 8px;
+    border-radius: var(--radius-full);
+    background: var(--bg-orange-soft);
+    color: var(--orange-dark);
+    border: 1px solid var(--border-orange);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.modal-dialog.modal-cinema {
+    animation: modal-cinema-in 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes modal-cinema-in {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.985);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+/* Media Library Specs, Audio & Decoupled Routing Badges */
+.badge-compute {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #eef2ff;
+    color: #4338ca;
+    border: 1px solid #c7d2fe;
+    box-shadow: 0 1px 2px rgba(67, 56, 202, 0.05);
+}
+
+.badge-location {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #ecfdf5;
+    color: #047857;
+    border: 1px solid #a7f3d0;
+    box-shadow: 0 1px 2px rgba(4, 120, 87, 0.05);
+}
+
+.badge-drive {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 600;
+    background: var(--bg-body);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+}
+
+.badge-tier {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--orange-dark);
+    background: var(--bg-orange-soft);
+    border: 1px solid var(--border-orange);
+}
+
+.badge-spec {
+    display: inline-flex;
+    align-items: center;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+.badge-audio {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #fdf4ff;
+    color: #86198f;
+    border: 1px solid #f0abfc;
+    cursor: default;
+    transition: transform 0.15s ease;
+}
+
+.badge-audio:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(134, 25, 143, 0.15);
+}
+
+.badge-sub {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #f0fdfa;
+    color: #0f766e;
+    border: 1px solid #99f6e4;
+    cursor: default;
+    transition: transform 0.15s ease;
+}
+
+.badge-sub:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(15, 118, 110, 0.15);
+}
+
+.badge-video {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 7px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #e0f2fe;
+    color: #0369a1;
+    border: 1px solid #bae6fd;
+}
+

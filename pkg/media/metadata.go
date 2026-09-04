@@ -51,6 +51,7 @@ type MediaMetadata struct {
 	Filename         string              `json:"filename"`
 	OriginalFilename string              `json:"original_filename"`
 	SizeBytes        int64               `json:"size_bytes"`
+	TotalBytes       int64               `json:"total_bytes,omitempty"`
 	MIMEType         string              `json:"mime_type"`
 	DurationSec      float64             `json:"duration_sec"`
 	BitrateBps       int64               `json:"bitrate_bps"`
@@ -366,7 +367,7 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 			}
 		}
 	}
-
+	meta.TotalBytes = meta.SizeBytes
 	return meta, nil
 }
 

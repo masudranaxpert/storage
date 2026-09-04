@@ -1822,6 +1822,49 @@ function renderPipelineStepper(item) {
     `;
 }
 
+function renderMediaSpecs(meta) {
+    if (!meta || (!meta.video && (!meta.audio_tracks || meta.audio_tracks.length === 0))) {
+        return `<span class="badge-video">MP4 Stream</span>`;
+    }
+    const v = meta.video || {};
+    const resLabel = v.height ? `${v.height}p` : (v.width ? `${v.width}x${v.height}` : '');
+    const fpsLabel = v.fps ? `${Math.round(v.fps)}fps` : '';
+    const durLabel = meta.duration_sec ? formatDuration(meta.duration_sec) : '';
+
+    let audioPills = '';
+    if (meta.audio_tracks && meta.audio_tracks.length > 0) {
+        audioPills = meta.audio_tracks.map(t => {
+            const lang = t.language || t.title || 'Audio';
+            const full = t.title || lang;
+            return `<span class="badge-audio" title="${escapeHtml(full)} (${escapeHtml(t.codec || 'aac')})">🎵 ${escapeHtml(lang.toUpperCase())}</span>`;
+        }).join(' ');
+    }
+
+    let subPills = '';
+    if (meta.subtitles && meta.subtitles.length > 0) {
+        subPills = meta.subtitles.map(s => {
+            const lang = s.language || s.title || 'Sub';
+            return `<span class="badge-sub" title="${escapeHtml(s.title || lang)} (WebVTT)">💬 ${escapeHtml(lang.toUpperCase())}</span>`;
+        }).join(' ');
+    }
+
+    return `
+        <div style="display:flex; flex-direction:column; gap:4px;">
+            <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+                ${resLabel ? `<span class="badge-spec">${escapeHtml(resLabel)}</span>` : ''}
+                ${fpsLabel ? `<span class="badge-spec">${escapeHtml(fpsLabel)}</span>` : ''}
+                ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:600; margin-left:2px;">⏱ ${escapeHtml(durLabel)}</span>` : ''}
+            </div>
+            ${(audioPills || subPills) ? `
+                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-top:2px;">
+                    ${audioPills}
+                    ${subPills}
+                </div>
+            ` : ''}
+        </div>
+    `;
+}
+
 function renderMediaTable() {
     const tbody = document.getElementById('media-table-body');
     if (!tbody) return;
@@ -1897,73 +1940,54 @@ function renderMediaTable() {
         const filename = item.filename || item.key;
         const sizeStr = item.size_bytes ? formatBytes(item.size_bytes) : '-';
         const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString() : '-';
-        const meta = item.metadata;
+        let meta = item.metadata;
+        const specsHtml = renderMediaSpecs(meta);
 
-        // 1. Specs & Tracks rendering
-        let specsHtml = '';
-        if (meta && (meta.video || (meta.audio_tracks && meta.audio_tracks.length > 0))) {
-            const v = meta.video || {};
-            const resLabel = v.height ? `${v.height}p` : (v.width ? `${v.width}x${v.height}` : '');
-            const fpsLabel = v.fps ? `${v.fps}fps` : '';
-            const durLabel = meta.duration_sec ? formatDuration(meta.duration_sec) : '';
-
-            let audioPills = '';
-            if (meta.audio_tracks && meta.audio_tracks.length > 0) {
-                audioPills = meta.audio_tracks.map(t => {
-                    const lang = t.language || t.title || 'Audio';
-                    const full = t.title || lang;
-                    return `<span class="badge-audio" title="${escapeHtml(full)} (${escapeHtml(t.codec || 'aac')})">🎵 ${escapeHtml(lang.toUpperCase())}</span>`;
-                }).join(' ');
-            }
-
-            let subPills = '';
-            if (meta.subtitles && meta.subtitles.length > 0) {
-                subPills = meta.subtitles.map(s => {
-                    const lang = s.language || s.title || 'Sub';
-                    return `<span class="badge-sub" title="${escapeHtml(s.title || lang)} (WebVTT)">💬 ${escapeHtml(lang.toUpperCase())}</span>`;
-                }).join(' ');
-            }
-
-            specsHtml = `
-                <div style="display:flex; flex-direction:column; gap:4px;">
-                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-                        ${resLabel ? `<span class="badge-spec">${escapeHtml(resLabel)}</span>` : ''}
-                        ${fpsLabel ? `<span class="badge-spec">${escapeHtml(fpsLabel)}</span>` : ''}
-                        ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:600; margin-left:2px;">⏱ ${escapeHtml(durLabel)}</span>` : ''}
-                    </div>
-                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-top:1px;">
-                        ${audioPills}
-                        ${subPills}
-                    </div>
-                </div>
-            `;
-        } else {
-            specsHtml = `
-                <div style="display:flex; align-items:center; gap:4px;">
-                    <span class="badge-video">MP4 Stream</span>
-                </div>
-            `;
+        // Auto-fetch metadata if not cached yet on completed asset
+        if (isReady && (!meta || !meta.video) && !item._fetchingMeta) {
+            item._fetchingMeta = true;
+            const metaUrl = item.stream_url ? (item.stream_url.replace(/\/+$/, '') + '/metadata.json') : (`/stream/${encodeURIComponent(item.key)}/metadata.json`);
+            fetch(metaUrl)
+                .then(r => r.ok ? r.json() : null)
+                .then(m => {
+                    if (m && (m.video || m.audio_tracks)) {
+                        item.metadata = m;
+                        const el = document.getElementById(`specs-cell-${item.key}`);
+                        if (el) {
+                            el.innerHTML = renderMediaSpecs(m);
+                        }
+                    }
+                })
+                .catch(() => {});
         }
 
-        // 2. Storage Location rendering
+        // 2. Storage Location & Pipeline Routing rendering
         const placement = item.placement || {};
-        const nodeID = placement.node_id || item.worker_node_id || 'Auto';
-        const tierLabel = placement.tier_label || (placement.tier_id === 2 ? 'Tier 2 · HDD' : (placement.tier_id === 1 ? 'Tier 1 · SSD' : 'Cluster Storage'));
-        const drivePath = placement.path || '/stream/media';
+        const storageNode = placement.node_id || item.worker_node_id || item.node_id || 'Auto';
+        const computeNode = item.node_id || item.worker_node_id || '';
+        const tierLabel = placement.tier_label || (placement.tier_id === 2 ? 'tier2' : (placement.tier_id === 1 ? 'tier1' : 'storage'));
+        const drivePath = placement.path || '/';
+        const isDecoupled = computeNode && storageNode && computeNode !== storageNode;
         const hasCustomHost = placement.public_host ? true : false;
 
         const locationHtml = `
-            <div style="display:flex; flex-direction:column; gap:3px;">
-                <div style="display:flex; align-items:center; gap:5px;">
-                    <span class="badge-location">
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
-                        ${escapeHtml(nodeID)}
-                    </span>
-                    ${hasCustomHost ? `<span style="font-size:10px; font-weight:700; color:var(--orange-primary);" title="Custom CDN / Domain configured">⚡ CDN</span>` : ''}
+            <div style="display:flex; flex-direction:column; gap:4px;">
+                ${isDecoupled ? `
+                    <div style="display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                        <span class="badge-compute" title="Processing Worker: Ingest & Remux performed here">⚡ ${escapeHtml(computeNode)}</span>
+                        <span style="color:var(--text-muted);font-size:11px;font-weight:700;">➔</span>
+                        <span class="badge-location" title="Final Storage Node: Stored here">💾 ${escapeHtml(storageNode)}</span>
+                    </div>
+                ` : `
+                    <div style="display:inline-flex; align-items:center; gap:5px;">
+                        <span class="badge-location" title="Direct Compute & Storage Node">💾 ${escapeHtml(storageNode)}</span>
+                    </div>
+                `}
+                <div style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                    <span class="badge-drive" title="Disk mount point">📂 ${escapeHtml(drivePath)}</span>
+                    <span class="badge-tier" title="Storage Tier">${escapeHtml(tierLabel)}</span>
                 </div>
-                <div style="font-size:11px; color:var(--text-secondary); font-family:'JetBrains Mono',monospace;">
-                    ${escapeHtml(tierLabel)} &bull; ${escapeHtml(drivePath)}
-                </div>
+                ${hasCustomHost ? `<div style="font-size:10px; font-weight:700; color:var(--orange-primary);">⚡ Custom CDN / Host</div>` : ''}
             </div>
         `;
 
@@ -2022,7 +2046,7 @@ function renderMediaTable() {
                         ${escapeHtml(item.key)} &bull; <span style="opacity:0.8;">${dateStr}</span>
                     </div>
                 </td>
-                <td>
+                <td id="specs-cell-${escapeHtml(item.key)}">
                     ${specsHtml}
                 </td>
                 <td>
@@ -2306,19 +2330,25 @@ async function openStreamDetailsModal(mediaID) {
     const directInput = document.getElementById('stream-direct-url');
     if (directInput) directInput.value = streamUrl;
 
-    const hlsInput = document.getElementById('stream-hls-url');
-    if (hlsInput) hlsInput.value = streamUrl;
-
     // Badges
     const badgesWrap = document.getElementById('stream-modal-badges');
     if (badgesWrap) {
+        const computeNode = job.node_id || job.worker_node_id || '';
+        const storageNode = job.placement?.node_id || computeNode || 'Auto';
+        const drive = job.placement?.path || '/';
+        const tier = job.placement?.tier_label || (job.placement?.tier_id === 2 ? 'tier2' : 'tier1');
+        const isDecoupled = computeNode && storageNode && computeNode !== storageNode;
+
         let badges = `<span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">ID: ${escapeHtml(mediaID)}</span>`;
-        if (job.placement?.node_id) {
-            badges += `<span class="badge-location">🖥 ${escapeHtml(job.placement.node_id)}</span>`;
+        if (isDecoupled) {
+            badges += `<span class="badge-compute" title="Processed on ${escapeHtml(computeNode)}">⚡ ${escapeHtml(computeNode)}</span>`;
+            badges += `<span style="color:var(--text-muted);font-size:10px;">➔</span>`;
+            badges += `<span class="badge-location" title="Stored on ${escapeHtml(storageNode)}">💾 ${escapeHtml(storageNode)}</span>`;
+        } else {
+            badges += `<span class="badge-location">💾 ${escapeHtml(storageNode)}</span>`;
         }
-        if (job.placement?.tier_label) {
-            badges += `<span class="badge-spec">${escapeHtml(job.placement.tier_label)}</span>`;
-        }
+        badges += `<span class="badge-drive">📂 ${escapeHtml(drive)}</span>`;
+        badges += `<span class="badge-tier">${escapeHtml(tier)}</span>`;
         badgesWrap.innerHTML = badges;
     }
 
@@ -2360,12 +2390,12 @@ function renderMediaModalDrawers(job, meta, streamUrl) {
         if (tracksInfo) {
             tracksInfo.style.display = 'block';
             tracksInfo.innerHTML = `
-                <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:var(--orange-primary);">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+                <div style="display:flex;align-items:center;gap:9px;font-weight:800;font-size:12.5px;color:var(--orange-dark);">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
                     <span>Studio Multi-Audio Engine Active (${meta.audio_tracks.length} Tracks)</span>
                 </div>
-                <div style="color:var(--text-secondary);margin-top:3px;font-size:11.5px;">
-                    Switch languages seamlessly via ArtPlayer's <strong>⚙️ Settings &rarr; Audio Track</strong> menu (${meta.audio_tracks.map(t => t.title || t.language).join(', ')}).
+                <div style="color:var(--text-secondary);margin-top:4px;font-size:11.5px;line-height:1.5;">
+                    Switch languages seamlessly via ArtPlayer's <strong>Settings &rarr; Audio Track</strong> menu (${meta.audio_tracks.map(t => t.title || t.language).join(', ')}).
                 </div>
             `;
         }
@@ -2376,11 +2406,14 @@ function renderMediaModalDrawers(job, meta, streamUrl) {
                 const trackUrl = `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`;
                 const title = t.title || t.language || `Track ${idx + 1}`;
                 return `
-                    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:6px 10px;font-size:11.5px;">
-                        <span style="font-weight:600;">🎵 ${escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')}, ${t.channels || 2}ch)</span></span>
-                        <div style="display:flex;gap:6px;">
-                            <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(trackUrl)}', 'Audio URL copied!')">Copy Link</button>
-                        </div>
+                    <div class="track-row">
+                        <span class="track-row-title">
+                            <span class="track-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg></span>
+                            ${escapeHtml(title)}
+                            <span class="track-row-meta">${escapeHtml(t.codec || 'aac')} &middot; ${t.channels || 2}ch</span>
+                        </span>
+                        <span class="track-chip">#${idx + 1}</span>
+                        <button class="btn btn-secondary" style="padding:4px 12px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(trackUrl)}', 'Audio URL copied!')">Copy Link</button>
                     </div>
                 `;
             }).join('');
@@ -2397,9 +2430,13 @@ function renderMediaModalDrawers(job, meta, streamUrl) {
                 const subUrl = `${baseDirUrl}/${s.file || `subtitle_${s.index}_${s.language}.vtt`}`;
                 const title = s.title || s.language || 'Subtitles';
                 return `
-                    <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:6px 10px;font-size:11.5px;">
-                        <span style="font-weight:600;">💬 ${escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(WebVTT)</span></span>
-                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(subUrl)}', 'Subtitle URL copied!')">Copy VTT</button>
+                    <div class="track-row">
+                        <span class="track-row-title">
+                            <span class="track-icon"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><path d="M6 16h4M14 16h4M4 12h2M9 12h6M18 12h2"></path></svg></span>
+                            ${escapeHtml(title)}
+                            <span class="track-row-meta">WebVTT</span>
+                        </span>
+                        <button class="btn btn-secondary" style="padding:4px 12px;font-size:11px;" onclick="copyToClipboard('${escapeHtml(subUrl)}', 'Subtitle URL copied!')">Copy VTT</button>
                     </div>
                 `;
             }).join('');
@@ -2409,39 +2446,180 @@ function renderMediaModalDrawers(job, meta, streamUrl) {
     }
 }
 
+// Cinema overlay state: loading spinner until first frame, friendly error card on failure.
+let cinemaRetryCtx = null;
+let cinemaLoadTimer = null;
+
+function cinemaReady() {
+    clearTimeout(cinemaLoadTimer);
+    const loading = document.getElementById('cinema-loading');
+    if (loading) loading.style.display = 'none';
+    const errorBox = document.getElementById('cinema-error');
+    if (errorBox) errorBox.style.display = 'none';
+}
+
+function cinemaFail(job, reason) {
+    clearTimeout(cinemaLoadTimer);
+    if (currentArtPlayer && currentArtPlayer.notice) {
+        try { currentArtPlayer.notice.show = ''; } catch (_) {}
+    }
+    const loading = document.getElementById('cinema-loading');
+    if (loading) loading.style.display = 'none';
+    const box = document.getElementById('cinema-error');
+    if (!box) return;
+    box.style.display = 'flex';
+    box.innerHTML = `
+        <div class="cinema-error-icon">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+        </div>
+        <strong>Stream Unavailable</strong>
+        <span>${escapeHtml(job.filename || job.key)} &mdash; ${escapeHtml(reason || 'The storage node did not respond. It may be offline, or the file was moved or deleted.')}</span>
+        <button class="cinema-retry-btn" onclick="retryArtPlayer()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+            Retry
+        </button>
+    `;
+}
+
+function retryArtPlayer() {
+    if (!cinemaRetryCtx) return;
+    closeArtPlayer();
+    initArtPlayer(cinemaRetryCtx.streamUrl, cinemaRetryCtx.job, cinemaRetryCtx.meta);
+}
+
+function mountFallbackVideo(container, streamUrl, job) {
+    const video = document.createElement('video');
+    video.src = streamUrl;
+    video.controls = true;
+    video.autoplay = true;
+    video.addEventListener('error', () => cinemaFail(job));
+    container.appendChild(video);
+}
+
 function initArtPlayer(streamUrl, job, meta) {
     const container = document.getElementById('artplayer-container');
     if (!container) return;
     container.innerHTML = '';
+    cinemaRetryCtx = { streamUrl, job, meta };
+    const loading = document.getElementById('cinema-loading');
+    if (loading) loading.style.display = 'flex';
+    const errorBox = document.getElementById('cinema-error');
+    if (errorBox) {
+        errorBox.style.display = 'none';
+        errorBox.innerHTML = '';
+    }
 
     const filename = job.filename || job.key;
     const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(job.key)}`;
     const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
 
-    let defaultSubtitle = {};
+    // Subtitle setup
+    let subtitleOption = undefined;
     if (meta && meta.subtitles && meta.subtitles.length > 0) {
         const firstSub = meta.subtitles[0];
-        defaultSubtitle = {
-            url: `${baseDirUrl}/${firstSub.file || `subtitle_${firstSub.index}_${firstSub.language}.vtt`}`,
-            type: 'vtt',
-            style: {
-                color: '#fff',
-                fontSize: '20px',
-                textShadow: '0 2px 4px rgba(0,0,0,0.8)'
-            },
-            encoding: 'utf-8'
-        };
+        if (firstSub && (firstSub.file || firstSub.language)) {
+            subtitleOption = {
+                url: `${baseDirUrl}/${firstSub.file || `subtitle_${firstSub.index}_${firstSub.language}.vtt`}`,
+                type: 'vtt',
+                style: {
+                    color: '#ffffff',
+                    fontSize: '20px',
+                    textShadow: '0 2px 4px rgba(0,0,0,0.8)'
+                },
+                encoding: 'utf-8'
+            };
+        }
     }
 
-    if (typeof Artplayer === 'undefined') {
-        container.innerHTML = `<video src="${escapeHtml(streamUrl)}" controls autoplay style="width:100%;height:100%;object-fit:contain;"></video>`;
+    // Custom Settings Menu
+    const customSettings = [];
+
+    // 1. Audio Track Selector (inside ArtPlayer's settings menu)
+    if (hasMultiAudio) {
+        const activeTrack = meta.audio_tracks[0];
+        const audioSelectorItems = meta.audio_tracks.map((t, idx) => ({
+            default: idx === 0,
+            html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${escapeHtml(t.title || t.language || `Track ${idx+1}`)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')}, ${t.channels || 2}ch)</span></span>`,
+            url: `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`,
+            track: t,
+        }));
+
+        customSettings.push({
+            width: 240,
+            html: 'Audio Track',
+            name: 'audio_track',
+            tooltip: activeTrack.title || activeTrack.language || 'Default',
+            selector: audioSelectorItems,
+            onSelect: function(item) {
+                switchArtPlayerAudio(item.url);
+                return item.track.title || item.track.language;
+            }
+        });
+    }
+
+    // 2. Subtitles Selector (inside ArtPlayer's settings menu)
+    if (meta && meta.subtitles && meta.subtitles.length > 0) {
+        const subItems = meta.subtitles.map((s, idx) => ({
+            default: idx === 0,
+            html: `<span style="display:inline-flex;align-items:center;gap:6px;">💬 ${escapeHtml(s.title || s.language || `Subtitle ${idx+1}`)} <span style="font-size:10px;opacity:0.6;">(VTT)</span></span>`,
+            url: `${baseDirUrl}/${s.file || `subtitle_${s.index}_${s.language}.vtt`}`,
+            sub: s,
+        }));
+        subItems.push({
+            default: false,
+            html: '<span>❌ Turn Off Subtitles</span>',
+            url: '',
+            sub: null,
+        });
+
+        customSettings.push({
+            width: 240,
+            html: 'Subtitles',
+            name: 'subtitles',
+            tooltip: meta.subtitles[0].title || meta.subtitles[0].language || 'English',
+            selector: subItems,
+            onSelect: function(item) {
+                if (currentArtPlayer && currentArtPlayer.subtitle) {
+                    if (item.url) {
+                        currentArtPlayer.subtitle.show = true;
+                        currentArtPlayer.subtitle.switch(item.url, { name: item.sub?.language || 'Sub' });
+                    } else {
+                        currentArtPlayer.subtitle.show = false;
+                    }
+                }
+                return item.sub ? (item.sub.title || item.sub.language) : 'Off';
+            }
+        });
+    }
+
+    // Check Artplayer availability
+    const ArtClass = window.Artplayer || window.ArtPlayer;
+    if (!ArtClass) {
+        console.warn('Artplayer library not loaded, using HTML5 fallback');
+        mountFallbackVideo(container, streamUrl, job);
         return;
     }
 
+    // Custom Controls bar items
+    const customControls = [];
+    if (hasMultiAudio) {
+        customControls.push({
+            position: 'right',
+            html: `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--orange-primary);cursor:pointer;padding:0 8px;">🎵 Audio</span>`,
+            tooltip: 'Switch Audio Track',
+            click: function() {
+                if (currentArtPlayer && currentArtPlayer.setting) {
+                    currentArtPlayer.setting.show = true;
+                }
+            }
+        });
+    }
+
     try {
-        currentArtPlayer = new Artplayer({
+        const artOptions = {
             container: '#artplayer-container',
             url: streamUrl,
+            type: streamUrl.includes('.m3u8') ? 'm3u8' : 'mp4',
             title: filename,
             volume: 0.8,
             isLive: false,
@@ -2462,8 +2640,10 @@ function initArtPlayer(streamUrl, job, meta) {
             theme: '#ff7a18',
             moreVideoAttr: {
                 crossOrigin: 'anonymous',
+                playsInline: 'true',
             },
-            subtitle: defaultSubtitle,
+            settings: customSettings,
+            controls: customControls,
             customType: {
                 m3u8: function(video, url, art) {
                     if (window.Hls && Hls.isSupported()) {
@@ -2476,18 +2656,29 @@ function initArtPlayer(streamUrl, job, meta) {
                     }
                 }
             }
-        });
+        };
+
+        if (subtitleOption) {
+            artOptions.subtitle = subtitleOption;
+        }
+
+        currentArtPlayer = new ArtClass(artOptions);
+        currentArtPlayer.on('ready', cinemaReady);
+        currentArtPlayer.on('video:canplay', cinemaReady);
+        currentArtPlayer.on('error', () => cinemaFail(job));
+        clearTimeout(cinemaLoadTimer);
+        cinemaLoadTimer = setTimeout(() => cinemaFail(job, 'Timed out while connecting to the storage node.'), 25000);
 
         if (hasMultiAudio) {
-            bindArtPlayerMultiAudio(currentArtPlayer, meta.audio_tracks, baseDirUrl);
+            setupExternalAudioSync(currentArtPlayer, meta.audio_tracks, baseDirUrl);
         }
     } catch(err) {
         console.error('ArtPlayer init error:', err);
-        container.innerHTML = `<video src="${escapeHtml(streamUrl)}" controls autoplay style="width:100%;height:100%;object-fit:contain;"></video>`;
+        mountFallbackVideo(container, streamUrl, job);
     }
 }
 
-function bindArtPlayerMultiAudio(art, audioTracks, baseDirUrl) {
+function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
     if (!audioTracks || audioTracks.length === 0) return;
 
     if (!currentExternalAudio) {
@@ -2495,15 +2686,14 @@ function bindArtPlayerMultiAudio(art, audioTracks, baseDirUrl) {
         currentExternalAudio.crossOrigin = 'anonymous';
     }
 
-    let activeTrack = audioTracks[0];
-    const getTrackUrl = (t) => `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`;
-
-    currentExternalAudio.src = getTrackUrl(activeTrack);
+    const firstTrack = audioTracks[0];
+    const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
+    currentExternalAudio.src = firstUrl;
     currentExternalAudio.volume = art.video.muted ? 0 : art.video.volume;
     currentExternalAudio.load();
 
     art.on('video:play', () => {
-        if (currentExternalAudio) {
+        if (currentExternalAudio && currentExternalAudio.src) {
             currentExternalAudio.play().catch(() => {});
         }
     });
@@ -2550,30 +2740,18 @@ function bindArtPlayerMultiAudio(art, audioTracks, baseDirUrl) {
             }
         }
     }, 1200);
+}
 
-    art.setting.add({
-        width: 220,
-        html: 'Audio Track',
-        tooltip: activeTrack.title || activeTrack.language || 'Default',
-        selector: audioTracks.map((t, i) => ({
-            default: i === 0,
-            html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${escapeHtml(t.title || t.language || `Track ${i+1}`)} <span style="font-size:10px;opacity:0.6;">(${escapeHtml(t.codec || 'aac')})</span></span>`,
-            url: getTrackUrl(t),
-            track: t,
-        })),
-        onSelect: function(item) {
-            activeTrack = item.track;
-            const cur = art.video.currentTime;
-            const isPlaying = !art.video.paused;
-            currentExternalAudio.pause();
-            currentExternalAudio.src = item.url;
-            currentExternalAudio.currentTime = cur;
-            if (isPlaying) {
-                currentExternalAudio.play().catch(() => {});
-            }
-            return item.track.title || item.track.language;
-        }
-    });
+function switchArtPlayerAudio(url) {
+    if (!currentExternalAudio || !currentArtPlayer) return;
+    const curTime = currentArtPlayer.video.currentTime;
+    const isPlaying = !currentArtPlayer.video.paused;
+    currentExternalAudio.pause();
+    currentExternalAudio.src = url;
+    currentExternalAudio.currentTime = curTime;
+    if (isPlaying) {
+        currentExternalAudio.play().catch(() => {});
+    }
 }
 
 function closeArtPlayer() {
@@ -2595,6 +2773,18 @@ function closeArtPlayer() {
     }
     const container = document.getElementById('artplayer-container');
     if (container) container.innerHTML = '';
+    const loading = document.getElementById('cinema-loading');
+    if (loading) loading.style.display = 'flex';
+    const errorBox = document.getElementById('cinema-error');
+    if (errorBox) {
+        errorBox.style.display = 'none';
+        errorBox.innerHTML = '';
+    }
+    if (cinemaLoadTimer) {
+        clearTimeout(cinemaLoadTimer);
+        cinemaLoadTimer = null;
+    }
+    cinemaRetryCtx = null;
 }
 
 function closeStreamDetailsModal() {
@@ -2608,11 +2798,6 @@ function closeStreamDetailsModal() {
 function copyDirectStreamURL() {
     const input = document.getElementById('stream-direct-url');
     if (input) copyToClipboard(input.value, 'Direct Streaming URL copied!');
-}
-
-function copyHlsStreamURL() {
-    const input = document.getElementById('stream-hls-url');
-    if (input) copyToClipboard(input.value, 'HLS URL copied!');
 }
 
 function copyToClipboard(text, alertMsg) {

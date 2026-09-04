@@ -148,7 +148,8 @@ type StatusResponse struct {
 	TotalBytes       int64      `json:"total_bytes,omitempty"`
 	ETA              string     `json:"eta,omitempty"`
 	Details          string     `json:"details,omitempty"`
-	Source           SourceType `json:"source_type"`
+	Source           SourceType             `json:"source_type"`
+	NodeID           string                 `json:"node_id,omitempty"`        // processing worker node
 	WorkerNodeID     string                 `json:"worker_node_id,omitempty"` // node running download/remux
 	Placement        Placement              `json:"placement,omitempty"`      // final storage block owner
 	StreamURL        string                 `json:"stream_url,omitempty"`

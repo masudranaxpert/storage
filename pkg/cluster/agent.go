@@ -1232,12 +1232,12 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 // fileProgressReporter posts file-job state transitions to the master's
 // v1 progress callback over the same coordinator URL used for heartbeats.
 // ProgressReporterFunc represents the standard progress callback signature with optional stage metadata.
-type ProgressReporterFunc func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage, extra ...map[string]interface{})
+type ProgressReporterFunc func(state string, pct float64, speed, errMsg string, meta interface{}, extra ...map[string]interface{})
 
 // State strings mirror fileapi.FileState values without importing it (the
 // fileapi package imports cluster for node records).
 func (a *Agent) fileProgressReporter(key string) ProgressReporterFunc {
-	report := func(state string, pct float64, speed, errMsg string, cmaf *media.CMAFPackage, extra ...map[string]interface{}) {
+	report := func(state string, pct float64, speed, errMsg string, meta interface{}, extra ...map[string]interface{}) {
 		payload := map[string]interface{}{
 			"state":            state,
 			"progress_percent": pct,
@@ -1249,8 +1249,8 @@ func (a *Agent) fileProgressReporter(key string) ProgressReporterFunc {
 				payload[k] = v
 			}
 		}
-		if cmaf != nil {
-			if data, err := json.Marshal(cmaf); err == nil {
+		if meta != nil {
+			if data, err := json.Marshal(meta); err == nil {
 				payload["cmaf_json"] = data
 			}
 		}
@@ -1360,7 +1360,6 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 	if _, err := os.Stat(folder.VideoFilePath); err == nil {
 		_ = folder.CleanRaw()
 	}
-	cmafPkg := meta.ToCMAFPackage()
 
 	if final != nil {
 		if err := a.transferFolder(ctx, key, folder.BaseDir, final, report); err != nil {
@@ -1371,7 +1370,7 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 			return
 		}
 		_ = os.RemoveAll(folder.BaseDir) // scratch is reclaimed once stored
-		report("completed", 100, "Ready", "", cmafPkg, map[string]interface{}{
+		report("completed", 100, "Ready", "", meta, map[string]interface{}{
 			"stage":         "ready",
 			"stage_name":    "Stream Ready",
 			"stage_percent": 100.0,
@@ -1381,7 +1380,7 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		return
 	}
 
-	report("completed", 100, "Ready", "", cmafPkg, map[string]interface{}{
+	report("completed", 100, "Ready", "", meta, map[string]interface{}{
 		"stage":         "ready",
 		"stage_name":    "Stream Ready",
 		"stage_percent": 100.0,
