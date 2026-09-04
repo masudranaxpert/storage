@@ -2370,11 +2370,26 @@ async function openStreamDetailsModal(mediaID) {
         }
     }
 
+    // Pattern 3: Prefer native HLS master playlist for seamless multi-audio track switching & MSE hardware sync
+    let activeStreamUrl = streamUrl;
+    const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
+    if (meta && (meta.master_m3u8 || (meta.audio_tracks && meta.audio_tracks.length > 1))) {
+        const candidateHlsUrl = `${baseDirUrl}/${meta.master_m3u8 || 'master.m3u8'}`;
+        try {
+            const check = await fetch(candidateHlsUrl, { method: 'HEAD' });
+            if (check.ok) {
+                activeStreamUrl = candidateHlsUrl;
+            }
+        } catch (_) {}
+    }
+
+    if (directInput) directInput.value = activeStreamUrl;
+
     // Render Audio / Subtitle Drawers
-    renderMediaModalDrawers(job, meta, streamUrl);
+    renderMediaModalDrawers(job, meta, activeStreamUrl);
 
     // Initialize ArtPlayer
-    initArtPlayer(streamUrl, job, meta);
+    initArtPlayer(activeStreamUrl, job, meta);
 }
 
 function renderMediaModalDrawers(job, meta, streamUrl) {
@@ -2649,10 +2664,34 @@ function initArtPlayer(streamUrl, job, meta) {
             customType: {
                 m3u8: function(video, url, art) {
                     if (window.Hls && Hls.isSupported()) {
-                        const hls = new Hls();
+                        const hls = new Hls({
+                            enableWorker: true,
+                            lowLatencyMode: false,
+                            backBufferLength: 90
+                        });
                         hls.loadSource(url);
                         hls.attachMedia(video);
                         art.hls = hls;
+
+                        hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
+                            console.log('[HLS] Audio track switched to:', data.id);
+                        });
+                        hls.on(Hls.Events.ERROR, (event, data) => {
+                            if (data && data.fatal) {
+                                console.error('[HLS] Fatal error:', data);
+                                switch (data.type) {
+                                    case Hls.ErrorTypes.NETWORK_ERROR:
+                                        hls.startLoad();
+                                        break;
+                                    case Hls.ErrorTypes.MEDIA_ERROR:
+                                        hls.recoverMediaError();
+                                        break;
+                                    default:
+                                        cinemaFail(job, 'HLS error: ' + data.details);
+                                        break;
+                                }
+                            }
+                        });
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                         video.src = url;
                     }
@@ -2671,7 +2710,8 @@ function initArtPlayer(streamUrl, job, meta) {
         clearTimeout(cinemaLoadTimer);
         cinemaLoadTimer = setTimeout(() => cinemaFail(job, 'Timed out while connecting to the storage node.'), 25000);
 
-        if (hasMultiAudio) {
+        const isHLS = streamUrl.includes('.m3u8');
+        if (hasMultiAudio && !isHLS) {
             setupExternalAudioSync(currentArtPlayer, meta.audio_tracks, baseDirUrl);
         }
     } catch(err) {
@@ -2859,7 +2899,10 @@ function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
 }
 
 function switchArtPlayerAudio(trackIndex, url) {
-    if (lockstepController) {
+    if (currentArtPlayer && currentArtPlayer.hls) {
+        currentArtPlayer.hls.audioTrack = trackIndex;
+        console.log('[HLS] Switched audio track index to:', trackIndex);
+    } else if (lockstepController) {
         lockstepController.switchTrack(url);
     }
 }
