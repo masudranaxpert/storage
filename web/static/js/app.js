@@ -2285,27 +2285,26 @@ async function triggerStorageSync() {
         const resp = await fetch('/api/v1/files-sync', { method: 'POST' });
         const data = await resp.json();
         if (resp.ok) {
-            let msg = `Storage audit complete!`;
-            if (data.purged > 0) {
-                msg += ` Cleaned ${data.purged} deleted ghost file(s).`;
-            } else {
-                msg += ` All physical disks are 100% in sync.`;
-            }
-            msg += ` (${data.remaining} active media assets)`;
-            alert(msg);
             await fetchMediaList();
             if (typeof fetchPoolMetrics === 'function') {
                 fetchPoolMetrics();
             }
+            if (text) {
+                text.innerText = data.purged > 0 ? `Cleaned ${data.purged} ghost(s)` : 'In Sync (100%)';
+            }
         } else {
-            alert('Storage sync error: ' + (data.error || 'Server error'));
+            console.error('Storage sync error:', data.error);
+            if (text) text.innerText = 'Sync Failed';
         }
     } catch(err) {
-        alert('Network error during storage audit: ' + err.message);
+        console.error('Network error during storage audit:', err);
+        if (text) text.innerText = 'Sync Error';
     } finally {
-        if (btn) btn.disabled = false;
         if (icon) icon.classList.remove('spin-fast');
-        if (text) text.innerText = 'Audit & Sync Storage';
+        setTimeout(() => {
+            if (btn) btn.disabled = false;
+            if (text) text.innerText = 'Audit & Sync Storage';
+        }, 2000);
     }
 }
 
