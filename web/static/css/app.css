@@ -1988,6 +1988,16 @@ body {
     border-bottom: none;
 }
 
+#media-data-table th,
+#media-data-table td {
+    vertical-align: middle;
+    padding: 14px 14px;
+}
+
+#media-data-table tbody tr:hover td {
+    background: var(--bg-orange-soft);
+}
+
 /* Upload Dropzone */
 .upload-dropzone {
     border: 2px dashed var(--border-orange);
@@ -2046,102 +2056,6 @@ body {
     cursor: not-allowed;
 }
 
-/* Media Tags & Format Badges */
-.badge-cmaf {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    font-weight: 800;
-    padding: 2px 8px;
-    border-radius: var(--radius-sm);
-    background: #dcfce7;
-    color: #15803d;
-    border: 1px solid #86efac;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.badge-video {
-    display: inline-flex;
-    align-items: center;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 7px;
-    border-radius: var(--radius-sm);
-    background: #f5f5f4;
-    color: #44403c;
-    border: 1px solid #e7e5e4;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.badge-spec {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 10.5px;
-    font-weight: 700;
-    padding: 2px 6px;
-    border-radius: 4px;
-    background: rgba(255, 122, 24, 0.08);
-    color: var(--orange-dark);
-    border: 1px solid rgba(255, 122, 24, 0.2);
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.badge-audio {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 10.5px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.badge-sub {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 10.5px;
-    font-weight: 600;
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: #fdf4ff;
-    color: #a21caf;
-    border: 1px solid #f0abfc;
-    font-family: 'JetBrains Mono', monospace;
-}
-
-.badge-location {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 8px;
-    border-radius: 4px;
-    background: var(--bg-body);
-    color: var(--text-primary);
-    border: 1px solid var(--border-light);
-}
-
-.badge-compute {
-    display: inline-flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    font-weight: 700;
-    padding: 2px 7px;
-    border-radius: 4px;
-    background: rgba(59, 130, 246, 0.1);
-    color: #2563eb;
-    border: 1px solid rgba(59, 130, 246, 0.25);
-    font-family: 'JetBrains Mono', monospace;
-}
 
 /* ==========================================================================
    Tier Storage & Processing VPS (Fully Responsive Layout)
@@ -3058,7 +2972,22 @@ body {
     }
 }
 
-/* Media Library Specs, Audio & Decoupled Routing Badges */
+/* Media badge chips: spec, track, routing & status (single source of truth) */
+.badge-cmaf {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    background: #dcfce7;
+    color: #15803d;
+    border: 1px solid #86efac;
+    box-shadow: 0 1px 2px rgba(21, 128, 61, 0.05);
+}
+
 .badge-compute {
     display: inline-flex;
     align-items: center;

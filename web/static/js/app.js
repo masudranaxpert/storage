@@ -1836,7 +1836,7 @@ function renderMediaSpecs(meta) {
         audioPills = meta.audio_tracks.map(t => {
             const lang = t.language || t.title || 'Audio';
             const full = t.title || lang;
-            return `<span class="badge-audio" title="${escapeHtml(full)} (${escapeHtml(t.codec || 'aac')})">🎵 ${escapeHtml(lang.toUpperCase())}</span>`;
+            return `<span class="badge-audio" title="${escapeHtml(full)} (${escapeHtml(t.codec || 'aac')})">${escapeHtml(lang.toUpperCase())}</span>`;
         }).join(' ');
     }
 
@@ -1844,7 +1844,7 @@ function renderMediaSpecs(meta) {
     if (meta.subtitles && meta.subtitles.length > 0) {
         subPills = meta.subtitles.map(s => {
             const lang = s.language || s.title || 'Sub';
-            return `<span class="badge-sub" title="${escapeHtml(s.title || lang)} (WebVTT)">💬 ${escapeHtml(lang.toUpperCase())}</span>`;
+            return `<span class="badge-sub" title="${escapeHtml(s.title || lang)} (WebVTT)">${escapeHtml(lang.toUpperCase())}</span>`;
         }).join(' ');
     }
 
@@ -1853,7 +1853,7 @@ function renderMediaSpecs(meta) {
             <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
                 ${resLabel ? `<span class="badge-spec">${escapeHtml(resLabel)}</span>` : ''}
                 ${fpsLabel ? `<span class="badge-spec">${escapeHtml(fpsLabel)}</span>` : ''}
-                ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:600; margin-left:2px;">⏱ ${escapeHtml(durLabel)}</span>` : ''}
+                ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:700; font-family:'JetBrains Mono',monospace; margin-left:2px;">${escapeHtml(durLabel)}</span>` : ''}
             </div>
             ${(audioPills || subPills) ? `
                 <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-top:2px;">
@@ -1939,7 +1939,7 @@ function renderMediaTable() {
         const isFailed = item.state === 'failed';
         const filename = item.filename || item.key;
         const sizeStr = item.size_bytes ? formatBytes(item.size_bytes) : '-';
-        const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString() : '-';
+        const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
         let meta = item.metadata;
         const specsHtml = renderMediaSpecs(meta);
 
@@ -1974,20 +1974,22 @@ function renderMediaTable() {
             <div style="display:flex; flex-direction:column; gap:4px;">
                 ${isDecoupled ? `
                     <div style="display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                        <span class="badge-compute" title="Processing Worker: Ingest & Remux performed here">⚡ ${escapeHtml(computeNode)}</span>
-                        <span style="color:var(--text-muted);font-size:11px;font-weight:700;">➔</span>
-                        <span class="badge-location" title="Final Storage Node: Stored here">💾 ${escapeHtml(storageNode)}</span>
+                        <span class="badge-compute" title="Processing Worker: Ingest & Remux performed here">${escapeHtml(computeNode)}</span>
+                        <span style="display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">
+                            <span style="color:var(--text-muted);font-size:11px;font-weight:700;">&rarr;</span>
+                            <span class="badge-location" title="Final Storage Node: Stored here">${escapeHtml(storageNode)}</span>
+                        </span>
                     </div>
                 ` : `
                     <div style="display:inline-flex; align-items:center; gap:5px;">
-                        <span class="badge-location" title="Direct Compute & Storage Node">💾 ${escapeHtml(storageNode)}</span>
+                        <span class="badge-location" title="Direct Compute & Storage Node">${escapeHtml(storageNode)}</span>
                     </div>
                 `}
                 <div style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                    <span class="badge-drive" title="Disk mount point">📂 ${escapeHtml(drivePath)}</span>
+                    <span class="badge-drive" title="Disk mount point">${escapeHtml(drivePath)}</span>
                     <span class="badge-tier" title="Storage Tier">${escapeHtml(tierLabel)}</span>
                 </div>
-                ${hasCustomHost ? `<div style="font-size:10px; font-weight:700; color:var(--orange-primary);">⚡ Custom CDN / Host</div>` : ''}
+                ${hasCustomHost ? `<div style="font-size:10px; font-weight:700; color:var(--orange-primary);">Custom CDN / Host</div>` : ''}
             </div>
         `;
 
@@ -2002,7 +2004,7 @@ function renderMediaTable() {
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
                         Failed
                     </span>
-                    <div style="font-size:11px;color:var(--status-offline);margin-top:2px;word-break:break-word;line-height:1.3;font-family:system-ui,sans-serif;" title="${escapeHtml(item.error || 'Download or packaging error')}">
+                    <div style="font-size:11px;color:var(--status-offline);margin-top:3px;line-height:1.35;word-break:break-word;font-family:system-ui,sans-serif;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-width:260px;" title="${escapeHtml(item.error || 'Download or packaging error')}">
                         ${escapeHtml(item.error || 'Download error')}
                     </div>
                 </div>`;
@@ -2016,7 +2018,7 @@ function renderMediaTable() {
             }
 
             statusHtml = `
-                <div style="min-width:200px;max-width:300px;">
+                <div style="width:100%;max-width:300px;">
                     ${renderPipelineStepper(item)}
                     <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;margin-bottom:4px;">
                         <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:5px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;" title="${escapeHtml(stageLabel)}">
@@ -2039,10 +2041,10 @@ function renderMediaTable() {
         return `
             <tr>
                 <td>
-                    <div style="font-weight:700;color:var(--text-primary);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">
+                    <div style="font-weight:700;color:var(--text-primary);max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(filename)}">
                         ${escapeHtml(filename)}
                     </div>
-                    <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:2px;">
+                    <div style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;margin-top:3px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
                         ${escapeHtml(item.key)} &bull; <span style="opacity:0.8;">${dateStr}</span>
                     </div>
                 </td>
@@ -2341,13 +2343,13 @@ async function openStreamDetailsModal(mediaID) {
 
         let badges = `<span style="font-size:11px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">ID: ${escapeHtml(mediaID)}</span>`;
         if (isDecoupled) {
-            badges += `<span class="badge-compute" title="Processed on ${escapeHtml(computeNode)}">⚡ ${escapeHtml(computeNode)}</span>`;
+            badges += `<span class="badge-compute" title="Processed on ${escapeHtml(computeNode)}">${escapeHtml(computeNode)}</span>`;
             badges += `<span style="color:var(--text-muted);font-size:10px;">➔</span>`;
-            badges += `<span class="badge-location" title="Stored on ${escapeHtml(storageNode)}">💾 ${escapeHtml(storageNode)}</span>`;
+            badges += `<span class="badge-location" title="Stored on ${escapeHtml(storageNode)}">${escapeHtml(storageNode)}</span>`;
         } else {
-            badges += `<span class="badge-location">💾 ${escapeHtml(storageNode)}</span>`;
+            badges += `<span class="badge-location">${escapeHtml(storageNode)}</span>`;
         }
-        badges += `<span class="badge-drive">📂 ${escapeHtml(drive)}</span>`;
+        badges += `<span class="badge-drive">${escapeHtml(drive)}</span>`;
         badges += `<span class="badge-tier">${escapeHtml(tier)}</span>`;
         badgesWrap.innerHTML = badges;
     }
