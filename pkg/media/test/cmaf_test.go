@@ -1,6 +1,7 @@
 package media_test
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -57,3 +58,18 @@ func TestRemuxAndPackageCMAFFailOnNonexistentFile(t *testing.T) {
 		t.Errorf("expected remux to fail on nonexistent input file")
 	}
 }
+
+func TestMediaMetadataMasterM3U8JSON(t *testing.T) {
+	meta := &media.MediaMetadata{
+		Key:        "test_m3u8",
+		MasterM3U8: "master.m3u8",
+	}
+	data, err := json.Marshal(meta)
+	if err != nil {
+		t.Fatalf("marshal error: %v", err)
+	}
+	if !strings.Contains(string(data), `"master_m3u8":"master.m3u8"`) {
+		t.Errorf("expected master_m3u8 in json, got: %s", string(data))
+	}
+}
+

@@ -58,6 +58,7 @@ type MediaMetadata struct {
 	Video            *VideoStreamInfo    `json:"video,omitempty"`
 	AudioTracks      []AudioTrackInfo    `json:"audio_tracks,omitempty"`
 	Subtitles        []SubtitleTrackInfo `json:"subtitles,omitempty"`
+	MasterM3U8       string              `json:"master_m3u8,omitempty"`
 	CreatedAt        time.Time           `json:"created_at"`
 }
 
@@ -367,7 +368,72 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 			}
 		}
 	}
-	meta.TotalBytes = meta.SizeBytes
+
+	// Multi-audio HLS: Generate single-file fMP4 HLS playlist and streams (0% re-encoding, ultra-fast)
+	if ffmpegPath != "" && numAudios > 1 && len(meta.AudioTracks) > 1 {
+		var hlsArgs []string
+		hlsArgs = append(hlsArgs, "-y", "-i", dstPath)
+		for _, a := range meta.AudioTracks {
+			hlsArgs = append(hlsArgs, "-i", filepath.Join(dstDir, a.File))
+		}
+		hlsArgs = append(hlsArgs, "-map", "0:v:0")
+		var streamMapParts []string
+		streamMapParts = append(streamMapParts, "v:0,agroup:audio")
+
+		for aIdx, a := range meta.AudioTracks {
+			hlsArgs = append(hlsArgs, "-map", fmt.Sprintf("%d:a:0", aIdx+1))
+			def := "no"
+			if aIdx == 0 {
+				def = "yes"
+			}
+			lang := a.Language
+			if lang == "" {
+				lang = "und"
+			}
+			name := a.Title
+			if name == "" {
+				name = a.Language
+			}
+			if name == "" {
+				name = fmt.Sprintf("Audio %d", aIdx+1)
+			}
+			name = strings.ReplaceAll(name, ":", " ")
+			name = strings.ReplaceAll(name, ",", " ")
+			name = strings.ReplaceAll(name, "\"", "")
+			name = strings.ReplaceAll(name, "'", "")
+			name = strings.TrimSpace(name)
+
+			streamMapParts = append(streamMapParts, fmt.Sprintf("a:%d,agroup:audio,default:%s,language:%s,name:%s", aIdx, def, lang, name))
+		}
+
+		masterM3U8 := "master.m3u8"
+		streamPattern := filepath.Join(dstDir, "stream_%v.m3u8")
+
+		hlsArgs = append(hlsArgs,
+			"-c", "copy",
+			"-f", "hls",
+			"-hls_time", "6",
+			"-hls_playlist_type", "vod",
+			"-hls_flags", "single_file",
+			"-hls_segment_type", "fmp4",
+			"-master_pl_name", masterM3U8,
+			"-var_stream_map", strings.Join(streamMapParts, " "),
+			streamPattern,
+		)
+
+		hlsCmd := exec.Command(ffmpegPath, hlsArgs...)
+		if _, hlsErr := hlsCmd.CombinedOutput(); hlsErr == nil {
+			if _, statErr := os.Stat(filepath.Join(dstDir, masterM3U8)); statErr == nil {
+				meta.MasterM3U8 = masterM3U8
+			}
+		}
+	}
+
+	if totalBytes, err := CalculateFolderSize(dstDir); err == nil && totalBytes > 0 {
+		meta.TotalBytes = totalBytes
+	} else {
+		meta.TotalBytes = meta.SizeBytes
+	}
 	return meta, nil
 }
 
