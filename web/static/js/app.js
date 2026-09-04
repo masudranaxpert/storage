@@ -2468,8 +2468,6 @@ let cinemaLoadTimer = null;
 
 function cinemaReady() {
     clearTimeout(cinemaLoadTimer);
-    const loading = document.getElementById('cinema-loading');
-    if (loading) loading.style.display = 'none';
     const errorBox = document.getElementById('cinema-error');
     if (errorBox) errorBox.style.display = 'none';
 }
@@ -2479,8 +2477,6 @@ function cinemaFail(job, reason) {
     if (currentArtPlayer && currentArtPlayer.notice) {
         try { currentArtPlayer.notice.show = ''; } catch (_) {}
     }
-    const loading = document.getElementById('cinema-loading');
-    if (loading) loading.style.display = 'none';
     const box = document.getElementById('cinema-error');
     if (!box) return;
     box.style.display = 'flex';
@@ -2517,8 +2513,6 @@ function initArtPlayer(streamUrl, job, meta) {
     if (!container) return;
     container.innerHTML = '';
     cinemaRetryCtx = { streamUrl, job, meta };
-    const loading = document.getElementById('cinema-loading');
-    if (loading) loading.style.display = 'flex';
     const errorBox = document.getElementById('cinema-error');
     if (errorBox) {
         errorBox.style.display = 'none';
@@ -2676,6 +2670,11 @@ function initArtPlayer(streamUrl, job, meta) {
                         hls.attachMedia(video);
                         art.hls = hls;
                         art.on('destroy', () => hls.destroy());
+
+                        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                            console.log('[HLS] Manifest parsed, stream ready');
+                            cinemaReady();
+                        });
 
                         hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (event, data) => {
                             console.log('[HLS] Audio track switched to:', data.id);
@@ -2925,8 +2924,6 @@ function closeArtPlayer() {
     }
     const container = document.getElementById('artplayer-container');
     if (container) container.innerHTML = '';
-    const loading = document.getElementById('cinema-loading');
-    if (loading) loading.style.display = 'flex';
     const errorBox = document.getElementById('cinema-error');
     if (errorBox) {
         errorBox.style.display = 'none';
