@@ -149,7 +149,8 @@ func (c *RcloneRCClient) SyncCopy(ctx context.Context, srcFs, dstFs string, tran
 			"Checkers":           transfers,
 			"MultiThreadStreams": transfers,
 			"MultiThreadCutoff":  10 * 1024 * 1024, // 10 MB cutoff for multi-thread chunking
-			"LowLevelRetries":    10,
+			"LowLevelRetries":    10,               // Socket-level transient drop retry
+			"Retries":            3,                // Full pass retry for individual failed files
 		},
 	}
 
