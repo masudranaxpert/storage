@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/disk"
+	"golang.org/x/net/webdav"
 	"stream/pkg/download"
 	"stream/pkg/media"
 	"stream/pkg/telemetry"
@@ -717,6 +719,9 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(fmt.Sprintf(`{"status":"stored","files":%d}`, files)))
 	})
+
+	// WebDAV endpoint for high-speed rclone RCD node-to-node transfers
+	mux.HandleFunc("/api/v1/webdav/", a.handleWebDAV)
 
 	// Parallel Chunk Ingest Engine (SeaweedFS/MinIO multi-stream high throughput)
 	mux.HandleFunc("/api/v1/ingest-init", func(w http.ResponseWriter, r *http.Request) {
@@ -1448,13 +1453,65 @@ func formatTransferSpeed(bps float64) string {
 	return fmt.Sprintf("%.1f %cB/s", bps/float64(div), "KMGTPE"[exp])
 }
 
-// transferFolder streams the finished media folder to the block owner. It attempts
-// high-speed 8-stream parallel chunk transfer first (saturating 1Gbps WAN links),
-// falling back to uncompressed tar single-stream if the remote node is an older version.
+// handleWebDAV provides high-speed WebDAV file ingest for rclone multi-stream transfers.
+func (a *Agent) handleWebDAV(w http.ResponseWriter, r *http.Request) {
+	authed := false
+	if a.Secret != "" && r.Header.Get("X-Cluster-Secret") == a.Secret {
+		authed = true
+	} else if user, pass, ok := r.BasicAuth(); ok {
+		if (a.Secret == "" || pass == a.Secret) && (user == "admin" || user == "stream") {
+			authed = true
+		}
+	} else if a.Secret == "" {
+		authed = true
+	}
+
+	if !authed {
+		w.Header().Set("WWW-Authenticate", `Basic realm="Cluster WebDAV"`)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	subPath := strings.TrimPrefix(r.URL.Path, "/api/v1/webdav/")
+	parts := strings.SplitN(subPath, "/", 3)
+	if len(parts) < 2 {
+		http.Error(w, "invalid webdav path", http.StatusBadRequest)
+		return
+	}
+	hexDir := parts[0]
+	key := parts[1]
+	if !validKey(key) {
+		http.Error(w, "invalid key", http.StatusBadRequest)
+		return
+	}
+
+	rawDirBytes, err := hex.DecodeString(hexDir)
+	if err != nil {
+		http.Error(w, "invalid hex directory", http.StatusBadRequest)
+		return
+	}
+	rawDir := string(rawDirBytes)
+	dir := a.resolveTargetDir(filepath.Clean(rawDir))
+	dest := filepath.Join(dir, key)
+
+	_ = os.MkdirAll(dest, 0755)
+
+	prefix := "/api/v1/webdav/" + hexDir + "/" + key
+	handler := &webdav.Handler{
+		Prefix:     prefix,
+		FileSystem: webdav.Dir(dest),
+		LockSystem: webdav.NewMemLS(),
+	}
+	handler.ServeHTTP(w, r)
+}
+
+// transferFolder streams the finished media folder to the block owner. It prioritizes
+// rclone Remote Control Daemon (rcd) multi-stream transfer, seamlessly falling back
+// to native parallel HTTP chunking or single-stream tar if rclone is unavailable.
 func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *TransferTarget,
 	report ProgressReporterFunc) error {
 	totalBytes, _ := media.CalculateFolderSize(baseDir)
-	report("transferring", 90.0, "Starting parallel transfer to "+final.NodeID, "", nil, map[string]interface{}{
+	report("transferring", 90.0, "Starting transfer to "+final.NodeID, "", nil, map[string]interface{}{
 		"stage":             "transfer",
 		"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
 		"stage_percent":     0.0,
@@ -1462,7 +1519,16 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		"total_bytes":       totalBytes,
 	})
 
-	// Step 1: Probe if the target node supports parallel chunk ingest
+	// Primary Engine: Rclone Remote Control Daemon (rcd) with multi-connection transfers
+	rcloneErr := a.transferFolderRclone(ctx, key, baseDir, final, totalBytes, report)
+	if rcloneErr == nil {
+		return nil
+	}
+
+	fmt.Printf("[Agent %s] ⚠️ Rclone RCD transfer failed (%v), falling back to parallel chunk HTTP...\n",
+		a.NodeID, rcloneErr)
+
+	// Fallback Engine 1: Go Native parallel chunk streaming
 	initURL := fmt.Sprintf("%s/api/v1/ingest-init?key=%s&dir=%s",
 		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
 	initReq, err := http.NewRequestWithContext(ctx, http.MethodPost, initURL, nil)
@@ -1474,13 +1540,12 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		if initErr == nil {
 			initResp.Body.Close()
 			if initResp.StatusCode == http.StatusOK {
-				// Target node supports parallel multi-stream chunk ingest!
 				return a.transferFolderParallel(ctx, key, baseDir, final, totalBytes, report)
 			}
 		}
 	}
 
-	// Fallback to legacy single-stream tar transfer for older nodes
+	// Fallback Engine 2: Legacy single-stream tar transfer for older nodes
 	return a.transferFolderClassic(ctx, key, baseDir, final, totalBytes, report)
 }
 
