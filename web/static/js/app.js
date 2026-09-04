@@ -2111,20 +2111,17 @@ function goToMediaPage(page) {
 function openIngestURLModal() {
     const modal = document.getElementById('modal-ingest-url');
     if (!modal) return;
-    
-    const select = document.getElementById('ingest-node-select');
-    if (select && cachedPoolData) {
-        select.innerHTML = '<option value="auto">⚡ Auto (Least-loaded optimal worker node)</option>';
-        (cachedPoolData.nodes || []).forEach(n => {
-            if (n.status === 'online') {
-                select.innerHTML += `<option value="${escapeHtml(n.metrics.node_id)}">${escapeHtml(n.metrics.node_id)} (CPU: ${(n.metrics.cpu.used_percent || 0).toFixed(1)}%)</option>`;
-            }
-        });
+
+    const errorMsg = document.getElementById('ingest-error-msg');
+    if (errorMsg) {
+        errorMsg.style.display = 'none';
+        errorMsg.innerText = '';
     }
 
     const input = document.getElementById('ingest-url-input');
     if (input) input.value = '';
     modal.classList.add('active');
+    setTimeout(() => { if (input) input.focus(); }, 100);
 }
 
 function closeIngestURLModal() {
@@ -2135,31 +2132,57 @@ function closeIngestURLModal() {
 async function submitIngestURL() {
     const urlInput = document.getElementById('ingest-url-input');
     const submitBtn = document.getElementById('btn-submit-ingest');
+    const errorMsg = document.getElementById('ingest-error-msg');
 
-    if (!urlInput || !urlInput.value.trim()) {
-        alert('Please enter a valid video download URL');
+    if (errorMsg) {
+        errorMsg.style.display = 'none';
+        errorMsg.innerText = '';
+    }
+
+    const targetUrl = urlInput ? urlInput.value.trim() : '';
+    if (!targetUrl) {
+        if (errorMsg) {
+            errorMsg.innerText = 'Please enter a valid video download URL';
+            errorMsg.style.display = 'block';
+        }
         return;
     }
 
     submitBtn.disabled = true;
-    submitBtn.innerText = 'Starting...';
+    submitBtn.innerText = 'Probing & Dispatching...';
 
     try {
         const resp = await fetch('/api/v1/files', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: urlInput.value.trim() })
+            body: JSON.stringify({ url: targetUrl })
         });
 
         if (resp.ok || resp.status === 201) {
             closeIngestURLModal();
             fetchMediaList();
         } else {
-            const errText = await resp.text();
-            alert('Ingest error: ' + errText);
+            let errDetail = 'Server returned an error';
+            try {
+                const data = await resp.json();
+                errDetail = data.error || JSON.stringify(data);
+            } catch (_) {
+                errDetail = await resp.text();
+            }
+            if (errorMsg) {
+                errorMsg.innerText = 'Ingest error: ' + errDetail;
+                errorMsg.style.display = 'block';
+            } else {
+                alert('Ingest error: ' + errDetail);
+            }
         }
     } catch (err) {
-        alert('Network error: ' + err.message);
+        if (errorMsg) {
+            errorMsg.innerText = 'Network error: ' + err.message;
+            errorMsg.style.display = 'block';
+        } else {
+            alert('Network error: ' + err.message);
+        }
     } finally {
         submitBtn.disabled = false;
         submitBtn.innerText = 'Start Ingest';

@@ -166,25 +166,27 @@
                 </div>
                 <div>
                     <h3 class="modal-title" style="font-size:18px;">Ingest Video from URL</h3>
-                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Auto multi-thread download via aria2c & CMAF packaging</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Automated remote probe, tiered placement (HDD/SSD) &amp; CMAF packaging</div>
                 </div>
             </div>
             <button class="modal-close-btn" type="button" onclick="closeIngestURLModal()">&times;</button>
         </div>
 
         <div class="modal-body" style="padding:22px 24px; display:flex; flex-direction:column; gap:16px;">
-            <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label">Direct Video Download URL *</label>
-                <input type="url" id="ingest-url-input" class="form-input" placeholder="https://example.com/videos/movie.mp4" required>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">MIME type will be verified automatically using magic numbers (rejects non-video).</div>
-            </div>
+            <div id="ingest-error-msg" style="display:none; padding:10px 14px; border-radius:var(--radius-md); background:rgba(239, 68, 68, 0.1); border:1px solid rgba(239, 68, 68, 0.25); color:#ef4444; font-size:12.5px; line-height:1.4;"></div>
 
             <div class="form-group" style="margin-bottom:0;">
-                <label class="form-label">Target Compute & Storage Node</label>
-                <select id="ingest-node-select" class="form-input">
-                    <option value="auto">⚡ Auto (Least-loaded optimal worker node)</option>
-                </select>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">The coordinator dynamically schedules the job to the idle node with the lowest CPU load.</div>
+                <label class="form-label">Direct Video URL *</label>
+                <input type="url" id="ingest-url-input" class="form-input" placeholder="https://example.com/videos/movie.mp4" required>
+                <div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Remote HEAD probe verifies Content-Type, Content-Length, and reserves storage headroom.</div>
+            </div>
+
+            <div style="background:var(--bg-subtle); border:1px solid var(--border-light); border-radius:var(--radius-md); padding:12px 14px; font-size:12px; color:var(--text-secondary); display:flex; align-items:flex-start; gap:10px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--orange-primary)" stroke-width="2.2" style="flex-shrink:0;margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <div style="line-height:1.5;">
+                    <strong style="color:var(--text-primary);display:block;margin-bottom:2px;">Automated Cluster Placement</strong>
+                    Storage tier (Tier 2 HDD &rarr; Tier 1 SSD overflow) and compute worker VPS are automatically planned and orchestrated by the coordinator.
+                </div>
             </div>
         </div>
 
