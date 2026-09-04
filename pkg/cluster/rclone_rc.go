@@ -137,7 +137,7 @@ func (c *RcloneRCClient) Obscure(ctx context.Context, clearText string) (string,
 // SyncCopy initiates an asynchronous copy job using multi-stream transfers.
 func (c *RcloneRCClient) SyncCopy(ctx context.Context, srcFs, dstFs string, transfers int) (int64, error) {
 	if transfers <= 0 {
-		transfers = 8
+		transfers = 16
 	}
 	payload := map[string]interface{}{
 		"srcFs":              srcFs,
@@ -145,8 +145,11 @@ func (c *RcloneRCClient) SyncCopy(ctx context.Context, srcFs, dstFs string, tran
 		"createEmptySrcDirs": true,
 		"_async":             true,
 		"_config": map[string]interface{}{
-			"Transfers": transfers,
-			"Checkers":  transfers,
+			"Transfers":          transfers,
+			"Checkers":           transfers,
+			"MultiThreadStreams": transfers,
+			"MultiThreadCutoff":  10 * 1024 * 1024, // 10 MB cutoff for multi-thread chunking
+			"LowLevelRetries":    10,
 		},
 	}
 
@@ -300,8 +303,8 @@ func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, f
 	fmt.Printf("[Agent %s] 🚀 Dispatching rclone RCD transfer for '%s' -> %s (%s, Total: %s)\n",
 		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
 
-	// Step 5: Start copy job with 8 parallel streams
-	jobID, err := rcClient.SyncCopy(ctx, srcFs, dstFs, 8)
+	// Step 5: Start copy job with 16 parallel streams
+	jobID, err := rcClient.SyncCopy(ctx, srcFs, dstFs, 16)
 	if err != nil {
 		return fmt.Errorf("rclone sync/copy dispatch failed: %w", err)
 	}
@@ -338,7 +341,7 @@ func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, f
 					transferPct = (float64(curBytes) / float64(totalBytes)) * 100.0
 				}
 				overallPct := 90.0 + (transferPct * 0.09) // Scale 90% -> 99%
-				detailedSpeed := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%) [rclone 8-stream]",
+				detailedSpeed := fmt.Sprintf("%s • %.0f/%.0f MB (%.0f%%) [rclone 16-stream]",
 					formatTransferSpeed(stats.Speed),
 					float64(curBytes)/(1024*1024),
 					float64(totalBytes)/(1024*1024),
@@ -376,7 +379,7 @@ transferDone:
 	if elapsed.Seconds() > 0 {
 		avgSpeed = float64(totalBytes) / elapsed.Seconds()
 	}
-	fmt.Printf("[Agent %s] ✅ Rclone RCD transfer complete: '%s' -> %s in %s (Avg: %s) [8 parallel streams]\n",
+	fmt.Printf("[Agent %s] ✅ Rclone RCD transfer complete: '%s' -> %s in %s (Avg: %s) [16 parallel streams]\n",
 		a.NodeID, key, final.NodeID, elapsed.Round(time.Millisecond), formatTransferSpeed(avgSpeed))
 
 	return nil
