@@ -1786,7 +1786,7 @@ function renderPipelineStepper(item) {
         s3 = 'active';
     }
 
-    const stepIcon = (st, icon, label) => {
+    const stepIcon = (st, label) => {
         let bg = 'rgba(255, 255, 255, 0.05)';
         let color = 'var(--text-muted)';
         let border = 'var(--border-light)';
@@ -1800,24 +1800,20 @@ function renderPipelineStepper(item) {
             border = 'var(--orange-primary)';
         }
         return `
-            <div style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;font-size:9.5px;font-weight:700;background:${bg};color:${color};border:1px solid ${border};" title="${label}">
-                <span>${st === 'done' ? '✓' : icon}</span>
-                <span>${label}</span>
+            <div style="display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;font-size:9.5px;font-weight:700;background:${bg};color:${color};border:1px solid ${border};white-space:nowrap;" title="${label}">
+                ${st === 'done' ? '<span>✓</span>' : ''}${label}
             </div>
         `;
     };
+    const stepArrow = '<span style="font-size:9px;color:var(--text-muted);">&rarr;</span>';
+    const stepPair = (arrow, chip) => `<span style="display:inline-flex;align-items:center;gap:3px;white-space:nowrap;">${arrow}${chip}</span>`;
 
     return `
         <div style="display:flex;align-items:center;gap:3px;margin-bottom:6px;flex-wrap:wrap;">
-            ${stepIcon(s1, isUpload ? '📤' : '📥', isUpload ? 'Upload' : 'Download')}
-            <span style="font-size:9px;color:var(--text-muted);">➔</span>
-            ${stepIcon(s2, '⚙️', 'CMAF')}
-            ${hasTransfer ? `
-                <span style="font-size:9px;color:var(--text-muted);">➔</span>
-                ${stepIcon(s3, '🔀', 'Sync')}
-            ` : ''}
-            <span style="font-size:9px;color:var(--text-muted);">➔</span>
-            ${stepIcon(s4, '✓', 'Ready')}
+            ${stepIcon(s1, isUpload ? 'Upload' : 'Download')}
+            ${stepPair(stepArrow, stepIcon(s2, 'CMAF'))}
+            ${hasTransfer ? stepPair(stepArrow, stepIcon(s3, 'Sync')) : ''}
+            ${stepPair(stepArrow, stepIcon(s4, 'Ready'))}
         </div>
     `;
 }
@@ -2020,19 +2016,19 @@ function renderMediaTable() {
             statusHtml = `
                 <div style="width:100%;max-width:300px;">
                     ${renderPipelineStepper(item)}
-                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;font-weight:700;margin-bottom:4px;">
-                        <span style="color:var(--orange-primary);display:inline-flex;align-items:center;gap:5px;text-transform:capitalize;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;" title="${escapeHtml(stageLabel)}">
-                            <svg class="spin-fast" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;font-weight:700;margin-bottom:4px;">
+                        <span style="color:var(--orange-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize;" title="${escapeHtml(stageLabel)}">
+                            <svg class="spin-fast" style="vertical-align:-2px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
                             ${escapeHtml(stageLabel)}
                         </span>
-                        <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;">${pct}%</span>
+                        <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;flex-shrink:0;">${pct}%</span>
                     </div>
                     <div class="gauge-track" style="height:7px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:5px;overflow:hidden;">
                         <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;box-shadow:0 0 8px rgba(255,122,24,0.4);"></div>
                     </div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--text-secondary);margin-top:4px;font-family:'JetBrains Mono',monospace;">
-                        ${speedDisplay ? `<span>⚡ ${escapeHtml(speedDisplay)}</span>` : `<span></span>`}
-                        ${byteProgress ? `<span style="font-weight:600;">${escapeHtml(byteProgress)}</span>` : ''}
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:10.5px;color:var(--text-secondary);margin-top:4px;font-family:'JetBrains Mono',monospace;">
+                        ${speedDisplay ? `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(speedDisplay)}</span>` : `<span></span>`}
+                        ${byteProgress ? `<span style="font-weight:600;flex-shrink:0;">${escapeHtml(byteProgress)}</span>` : ''}
                     </div>
                     ${item.details ? `<div style="font-size:9.5px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escapeHtml(item.details)}">${escapeHtml(item.details)}</div>` : ''}
                 </div>`;
