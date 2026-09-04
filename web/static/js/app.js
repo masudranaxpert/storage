@@ -2613,18 +2613,6 @@ function initArtPlayer(streamUrl, job, meta) {
 
     // Custom Controls bar items
     const customControls = [];
-    if (hasMultiAudio) {
-        customControls.push({
-            position: 'right',
-            html: `<span style="display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;color:var(--orange-primary);cursor:pointer;padding:0 8px;">🎵 Audio</span>`,
-            tooltip: 'Switch Audio Track',
-            click: function() {
-                if (currentArtPlayer && currentArtPlayer.setting) {
-                    currentArtPlayer.setting.show = true;
-                }
-            }
-        });
-    }
 
     try {
         const artOptions = {
@@ -2636,16 +2624,16 @@ function initArtPlayer(streamUrl, job, meta) {
             isLive: false,
             muted: false,
             autoplay: true,
-            pip: true,
+            pip: false,
             autoSize: false,
-            autoMini: true,
-            screenshot: true,
+            autoMini: false,
+            screenshot: false,
             setting: true,
             loop: false,
             playbackRate: true,
             aspectRatio: true,
             fullscreen: true,
-            fullscreenWeb: true,
+            fullscreenWeb: false,
             subtitleOffset: true,
             miniProgressBar: true,
             theme: '#ff7a18',
