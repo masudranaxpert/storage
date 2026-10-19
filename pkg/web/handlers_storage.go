@@ -339,6 +339,30 @@ func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		// Include unassigned remote S3/R2 storage buckets
+		if s.store != nil {
+			if buckets, err := s.store.ListBuckets(); err == nil {
+				for _, b := range buckets {
+					nodeID := "bucket:" + b.ID
+					key := nodeID + "|" + b.Name
+					if !assigned[key] {
+						diskType := strings.ToUpper(b.Provider)
+						if diskType == "" {
+							diskType = "R2"
+						}
+						unassigned = append(unassigned, storage.Block{
+							NodeID:     nodeID,
+							Path:       b.Name,
+							DiskType:   diskType,
+							PublicHost: b.PublicHost,
+							TotalBytes: 100 * 1024 * 1024 * 1024 * 1024,
+							FreeBytes:  100 * 1024 * 1024 * 1024 * 1024,
+						})
+					}
+				}
+			}
+		}
+
 		json.NewEncoder(w).Encode(tiersResponse{
 			Tiers:            statuses,
 			UnassignedBlocks: unassigned,

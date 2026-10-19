@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"stream/pkg/provision"
 )
@@ -34,6 +35,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/storage/folders", s.handleStorageFolders)
 	mux.HandleFunc("/api/storage/clean", s.handleStorageClean)
 	mux.HandleFunc("/api/storage/drive-eligibility", s.handleDriveEligibility)
+	mux.HandleFunc("/api/storage/buckets", s.handleStorageBuckets)
+	mux.HandleFunc("/api/storage/buckets/", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/test") {
+			s.handleStorageBucketTest(w, r)
+			return
+		}
+		s.handleStorageBucketDelete(w, r)
+	})
 	mux.HandleFunc("/api/tiers", s.handleTiers)
 	mux.HandleFunc("/api/tiers/", s.handleTiers)
 	mux.HandleFunc("/api/flows", s.handleFlows)

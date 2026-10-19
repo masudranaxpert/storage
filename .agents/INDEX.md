@@ -10,6 +10,7 @@
 - [Open-Source Alternatives & Modern System Redesign](research/open-source-alternatives-and-redesign.md): Comparative analysis of Garage S3, SeaweedFS, JuiceFS, PeerTube Runner, and Temporal.
 
 ## Sessions
+- [S3/R2 Cloud Storage & Anti-Slop Cleanup](sessions/2026-10-19-s3-r2-bucket-storage-and-anti-slop/HANDOFF.md): Zero-dependency AWS SigV4 client in stdlib, BadgerDB bucket persistence, /storage buckets tab & modal, dynamic tier attachment, and anti-slop copy cleanup.
 - [Self-Contained Tuned Static Binaries Architecture](sessions/2026-10-12-self-contained-static-binaries/HANDOFF.md): Bundle packaging of verified static ELF media binaries (ffmpeg, ffprobe, aria2c, rclone), autonomous bundle upgrades, distro independence, bumped to v2.7.0.
 - [Global Cache Budget 50MB](sessions/2026-10-11-cache-budget/HANDOFF.md): `pkg/cache` constant + registry, PlayDeduper byte-eviction, `/api/system/cache`, Settings usage card.
 - [Full Audit, CSS Split & Nil-Store Crash Fix](sessions/2026-10-11-css-split-and-audit/HANDOFF.md): app.css → 8 ordered files (concatenation-proven), fileapi nil-store watchdog fix, security/structure audit status.

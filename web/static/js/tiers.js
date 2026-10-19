@@ -380,7 +380,9 @@ function renderTiers(force = false) {
                 <div class="tier-block-card">
                     <div class="tier-block-main">
                         <div class="tier-block-id">
-                            <span class="block-node-badge">${escapeHtml(block.node_id)}</span>
+                            ${block.node_id && block.node_id.startsWith('bucket:')
+                                ? `<span class="block-node-badge" style="background:rgba(37,99,235,0.08);color:#2563eb;border-color:rgba(37,99,235,0.2);">☁️ Object Store</span>`
+                                : `<span class="block-node-badge">${escapeHtml(block.node_id)}</span>`}
                             <span class="block-path-code">${escapeHtml(block.path)}</span>
                             <span class="block-medium-pill ${block.disk_type ? block.disk_type.toLowerCase() : 'ssd'}">${escapeHtml(block.disk_type || 'SSD')}</span>
                             ${b.online ? '' : '<span class="block-offline-badge">Offline</span>'}
@@ -425,7 +427,7 @@ function renderTiers(force = false) {
 
                     <div class="block-cdn-drawer ${isCdnOpen ? 'open' : ''}" id="cdn-drawer-${t.id}-${idx}">
                         <div class="cdn-drawer-inner">
-                            <span class="cdn-drawer-label">🌐 CDN Host:</span>
+                            <span class="cdn-drawer-label">CDN Host:</span>
                             <input type="text" id="${hostInputId}" class="cdn-drawer-input"
                                 placeholder="e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053"
                                 value="${escapeHtml(liveHost)}"
@@ -447,6 +449,10 @@ function renderTiers(force = false) {
         const unassignedOpts = unassigned.map(b => {
             const key = makeBlockKey(b.node_id, b.path);
             const isSelected = (key === activeKey) ? 'selected' : '';
+            if (b.node_id && b.node_id.startsWith('bucket:')) {
+                const prov = (b.disk_type || 'R2').toUpperCase();
+                return `<option value="${escapeHtml(key)}" ${isSelected}>☁️ [${escapeHtml(prov)}] Bucket: ${escapeHtml(b.path)}</option>`;
+            }
             return `<option value="${escapeHtml(key)}" ${isSelected}>${escapeHtml(b.node_id)} • ${escapeHtml(b.path)} (${escapeHtml(b.disk_type || 'SSD')} • ${formatBytes(b.free_bytes)} free)</option>`;
         }).join('');
 

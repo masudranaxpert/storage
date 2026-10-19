@@ -72,6 +72,7 @@ var registeredAdminTables = []string{
 	"apikey",
 	"user",
 	"session",
+	"bucket",
 }
 
 // AdminTables scans the keyspace and groups it into logical tables.

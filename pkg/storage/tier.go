@@ -527,6 +527,25 @@ func resolveBlock(b Block, nodes []*cluster.NodeRecord, usedPerNode map[string]u
 	}
 	bs := BlockStatus{Block: b, UsedBytes: used}
 
+	if strings.HasPrefix(b.NodeID, "bucket:") {
+		bs.Online = true
+		const defaultBucketCap = 100 * 1024 * 1024 * 1024 * 1024 // 100 TB virtual headroom
+		if b.QuotaBytes > 0 {
+			bs.TotalBytes = b.QuotaBytes
+			if b.QuotaBytes > used {
+				bs.FreeBytes = b.QuotaBytes - used
+			}
+		} else {
+			bs.TotalBytes = defaultBucketCap
+			bs.FreeBytes = defaultBucketCap
+		}
+		bs.UsableBytes = bs.FreeBytes
+		if bs.UsableBytes > 0 {
+			bs.UsedPercent = float64(bs.UsedBytes) / float64(bs.UsableBytes) * 100.0
+		}
+		return bs
+	}
+
 	for _, n := range nodes {
 		if n.Metrics.NodeID != b.NodeID {
 			continue

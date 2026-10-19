@@ -144,6 +144,8 @@
 
         if (tab === 'folders') {
             fetchStorageFolders();
+        } else if (tab === 'buckets') {
+            fetchBuckets();
         }
     }
 
@@ -562,17 +564,312 @@
         });
     }
 
+    let cachedBuckets = [];
+
+    async function fetchBuckets() {
+        const tbody = document.getElementById('storage-buckets-table-body');
+        const badge = document.getElementById('storage-buckets-count-badge');
+        if (!tbody) return;
+
+        try {
+            const res = await fetch('/api/storage/buckets');
+            if (!res.ok) throw new Error(await res.text());
+            const data = await res.json();
+            cachedBuckets = data.buckets || [];
+            if (badge) badge.innerText = `${cachedBuckets.length} Bucket${cachedBuckets.length === 1 ? '' : 's'}`;
+            renderBuckets(cachedBuckets);
+        } catch (err) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:24px; color:var(--status-offline);">Failed to load buckets: ${global.escapeHtml(err.message)}</td></tr>`;
+        }
+    }
+
+    function tierBadgeForBucket(bucketId) {
+        const cache = getTiersCache();
+        const targetNodeId = 'bucket:' + bucketId;
+        if (cache && Array.isArray(cache.tiers)) {
+            for (const t of cache.tiers) {
+                for (const b of (t.blocks || [])) {
+                    if (b.block && b.block.node_id === targetNodeId) {
+                        const themeClass = t.id === 0 ? 'tier-hot' : (t.id === 1 ? 'tier-warm' : (t.id === 2 ? 'tier-cold' : 'tier-custom'));
+                        return `<span class="storage-tier-pill ${themeClass}" title="Assigned to ${global.escapeHtml(t.name)}"><span class="tier-pill-dot"></span><span>${global.escapeHtml(t.name)}</span></span>`;
+                    }
+                }
+            }
+        }
+        return `<span style="font-size:11px;font-weight:600;color:var(--text-muted);background:var(--bg-subtle);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">Unassigned</span>`;
+    }
+
+    function renderBuckets(buckets) {
+        const tbody = document.getElementById('storage-buckets-table-body');
+        if (!tbody) return;
+
+        if (!buckets || buckets.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:36px; color:var(--text-secondary);">
+                <div style="display:flex;flex-direction:column;align-items:center;gap:10px;">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.4;">
+                        <path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path>
+                    </svg>
+                    <span>No remote S3 or R2 buckets configured.</span>
+                    <button type="button" class="btn btn-primary btn-sm" onclick="openAddBucketModal()" style="margin-top:4px;">+ Add Your First Bucket</button>
+                </div>
+            </td></tr>`;
+            return;
+        }
+
+        let rows = '';
+        buckets.forEach(b => {
+            const providerName = (b.provider || 'r2').toUpperCase();
+            const provColor = providerName === 'R2' ? '#f38020' : (providerName === 'S3' ? '#ff9900' : '#2563eb');
+            const provBg = providerName === 'R2' ? 'rgba(243,128,32,0.1)' : (providerName === 'S3' ? 'rgba(255,153,0,0.1)' : 'rgba(37,99,235,0.1)');
+            const tierBadge = tierBadgeForBucket(b.id);
+            const publicCdn = b.public_host ? `<a href="${global.escapeHtml(b.public_host)}" target="_blank" rel="noopener" style="color:var(--orange-primary);text-decoration:none;font-weight:600;">${global.escapeHtml(b.public_host)}</a>` : '<span style="color:var(--text-muted);">—</span>';
+
+            rows += `
+                <tr>
+                    <td>
+                        <div style="display:flex;align-items:center;gap:8px;">
+                            <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:4px;background:${provBg};color:${provColor};">
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
+                            </span>
+                            <span style="font-weight:700;color:var(--text-primary);font-family:'JetBrains Mono',monospace;">${global.escapeHtml(b.name)}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-sm);background:${provBg};color:${provColor};font-size:11px;font-weight:700;letter-spacing:0.3px;">
+                            ${global.escapeHtml(providerName)}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);word-break:break-all;">
+                            ${global.escapeHtml(b.endpoint)}
+                        </span>
+                    </td>
+                    <td>
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);">
+                            ${global.escapeHtml(b.region || 'auto')}
+                        </span>
+                    </td>
+                    <td>${publicCdn}</td>
+                    <td>${tierBadge}</td>
+                    <td style="text-align:right;">
+                        <button type="button" class="btn btn-secondary btn-sm" onclick="deleteBucket('${global.escapeHtml(b.id)}', '${global.escapeHtml(b.name)}')" title="Delete bucket" style="padding:4px 8px;color:var(--status-offline);">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <polyline points="3 6 5 6 21 6"></polyline>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        });
+        tbody.innerHTML = rows;
+    }
+
+    function openAddBucketModal() {
+        const modal = document.getElementById('modal-add-bucket');
+        if (!modal) return;
+        selectBucketProvider('r2');
+        const nameEl = document.getElementById('bucket-name-input');
+        const epEl = document.getElementById('bucket-endpoint-input');
+        const keyEl = document.getElementById('bucket-access-key-input');
+        const secEl = document.getElementById('bucket-secret-key-input');
+        const hostEl = document.getElementById('bucket-publichost-input');
+        if (nameEl) nameEl.value = '';
+        if (epEl) epEl.value = '';
+        if (keyEl) keyEl.value = '';
+        if (secEl) secEl.value = '';
+        if (hostEl) hostEl.value = '';
+        const feedback = document.getElementById('bucket-test-feedback');
+        if (feedback) feedback.style.display = 'none';
+        modal.style.display = 'flex';
+        global.setModalOpen(true);
+    }
+
+    function closeAddBucketModal() {
+        const modal = document.getElementById('modal-add-bucket');
+        if (modal) modal.style.display = 'none';
+        global.setModalOpen(false);
+    }
+
+    function selectBucketProvider(prov) {
+        document.querySelectorAll('.bucket-prov-btn').forEach(btn => {
+            btn.style.border = '1px solid var(--border-light)';
+            btn.style.background = 'var(--bg-subtle)';
+            btn.style.color = 'var(--text-secondary)';
+        });
+        const activeBtn = document.getElementById(`btn-prov-${prov}`);
+        if (activeBtn) {
+            activeBtn.style.border = '1px solid var(--orange-primary)';
+            activeBtn.style.background = 'var(--accent-glow)';
+            activeBtn.style.color = 'var(--orange-primary)';
+        }
+        const provInput = document.getElementById('bucket-provider-val');
+        if (provInput) provInput.value = prov;
+
+        const epInput = document.getElementById('bucket-endpoint-input');
+        const regInput = document.getElementById('bucket-region-input');
+        if (prov === 'r2') {
+            if (epInput && !epInput.value) epInput.placeholder = 'https://<account-id>.r2.cloudflarestorage.com';
+            if (regInput) { regInput.value = 'auto'; regInput.placeholder = 'auto'; }
+        } else if (prov === 's3') {
+            if (epInput && !epInput.value) epInput.placeholder = 'https://s3.us-east-1.amazonaws.com';
+            if (regInput) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
+        } else {
+            if (epInput && !epInput.value) epInput.placeholder = 'https://minio.example.com:9000';
+            if (regInput) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
+        }
+    }
+
+    async function testBucketCredentials() {
+        const btn = document.getElementById('btn-test-bucket');
+        const feedback = document.getElementById('bucket-test-feedback');
+        if (!feedback) return;
+
+        const name = (document.getElementById('bucket-name-input').value || '').trim();
+        const endpoint = (document.getElementById('bucket-endpoint-input').value || '').trim();
+        const provider = (document.getElementById('bucket-provider-val').value || 'r2').trim();
+        const region = (document.getElementById('bucket-region-input').value || '').trim();
+        const accessKey = (document.getElementById('bucket-access-key-input').value || '').trim();
+        const secretKey = (document.getElementById('bucket-secret-key-input').value || '').trim();
+
+        if (!name || !endpoint || !accessKey || !secretKey) {
+            feedback.style.display = 'block';
+            feedback.style.background = 'rgba(239,68,68,0.1)';
+            feedback.style.color = 'var(--status-offline, #ef4444)';
+            feedback.innerText = 'Please fill in Bucket Name, Endpoint URL, Access Key, and Secret Key.';
+            return;
+        }
+
+        if (btn) { btn.disabled = true; btn.innerText = 'Testing...'; }
+        feedback.style.display = 'block';
+        feedback.style.background = 'var(--bg-subtle)';
+        feedback.style.color = 'var(--text-secondary)';
+        feedback.innerText = 'Connecting to bucket and verifying credentials...';
+
+        try {
+            const res = await fetch('/api/storage/buckets/test', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    provider: provider,
+                    endpoint: endpoint,
+                    region: region,
+                    access_key: accessKey,
+                    secret_key: secretKey
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Connection failed');
+            }
+            feedback.style.background = 'rgba(16,185,129,0.1)';
+            feedback.style.color = '#10b981';
+            feedback.innerText = '✓ Connection successful! Bucket is reachable and credentials are valid.';
+        } catch (err) {
+            feedback.style.background = 'rgba(239,68,68,0.1)';
+            feedback.style.color = '#ef4444';
+            feedback.innerText = '✗ Test failed: ' + err.message;
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerText = 'Test Connection'; }
+        }
+    }
+
+    async function submitAddBucket(event) {
+        event.preventDefault();
+        const btn = document.getElementById('btn-save-bucket');
+        const feedback = document.getElementById('bucket-test-feedback');
+
+        const name = (document.getElementById('bucket-name-input').value || '').trim();
+        const endpoint = (document.getElementById('bucket-endpoint-input').value || '').trim();
+        const provider = (document.getElementById('bucket-provider-val').value || 'r2').trim();
+        const region = (document.getElementById('bucket-region-input').value || '').trim();
+        const accessKey = (document.getElementById('bucket-access-key-input').value || '').trim();
+        const secretKey = (document.getElementById('bucket-secret-key-input').value || '').trim();
+        const publicHost = (document.getElementById('bucket-publichost-input').value || '').trim();
+
+        if (btn) { btn.disabled = true; btn.innerText = 'Saving...'; }
+
+        try {
+            const res = await fetch('/api/storage/buckets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: name,
+                    provider: provider,
+                    endpoint: endpoint,
+                    region: region,
+                    access_key: accessKey,
+                    secret_key: secretKey,
+                    public_host: publicHost
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                throw new Error(data.error || 'Failed to save bucket');
+            }
+            closeAddBucketModal();
+            await fetchBuckets();
+            if (typeof global.fetchTiersView === 'function') {
+                await global.fetchTiersView(true);
+            }
+            if (typeof global.showToast === 'function') {
+                global.showToast('Bucket registered successfully');
+            }
+        } catch (err) {
+            if (feedback) {
+                feedback.style.display = 'block';
+                feedback.style.background = 'rgba(239,68,68,0.1)';
+                feedback.style.color = '#ef4444';
+                feedback.innerText = 'Error: ' + err.message;
+            } else {
+                alert('Failed to save bucket: ' + err.message);
+            }
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerText = 'Save Bucket'; }
+        }
+    }
+
+    async function deleteBucket(id, name) {
+        if (!confirm(`Are you sure you want to delete bucket "${name}"? If attached to a tier, it will be detached safely.`)) {
+            return;
+        }
+
+        try {
+            const res = await fetch(`/api/storage/buckets/${encodeURIComponent(id)}`, {
+                method: 'DELETE'
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text);
+            }
+            await fetchBuckets();
+            if (typeof global.fetchTiersView === 'function') {
+                await global.fetchTiersView(true);
+            }
+            if (typeof global.showToast === 'function') {
+                global.showToast(`Bucket "${name}" deleted`);
+            }
+        } catch (err) {
+            alert('Failed to delete bucket: ' + err.message);
+        }
+    }
+
     function init() {
         destroy();
         if (global.cachedPoolData) renderStorage(global.cachedPoolData);
         global.fetchClusterTelemetry();
         if (currentStorageTab === 'folders') {
             fetchStorageFolders();
+        } else if (currentStorageTab === 'buckets') {
+            fetchBuckets();
         }
         pollTimer = setInterval(() => {
             global.fetchClusterTelemetry();
             if (currentStorageTab === 'folders') {
                 fetchStorageFolders();
+            } else if (currentStorageTab === 'buckets') {
+                fetchBuckets();
             }
         }, 3000);
     }
@@ -600,6 +897,14 @@
     global.cleanNodeFolder = cleanNodeFolder;
     global.cleanAllProcessingScratch = cleanAllProcessingScratch;
     global.purgeAllMedia = purgeAllMedia;
+    global.fetchBuckets = fetchBuckets;
+    global.renderBuckets = renderBuckets;
+    global.openAddBucketModal = openAddBucketModal;
+    global.closeAddBucketModal = closeAddBucketModal;
+    global.selectBucketProvider = selectBucketProvider;
+    global.testBucketCredentials = testBucketCredentials;
+    global.submitAddBucket = submitAddBucket;
+    global.deleteBucket = deleteBucket;
 
     if (global.App && global.App.pages) {
         global.App.pages.storage = { init, destroy, render: renderStorage };

@@ -3,19 +3,19 @@
     'use strict';
 
     const pageTitles = {
-        dashboard: { title: 'Cluster Overview', sub: 'Real-time storage pool & node health metrics' },
-        nodes: { title: 'Nodes Management', sub: 'Provision, configure, and monitor VPS workers' },
-        storage: { title: 'Storage & Disks', sub: 'Physical drive telemetry and directory cleanup' },
-        tiers: { title: 'Tiers & Workers', sub: 'Storage tier pools and transcoding worker reservations' },
-        flows: { title: 'Policy Canvas', sub: 'Directed tier placement, promotion, demotion, and expiration rules' },
-        'flows-queue': { title: 'Task Queue', sub: 'Live relocation worker tasks and background jobs' },
-        'flows-hot': { title: 'Hot Files Ranking', sub: 'Real-time access frequency and heat decay rankings' },
-        'flows-audit': { title: 'Expire Audit Log', sub: 'Permanent deletion history and safety log' },
-        media: { title: 'Media & Streams', sub: 'Ingest, transcode, and manage HLS/MP4 assets' },
-        database: { title: 'Database Studio', sub: 'BadgerDB key-value browser and administrative console' },
-        settings: { title: 'Cluster & Engine Settings', sub: 'Engine configuration, liveness thresholds, and cluster auth' },
-        apikeys: { title: 'API Access Tokens', sub: 'Programmatic API keys and developer integration guide' },
-        docs: { title: 'API Documentation', sub: 'Interactive OpenAPI specification and endpoint explorer' }
+        dashboard: { title: 'Dashboard', sub: '' },
+        nodes: { title: 'Nodes', sub: '' },
+        storage: { title: 'Storage & Disks', sub: '' },
+        tiers: { title: 'Tiers & Workers', sub: '' },
+        flows: { title: 'Policy Canvas', sub: '' },
+        'flows-queue': { title: 'Task Queue', sub: '' },
+        'flows-hot': { title: 'Hot Files', sub: '' },
+        'flows-audit': { title: 'Audit Log', sub: '' },
+        media: { title: 'Media & Streams', sub: '' },
+        database: { title: 'Database Studio', sub: '' },
+        settings: { title: 'Settings', sub: '' },
+        apikeys: { title: 'API Keys', sub: '' },
+        docs: { title: 'API Docs', sub: '' }
     };
 
     const pageRoutes = {

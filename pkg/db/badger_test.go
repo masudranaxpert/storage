@@ -124,4 +124,39 @@ func TestBadgerStoreSaveAndRetrieve(t *testing.T) {
 	if audits, err := store.ListLifecycleAudits(10); err != nil || len(audits) != 1 || audits[0].Key != "k1" {
 		t.Fatalf("ListLifecycleAudits = %+v, err=%v", audits, err)
 	}
+
+	// Test Bucket Persistence
+	bucket := &db.BucketRecord{
+		Name:      "test-archive",
+		Provider:  "r2",
+		Endpoint:  "https://test.r2.cloudflarestorage.com",
+		Region:    "auto",
+		AccessKey: "key123",
+		SecretKey: "secret456",
+	}
+	if err := store.SaveBucket(bucket); err != nil {
+		t.Fatalf("SaveBucket: %v", err)
+	}
+	if bucket.ID == "" {
+		t.Fatalf("expected bucket ID to be generated")
+	}
+
+	gotBucket, err := store.GetBucket(bucket.ID)
+	if err != nil || gotBucket == nil || gotBucket.Name != "test-archive" {
+		t.Fatalf("GetBucket failed: got %+v, err=%v", gotBucket, err)
+	}
+
+	allBuckets, err := store.ListBuckets()
+	if err != nil || len(allBuckets) != 1 {
+		t.Fatalf("ListBuckets failed: got %d buckets, err=%v", len(allBuckets), err)
+	}
+
+	if err := store.DeleteBucket(bucket.ID); err != nil {
+		t.Fatalf("DeleteBucket: %v", err)
+	}
+
+	remaining, err := store.ListBuckets()
+	if err != nil || len(remaining) != 0 {
+		t.Fatalf("expected 0 buckets after delete, got %d", len(remaining))
+	}
 }
