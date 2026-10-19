@@ -63,14 +63,14 @@ func downloadWithAria2(ctx context.Context, srcURL, dstPath string, onProgress P
 
 	// Standard high-performance aria2 configuration (as benchmarked by yt-dlp & aria2-pro)
 	args := []string{
-		"-c",                       // Continue downloading partially downloaded file
-		"-j", "16",                 // Max concurrent downloads
-		"-x", "16",                 // Max connections per server (16 threads)
-		"-s", "16",                 // Split into 16 parts
-		"-k", "1M",                 // Min split size (1MB chunks)
-		"--file-allocation=none",   // Instant start without disk pre-allocation delay
+		"-c",       // Continue downloading partially downloaded file
+		"-j", "16", // Max concurrent downloads
+		"-x", "16", // Max connections per server (16 threads)
+		"-s", "16", // Split into 16 parts
+		"-k", "1M", // Min split size (1MB chunks)
+		"--file-allocation=none",    // Instant start without disk pre-allocation delay
 		"--check-certificate=false", // Ignore CDN/self-signed SSL certificate issues
-		"--summary-interval=1",     // Emit progress line every 1 second
+		"--summary-interval=1",      // Emit progress line every 1 second
 		"--dir=" + dir,
 		"--out=" + filename,
 		"--allow-overwrite=true",
@@ -252,4 +252,3 @@ func formatSpeed(bytesPerSec float64) string {
 	}
 	return fmt.Sprintf("%.1f MB/s", bytesPerSec/(1024*1024))
 }
-

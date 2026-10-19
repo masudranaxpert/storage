@@ -2,6 +2,7 @@ package fileapi
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"stream/pkg/cluster"
 	"stream/pkg/storage"
@@ -150,4 +151,14 @@ func freeOf(bs storage.BlockStatus) uint64 {
 // TierLabel renders the short public id of a tier, e.g. "tier2".
 func TierLabel(id int) string {
 	return fmt.Sprintf("tier%d", id)
+}
+
+// CleanPlacementPath normalizes root and relative mounts ("/", ".") to an empty
+// string so agents store files in their configured, permission-owned primary media directory.
+func CleanPlacementPath(path string) string {
+	cleaned := filepath.Clean(path)
+	if cleaned == "/" || cleaned == "." || path == "" {
+		return ""
+	}
+	return cleaned
 }

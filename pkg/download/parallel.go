@@ -1,4 +1,4 @@
-﻿package download
+package download
 
 import (
 	"context"
@@ -249,4 +249,3 @@ func parentDir(p string) string {
 	}
 	return "."
 }
-

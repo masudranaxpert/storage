@@ -22,7 +22,7 @@ type AdminTableInfo struct {
 
 // AdminRow is one row of a table as shown in the studio grid.
 type AdminRow struct {
-	Key     string          `json:"key"`     // key without the table prefix
+	Key     string          `json:"key"` // key without the table prefix
 	FullKey string          `json:"full_key"`
 	Size    int64           `json:"size"`
 	Version uint64          `json:"version"`
@@ -56,9 +56,30 @@ func (s *Store) adminView(fn func(txn *badger.Txn) error) error {
 	return s.db.View(fn)
 }
 
+// registeredAdminTables lists the known logical table prefixes so they appear
+// in DB Studio even when empty.
+var registeredAdminTables = []string{
+	"node",
+	"config",
+	"tier",
+	"file",
+	"fjob",
+	"flow",
+	"lcstate",
+	"lctask",
+	"lcactive",
+	"lcaudit",
+	"apikey",
+	"user",
+	"session",
+}
+
 // AdminTables scans the keyspace and groups it into logical tables.
 func (s *Store) AdminTables() ([]AdminTableInfo, error) {
-	byName := map[string]*AdminTableInfo{}
+	byName := make(map[string]*AdminTableInfo, len(registeredAdminTables))
+	for _, name := range registeredAdminTables {
+		byName[name] = &AdminTableInfo{Name: name}
+	}
 
 	err := s.adminView(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions

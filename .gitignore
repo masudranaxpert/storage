@@ -6,6 +6,8 @@
 *.dylib
 /stream
 /stream-linux-amd64
+/stream-bundle-linux-amd64.tar.gz
+*.tar.gz
 /office-agent.exe*
 /tmp/
 /bin/

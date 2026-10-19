@@ -3,7 +3,9 @@ package telemetry
 import (
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -84,7 +86,7 @@ type NodeMetrics struct {
 // CurrentVersion defines the latest build version of the Stream Mesh platform.
 // Bump this whenever the wire/agent behavior changes: agents running older
 // versions self-upgrade when their reported version differs from this value.
-const CurrentVersion = "v2.6.0"
+const CurrentVersion = "v2.7.0"
 
 func Collect(nodeID string) (*NodeMetrics, error) {
 	hostInfo, err := host.Info()
@@ -112,18 +114,18 @@ func Collect(nodeID string) (*NodeMetrics, error) {
 	disks := collectDisks()
 	ips := collectNonLoopbackIPs()
 
-	hasFFmpeg := false
-	if p, err := exec.LookPath("ffmpeg"); err == nil && p != "" {
-		hasFFmpeg = true
+	checkTool := func(name string) bool {
+		if p, err := exec.LookPath(name); err == nil && p != "" {
+			return true
+		}
+		if fi, err := os.Stat(filepath.Join("/opt/stream/bin", name)); err == nil && !fi.IsDir() {
+			return true
+		}
+		return false
 	}
-	hasAria2c := false
-	if p, err := exec.LookPath("aria2c"); err == nil && p != "" {
-		hasAria2c = true
-	}
-	hasRclone := false
-	if p, err := exec.LookPath("rclone"); err == nil && p != "" {
-		hasRclone = true
-	}
+	hasFFmpeg := checkTool("ffmpeg")
+	hasAria2c := checkTool("aria2c")
+	hasRclone := checkTool("rclone")
 
 	return &NodeMetrics{
 		NodeID:    nodeID,
@@ -202,18 +204,37 @@ func collectDisks() []DiskStat {
 	return stats
 }
 
-// collectNonLoopbackIPs returns all active non-loopback IPv4/IPv6 addresses.
+// isVirtualBridgeInterface checks if a network interface is a container or virtual bridge.
+func isVirtualBridgeInterface(name string) bool {
+	lower := strings.ToLower(name)
+	prefixes := []string{
+		"docker", "br-", "veth", "virbr", "cni", "flannel",
+		"cali", "kube", "dummy", "tap",
+	}
+	for _, p := range prefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// collectNonLoopbackIPs returns active physical/VPC IPv4 addresses, filtering virtual container bridges.
 func collectNonLoopbackIPs() []string {
-	var ips []string
+	var physicalIPs []string
+	var fallbackIPs []string
+
 	interfaces, err := net.Interfaces()
 	if err != nil {
-		return ips
+		return physicalIPs
 	}
 
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
+
+		isVirtual := isVirtualBridgeInterface(iface.Name)
 
 		addrs, err := iface.Addrs()
 		if err != nil {
@@ -233,10 +254,19 @@ func collectNonLoopbackIPs() []string {
 				continue
 			}
 
-					if ip.To4() != nil {
-				ips = append(ips, ip.String())
+			if v4 := ip.To4(); v4 != nil {
+				ipStr := v4.String()
+				if !isVirtual {
+					physicalIPs = append(physicalIPs, ipStr)
+				} else {
+					fallbackIPs = append(fallbackIPs, ipStr)
+				}
 			}
 		}
 	}
-	return ips
+
+	if len(physicalIPs) > 0 {
+		return physicalIPs
+	}
+	return fallbackIPs
 }

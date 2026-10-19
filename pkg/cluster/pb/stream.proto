@@ -30,9 +30,7 @@ message CoordinatorMessage {
   }
 }
 
-// ---------------------------------------------------------------------------
 // Telemetry (agent -> coordinator)
-// ---------------------------------------------------------------------------
 
 message Heartbeat {
   string node_id = 1;
@@ -93,9 +91,7 @@ message JobProgressUpdate {
   bytes cmaf_json = 6;
 }
 
-// ---------------------------------------------------------------------------
 // Commands (coordinator -> agent)
-// ---------------------------------------------------------------------------
 
 message HeartbeatAck {
   string node_id = 1;

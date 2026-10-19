@@ -25,14 +25,16 @@ type NodeConfig struct {
 	AllocatedMaxBytes uint64 `json:"allocated_max_bytes"` // 0 = unlimited / full capacity
 	CustomLabel       string `json:"custom_label"`
 	Enabled           bool   `json:"enabled"`
+	CoordinatorURL    string `json:"coordinator_url,omitempty"`
 
 	// Processing worker reservation (Kubernetes-requests style): the node only
 	// receives processing jobs while its live free resources cover the request.
-	ProcessingEnabled    bool   `json:"processing_enabled"`
-	ReservedCPUCores     int    `json:"reserved_cpu_cores"`
-	ReservedRAMBytes     uint64 `json:"reserved_ram_bytes"`
-	PreferredDiskType    string `json:"preferred_disk_type"`     // NVME/SSD/HDD, "" = any
-	ReservedStorageBytes uint64 `json:"reserved_storage_bytes"`  // scratch-space floor, 0 = no check
+	ProcessingEnabled    bool     `json:"processing_enabled"`
+	ReservedCPUCores     int      `json:"reserved_cpu_cores"`
+	ReservedRAMBytes     uint64   `json:"reserved_ram_bytes"`
+	PreferredDiskType    string   `json:"preferred_disk_type"`       // NVME/SSD/HDD, "" = any
+	ReservedStorageBytes uint64   `json:"reserved_storage_bytes"`    // scratch-space floor, 0 = no check
+	ExcludedDrives       []string `json:"excluded_drives,omitempty"` // drive mount paths excluded from storage tiers
 
 	SSHHost     string `json:"ssh_host,omitempty"`
 	SSHUser     string `json:"ssh_user,omitempty"`
@@ -66,6 +68,21 @@ func (s *Store) Close() error {
 		return s.db.Close()
 	}
 	return nil
+}
+
+// RunGC runs a single pass of value log garbage collection on BadgerDB.
+// It returns nil if space was reclaimed, badger.ErrNoRewrite if no discard ratio
+// was met, or any other underlying error.
+func (s *Store) RunGC(discardRatio float64) error {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.db == nil {
+		return badger.ErrDBClosed
+	}
+	return s.db.RunValueLogGC(discardRatio)
 }
 
 // SaveNode stores or updates a node telemetry record.

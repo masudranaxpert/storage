@@ -65,12 +65,134 @@ const SwaggerUIHTML = `<!DOCTYPE html>
         .swagger-ui .opblock.opblock-delete .opblock-summary-method {
             background: #dc2626;
         }
+
+        /* Dark Mode Overrides */
+        html.dark, body.dark {
+            background: #111317 !important;
+            color: #f3f4f6 !important;
+        }
+        html.dark .swagger-ui {
+            color: #f3f4f6;
+        }
+        html.dark .swagger-ui .info .title,
+        html.dark .swagger-ui .info li,
+        html.dark .swagger-ui .info p,
+        html.dark .swagger-ui .info table,
+        html.dark .swagger-ui .opblock .opblock-summary-operation-id,
+        html.dark .swagger-ui .opblock .opblock-summary-path,
+        html.dark .swagger-ui .opblock .opblock-summary-path__deprecated,
+        html.dark .swagger-ui .opblock-description-wrapper p,
+        html.dark .swagger-ui .opblock-external-docs-wrapper p,
+        html.dark .swagger-ui .opblock-title_normal p,
+        html.dark .swagger-ui .response-col_status,
+        html.dark .swagger-ui table thead tr td,
+        html.dark .swagger-ui table thead tr th,
+        html.dark .swagger-ui .parameter__name,
+        html.dark .swagger-ui .parameter__type,
+        html.dark .swagger-ui .tab li button.tablinks {
+            color: #f3f4f6 !important;
+        }
+        html.dark .swagger-ui .opblock .opblock-summary-description {
+            color: #9ca3af !important;
+        }
+        html.dark .swagger-ui .scheme-container {
+            background: #17191f !important;
+            box-shadow: none !important;
+            border-bottom: 1px solid #23262f !important;
+        }
+        html.dark .swagger-ui select {
+            background-color: #1a1d24 !important;
+            color: #f3f4f6 !important;
+            border-color: #23262f !important;
+        }
+        html.dark .swagger-ui input[type=text] {
+            background: #1a1d24 !important;
+            color: #f3f4f6 !important;
+            border-color: #23262f !important;
+        }
+        html.dark .swagger-ui .opblock-body {
+            background: #111317 !important;
+        }
+        html.dark .swagger-ui .opblock-section-header {
+            background: #17191f !important;
+        }
+        html.dark .swagger-ui .opblock.opblock-post {
+            background: rgba(249, 115, 22, 0.08) !important;
+            border-color: rgba(249, 115, 22, 0.4) !important;
+        }
+        html.dark .swagger-ui .opblock.opblock-get {
+            background: rgba(16, 185, 129, 0.08) !important;
+            border-color: rgba(16, 185, 129, 0.4) !important;
+        }
+        html.dark .swagger-ui .opblock.opblock-delete {
+            background: rgba(239, 68, 68, 0.08) !important;
+            border-color: rgba(239, 68, 68, 0.4) !important;
+        }
+        html.dark .swagger-ui section.models {
+            border-color: #23262f !important;
+        }
+        html.dark .swagger-ui section.models .model-container {
+            background: #17191f !important;
+        }
+        html.dark .swagger-ui .model-box {
+            background: #17191f !important;
+        }
+        html.dark .swagger-ui .responses-inner {
+            background: #111317 !important;
+        }
+        html.dark .swagger-ui .response-col_links {
+            color: #9ca3af !important;
+        }
+        html.dark .swagger-ui textarea {
+            background: #090a0d !important;
+            color: #f3f4f6 !important;
+            border-color: #23262f !important;
+        }
+        html.dark .swagger-ui .highlight-code {
+            background: #090a0d !important;
+        }
+        html.dark .swagger-ui .microlight {
+            background: #090a0d !important;
+            color: #f3f4f6 !important;
+        }
+        html.dark .swagger-ui .btn.authorize {
+            color: #fb923c !important;
+            border-color: #fb923c !important;
+        }
+        html.dark .swagger-ui .btn.authorize svg {
+            fill: #fb923c !important;
+        }
+        html.dark .swagger-ui .model-title {
+            color: #f3f4f6 !important;
+        }
+        html.dark .swagger-ui .prop-type {
+            color: #60a5fa !important;
+        }
     </style>
 </head>
 <body>
     <div id="swagger-ui"></div>
     <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
     <script>
+        function applyTheme(theme) {
+            if (theme === 'dark') {
+                document.documentElement.classList.add('dark');
+                document.body.classList.add('dark');
+            } else {
+                document.documentElement.classList.remove('dark');
+                document.body.classList.remove('dark');
+            }
+        }
+        try {
+            var theme = localStorage.getItem('stream_theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            applyTheme(theme);
+        } catch(e) {}
+        window.addEventListener('message', (e) => {
+            if (e.data && e.data.type === 'theme-change') {
+                applyTheme(e.data.theme);
+            }
+        });
+
         window.onload = () => {
             window.ui = SwaggerUIBundle({
                 url: '/api/openapi.json',
@@ -101,41 +223,35 @@ func jsonResponse(description string) map[string]interface{} {
 	return map[string]interface{}{"description": description}
 }
 
-// GetOpenAPISpec returns the complete OpenAPI 3.0.0 JSON specification for the
-// Stream Mesh API. It documents the current v1 system end to end:
-// cluster control plane, file ingest (URL + upload), job lifecycle,
-// streaming, and node administration.
+// GetOpenAPISpec returns the clean OpenAPI 3.0.0 specification for the public Video Ingest & Management API.
 func GetOpenAPISpec() map[string]interface{} {
 	return map[string]interface{}{
 		"openapi": "3.0.0",
 		"info": map[string]interface{}{
-			"title":   "Stream Mesh // Distributed Cluster & File Ingest API (v1)",
-			"version": "3.0.0",
-			"description": "Distributed video ingest, multi-tier storage pooling, and CMAF/fMP4 packaging.\n\n" +
-				"Two ingest modes:\n" +
-				"1. URL mode — POST /api/v1/files {url} — just the URL; filename, size, and MIME are auto-detected from the source. The cluster downloads, validates, remuxes to CMAF, places the file on a tier block, and streams it.\n" +
-				"2. Upload mode — reserve a slot, then PUT raw bytes (or multipart) to the returned upload_url.",
+			"title":   "Stream Mesh // Video API (v1)",
+			"version": "1.0.0",
+			"description": "Distributed video ingest, fast-start streaming, and storage lifecycle.\n\n" +
+				"### Core Endpoints:\n" +
+				"1. **POST /api/v1/files** — Ingest video by URL. The coordinator automatically probes headers, downloads, validates codecs, remuxes to fast-start MP4/CMAF, and streams to storage.\n" +
+				"2. **GET /api/v1/files/{key}** — Check real-time progress (`downloading` → `processing` → `transferring` → `completed`), stream URLs, and video metadata.\n" +
+				"3. **DELETE /api/v1/files/{key}** — Delete a file or batch delete multiple files (single key or comma-separated `key1,key2,key3`).\n" +
+				"4. **DELETE /api/v1/files** — Batch delete multiple files with JSON body `{\"keys\": [\"key1\", \"key2\"]}` or `?keys=key1,key2`.",
 		},
 		"servers": []map[string]interface{}{
 			{
 				"url":         "/",
-				"description": "Current Cluster Coordinator",
+				"description": "Cluster Coordinator",
 			},
 		},
 		"tags": []map[string]interface{}{
-			{"name": "Files v1", "description": "Primary file ingest + lifecycle API"},
-			{"name": "Cluster Control Plane", "description": "Node inventory, resource pool, provisioning"},
-			{"name": "Streaming", "description": "Byte-range HLS/CMAF media delivery"},
+			{"name": "Files v1", "description": "Public video ingest, status, and deletion APIs"},
 		},
 		"paths": map[string]interface{}{
-			// ------------------------------------------------ ----------
-			// FILES v1 — the primary system
-			// ----------------------------------------------------------
 			"/api/v1/files": map[string]interface{}{
 				"post": map[string]interface{}{
-					"summary": "Ingest a video by URL",
+					"summary":     "Ingest a video by URL",
 					"description": "Send only the URL — everything else is automatic. The master HEAD-probes the source: filename comes from Content-Disposition (URL path as fallback), size from Content-Length, MIME from headers. It then reserves a tier block, picks a processing worker, downloads, validates magic bytes, remuxes to CMAF, and streams the result to the storage node.",
-					"tags":     []string{"Files v1"},
+					"tags":        []string{"Files v1"},
 					"requestBody": map[string]interface{}{
 						"required": true,
 						"content": map[string]interface{}{
@@ -158,22 +274,45 @@ func GetOpenAPISpec() map[string]interface{} {
 						"507": jsonResponse("No storage: tier blocks full"),
 					},
 				},
-				"get": map[string]interface{}{
-					"summary": "List all files in the library",
-					"description": "Returns every file record with live state, progress, speed, placement, and stream URL — newest first.",
-					"tags":  []string{"Files v1"},
+				"delete": map[string]interface{}{
+					"summary":     "Batch delete files from the cluster",
+					"description": "Delete multiple files at once. Send a JSON body with keys array or query parameter `?keys=key1,key2`.",
+					"tags":        []string{"Files v1"},
+					"requestBody": map[string]interface{}{
+						"required": false,
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": jsonSchema(map[string]interface{}{
+									"keys": map[string]interface{}{
+										"type":        "array",
+										"items":       map[string]interface{}{"type": "string"},
+										"description": "List of file keys to delete",
+										"example":     []string{"3hjMG311oM4LVqYm", "luTS1LxGvGSGkPCm"},
+									},
+								}, []string{"keys"}),
+							},
+						},
+					},
 					"responses": map[string]interface{}{
-						"200": jsonResponse("Array of file statuses under files[]"),
+						"200": jsonResponse("Batch deletion result with deleted array and failed map"),
+						"400": jsonResponse("No keys provided"),
 					},
 				},
 			},
 			"/api/v1/files/{key}": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "File status & stream URL",
-					"description": "Live lifecycle status for one file: downloading → processing → transferring → completed. worker_node_id = the node running the download/remux; placement.node_id = the storage node holding the file. Stream URL appears once completed.",
+					"summary":     "File status, play URL & stream URL",
+					"description": "Live lifecycle status for one file: downloading → processing → transferring → completed. worker_node_id = the node running download/remux; placement.node_id = storage node holding the file. stream_url points to worker media, while play_url (/stream/{key}) routes through the coordinator to count hits for auto-tiering.",
 					"tags":        []string{"Files v1"},
 					"parameters": []map[string]interface{}{
-						{"name": "key", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}, "example": "3hjMG311oM4LVqYm"},
+						{
+							"name":        "key",
+							"in":          "path",
+							"required":    true,
+							"description": "16-character file key",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "3hjMG311oM4LVqYm",
+						},
 					},
 					"responses": map[string]interface{}{
 						"200": jsonResponse("File status"),
@@ -181,154 +320,23 @@ func GetOpenAPISpec() map[string]interface{} {
 					},
 				},
 				"delete": map[string]interface{}{
-					"summary":     "Delete a file from the cluster",
-					"description": "Removes the media folder from the owning worker node and drops both DB rows.",
+					"summary":     "Delete file(s) from the cluster",
+					"description": "Removes the media folder from the owning worker node and drops database records. Supports deleting a single key or multiple comma-separated keys for batch deletion (e.g. key1,key2,key3).",
 					"tags":        []string{"Files v1"},
 					"parameters": []map[string]interface{}{
-						{"name": "key", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
+						{
+							"name":        "key",
+							"in":          "path",
+							"required":    true,
+							"description": "Single key (e.g. 3hjMG311oM4LVqYm) or multiple comma-separated keys (e.g. key1,key2,key3)",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "3hjMG311oM4LVqYm",
+						},
 					},
 					"responses": map[string]interface{}{
-						"200": jsonResponse("Deleted"),
+						"200": jsonResponse("Deleted successfully"),
 						"404": jsonResponse("Unknown key"),
 						"502": jsonResponse("Worker unreachable"),
-					},
-				},
-			},
-			"/api/v1/files-upload": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "Reserve an upload slot",
-					"description": "Creates an awaiting_upload job and returns a one-shot upload_url. Body: {filename, size_bytes}.",
-					"tags":        []string{"Files v1"},
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": jsonSchema(map[string]interface{}{
-									"filename":   map[string]interface{}{"type": "string", "example": "movie.mkv"},
-									"size_bytes": map[string]interface{}{"type": "integer", "format": "int64"},
-								}, []string{"filename"}),
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"201": jsonResponse("Slot reserved — upload_url returned"),
-						"400": jsonResponse("Invalid body"),
-					},
-				},
-			},
-			"/api/v1/files/{key}/upload": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "Upload bytes for a reserved slot",
-					"description": "Streams the client body (raw octet-stream or multipart 'file' part) to the assigned worker, which validates magic bytes and remuxes to CMAF.",
-					"tags":        []string{"Files v1"},
-					"parameters": []map[string]interface{}{
-						{"name": "key", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
-					},
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/octet-stream": map[string]interface{}{
-								"schema": map[string]interface{}{"type": "string", "format": "binary"},
-							},
-							"multipart/form-data": map[string]interface{}{
-								"schema": jsonSchema(map[string]interface{}{
-									"file": map[string]interface{}{"type": "string", "format": "binary"},
-								}, nil),
-							},
-						},
-					},
-					"responses": map[string]interface{}{
-						"202": jsonResponse("Upload accepted — processing started"),
-						"404": jsonResponse("Unknown key"),
-						"409": jsonResponse("Slot not awaiting upload"),
-					},
-				},
-			},
-			// ------------------------------------------------ ----------
-			// CLUSTER CONTROL PLANE
-			// ----------------------------------------------------------
-			"/api/nodes": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "List cluster nodes & live telemetry",
-					"description": "All registered nodes with CPU/RAM/disk stats, capabilities (aria2c/ffmpeg/rclone), agent port, media path, version, and online status.",
-					"tags":        []string{"Cluster Control Plane"},
-					"responses": map[string]interface{}{
-						"200": jsonResponse("Array of node records"),
-					},
-				},
-			},
-			"/api/pool": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "Aggregated cluster resource pool",
-					"description": "Total/active/offline nodes, summed storage, RAM, and CPU cores across the fleet.",
-					"tags":        []string{"Cluster Control Plane"},
-					"responses": map[string]interface{}{
-						"200": jsonResponse("Pool summary"),
-					},
-				},
-			},
-			"/api/tiers": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "Storage tiers & blocks",
-					"description": "Resolved tier definitions (NVMe/SSD/HDD) with their blocks, owners, quotas, and live usage.",
-					"tags":        []string{"Cluster Control Plane"},
-					"responses": map[string]interface{}{
-						"200": jsonResponse("Tier list"),
-					},
-				},
-			},
-			"/api/nodes/provision": map[string]interface{}{
-				"post": map[string]interface{}{
-					"summary":     "1-Click remote VPS provisioning",
-					"description": "Provisions a remote VPS over SSH: installs the agent binary, aria2c, ffmpeg, rclone, and registers systemd. Agent advertises the VPS public/VPC IP for SeaweedFS-style node peering (ports 2052 + coordinator 1212/9090 must be reachable).",
-					"requestBody": map[string]interface{}{
-						"required": true,
-						"content": map[string]interface{}{
-							"application/json": map[string]interface{}{
-								"schema": map[string]interface{}{
-									"type": "object",
-									"properties": map[string]interface{}{
-										"host":            map[string]interface{}{"type": "string", "example": "203.0.113.10"},
-										"user":            map[string]interface{}{"type": "string", "example": "root"},
-										"password":        map[string]interface{}{"type": "string"},
-										"node_name":       map[string]interface{}{"type": "string", "example": "vps-01"},
-										"advertise_addr":  map[string]interface{}{"type": "string", "example": "203.0.113.10"},
-										"coordinator_url": map[string]interface{}{"type": "string", "example": "http://198.51.100.1:1212"},
-									},
-								},
-							},
-						},
-					},
-					"tags": []string{"Cluster Control Plane"},
-					"responses": map[string]interface{}{
-						"200": jsonResponse("Provisioning successful"),
-						"502": jsonResponse("Provisioning error"),
-					},
-				},
-			},
-			"/api/health": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "Coordinator health probe",
-					"tags":        []string{"Cluster Control Plane"},
-					"responses": map[string]interface{}{
-						"200": jsonResponse(`{"status":"ok"}`),
-					},
-				},
-			},
-			// ------------------------------------------------ ----------
-			// STREAMING
-			// ----------------------------------------------------------
-			"/stream/{key}/master.m3u8": map[string]interface{}{
-				"get": map[string]interface{}{
-					"summary":     "HLS manifest for a completed file",
-					"description": "Served by the owning worker's agent (see stream_url in file status). Supports byte-range requests for fMP4 segments.",
-					"tags":        []string{"Streaming"},
-					"parameters": []map[string]interface{}{
-						{"name": "key", "in": "path", "required": true, "schema": map[string]interface{}{"type": "string"}},
-					},
-					"responses": map[string]interface{}{
-						"200": jsonResponse("HLS playlist"),
-						"404": jsonResponse("Not placed on this node"),
 					},
 				},
 			},

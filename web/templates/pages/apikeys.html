@@ -1,0 +1,177 @@
+<div class="page-view {{if eq .CurrentPage "apikeys"}}active{{end}}" id="view-apikeys">
+
+    <div style="display:flex;flex-direction:column;gap:18px;">
+        <!-- API Keys Table Tray Card -->
+        <section class="bui-tray-card">
+            <div class="bui-tray-head">
+                <div class="bui-tray-titles">
+                    <span class="bui-tray-eyebrow">Developer Authentication</span>
+                    <span class="bui-tray-headline">API Access Tokens</span>
+                    <p style="font-size:12.5px;color:var(--text-secondary);margin-top:2px;">
+                        Use API keys to authenticate external programmatic calls to <code class="ui-badge ui-badge-mono" style="font-size:11px;">/api/v1/files</code> without browser session cookies.
+                    </p>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <button type="button" class="btn btn-secondary" onclick="openIntegrationGuideModal()" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                        <span>Integration Guide</span>
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="openCreateAPIKeyModal()" style="display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:8px 14px;">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        <span>Generate API Key</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bui-inner-card" style="overflow-x:auto;">
+                <div id="api-keys-table-mount">
+                    <div style="padding:28px 20px;text-align:center;color:var(--text-secondary);font-size:13px;">
+                        Loading API keys…
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+</div>
+
+<!-- Modal: Generate API Key -->
+<div class="modal-overlay" id="modal-create-api-key" style="display:none;">
+    <div class="modal-card" style="max-width:480px;width:100%;background:var(--bg-surface);border:1px solid var(--border-light);border-radius:var(--radius-lg);box-shadow:var(--shadow-modal);overflow:hidden;">
+        <div style="padding:18px 22px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <h3 id="modal-apikey-title" style="font-size:16px;font-weight:800;color:var(--text-primary);letter-spacing:-0.3px;">Generate API Key</h3>
+                <p id="modal-apikey-subtitle" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Create a secret access key for programmatic operations</p>
+            </div>
+            <button type="button" onclick="closeCreateAPIKeyModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:4px;" aria-label="Close modal">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <!-- Step 1: Input Name -->
+        <div id="modal-apikey-step-input" style="padding:22px;display:flex;flex-direction:column;gap:16px;">
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label for="apikey-name-input" style="font-size:12px;font-weight:700;color:var(--text-primary);">Key Name or Description</label>
+                <input type="text" id="apikey-name-input" placeholder="e.g. Production Ingestion Service" style="width:100%;padding:10px 14px;border-radius:var(--radius-sm);border:1px solid var(--border-light);background:var(--bg-body);color:var(--text-primary);font-size:13px;box-sizing:border-box;">
+                <span style="font-size:11.5px;color:var(--text-muted);">Identifies where this API token is deployed.</span>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateAPIKeyModal()" style="padding:8px 16px;font-size:13px;">Cancel</button>
+                <button type="button" class="btn btn-primary" id="btn-submit-create-key" onclick="submitCreateAPIKey()" style="padding:8px 18px;font-size:13px;">Generate Key</button>
+            </div>
+        </div>
+
+        <!-- Step 2: Show Key (One-Time Reveal) -->
+        <div id="modal-apikey-step-result" style="display:none;padding:22px;flex-direction:column;gap:16px;">
+            <div style="background:rgba(245, 158, 11, 0.1);border:1px solid rgba(245, 158, 11, 0.3);border-radius:var(--radius-sm);padding:12px 14px;font-size:12.5px;color:#b45309;display:flex;gap:10px;align-items:flex-start;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="flex-shrink:0;margin-top:2px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                <div>
+                    <strong>Save this secret key now.</strong> You won't be able to view the full key again after closing this window.
+                </div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;gap:6px;">
+                <label style="font-size:12px;font-weight:700;color:var(--text-primary);">Your Secret API Key</label>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" id="apikey-secret-result" readonly style="flex:1;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid var(--border-orange);background:var(--bg-orange-soft);color:var(--orange-darker);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;">
+                    <button type="button" class="tbl-icon-btn" onclick="copyGeneratedKey(this)" title="Copy API Key" aria-label="Copy API Key" style="width:38px;height:38px;">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:8px;">
+                <button type="button" class="btn btn-primary" onclick="closeCreateAPIKeyModal()" style="padding:8px 20px;font-size:13px;">Done</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Integration Guide -->
+<div class="modal-overlay" id="modal-integration-guide" style="display:none;" onclick="if(event.target===this) closeIntegrationGuideModal()">
+    <div class="modal-card" style="max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;background:var(--bg-surface);border:1px solid var(--border-light);border-radius:var(--radius-lg);box-shadow:var(--shadow-modal);overflow:hidden;">
+        <div style="padding:18px 22px;border-bottom:1px solid var(--border-light);display:flex;justify-content:space-between;align-items:center;flex-shrink:0;">
+            <div>
+                <h3 style="font-size:16px;font-weight:800;color:var(--text-primary);letter-spacing:-0.3px;display:flex;align-items:center;gap:8px;">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" style="color:var(--orange-primary);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                    <span>API Integration Guide</span>
+                </h3>
+                <p style="font-size:12px;color:var(--text-secondary);margin-top:2px;">
+                    Pass your token via header <code class="ui-badge ui-badge-mono" style="font-size:11px;">X-API-Key: sm_live_...</code> or <code class="ui-badge ui-badge-mono" style="font-size:11px;">Authorization: Bearer sm_live_...</code>
+                </p>
+            </div>
+            <button type="button" onclick="closeIntegrationGuideModal()" style="background:transparent;border:none;color:var(--text-muted);cursor:pointer;padding:4px;" aria-label="Close modal">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+        </div>
+
+        <div style="padding:22px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;">
+            <!-- Example 1: Ingest Video -->
+            <div class="curl-code-card">
+                <div class="curl-code-header">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span class="ui-badge ui-badge-emerald ui-badge-rect" style="font-size:10px;padding:1px 6px;">POST</span>
+                        <span style="font-weight:700;">/api/v1/files</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Ingest Video by URL)</span>
+                    </span>
+                    <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-post', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <pre class="curl-code-content" id="curl-ex-post">curl -X POST https://inclusion-hourly-matt-tuition.trycloudflare.com/api/v1/files \
+  -H "X-API-Key: YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://cdn.example.com/video.mp4"}'</pre>
+            </div>
+
+            <!-- Example 2: Query File Status & Playback -->
+            <div class="curl-code-card">
+                <div class="curl-code-header">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span class="ui-badge ui-badge-blue ui-badge-rect" style="font-size:10px;padding:1px 6px;">GET</span>
+                        <span style="font-weight:700;">/api/v1/files/{key}</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Status &amp; Stream URLs)</span>
+                    </span>
+                    <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-get', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <pre class="curl-code-content" id="curl-ex-get">curl -X GET https://inclusion-hourly-matt-tuition.trycloudflare.com/api/v1/files/{key} \
+  -H "X-API-Key: YOUR_API_KEY"</pre>
+            </div>
+
+            <!-- Example 3: Delete File(s) -->
+            <div class="curl-code-card">
+                <div class="curl-code-header">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span class="ui-badge ui-badge-orange ui-badge-rect" style="font-size:10px;padding:1px 6px;">DELETE</span>
+                        <span style="font-weight:700;">/api/v1/files/{key}</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Single or Batch Delete)</span>
+                    </span>
+                    <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-del', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <pre class="curl-code-content" id="curl-ex-del"># Single key or comma-separated batch delete:
+curl -X DELETE "https://inclusion-hourly-matt-tuition.trycloudflare.com/api/v1/files/key1,key2" \
+  -H "X-API-Key: YOUR_API_KEY"</pre>
+            </div>
+        </div>
+
+        <div style="padding:14px 22px;border-top:1px solid var(--border-light);background:var(--bg-body);display:flex;justify-content:flex-end;flex-shrink:0;">
+            <button type="button" class="btn btn-secondary" onclick="closeIntegrationGuideModal()" style="padding:7px 18px;font-size:13px;">Close</button>
+        </div>
+    </div>
+</div>

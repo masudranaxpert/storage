@@ -34,10 +34,22 @@ func PreferAgentAddrs(ips []string) []string {
 			j--
 		}
 	}
+	hasPublic := false
+	for _, s := range list {
+		if s.score <= 10 {
+			hasPublic = true
+			break
+		}
+	}
+
 	out := make([]string, 0, len(list))
 	for _, s := range list {
 		if s.score >= 100 {
 			continue // unusable
+		}
+		// If public IP exists, exclude docker bridge subnets (score >= 40)
+		if hasPublic && s.score >= 40 {
+			continue
 		}
 		out = append(out, s.addr)
 	}

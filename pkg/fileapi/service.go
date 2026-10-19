@@ -1,6 +1,7 @@
 package fileapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"stream/pkg/cache"
 	"stream/pkg/cluster"
 	"stream/pkg/media"
 	"stream/pkg/storage"
@@ -36,69 +38,124 @@ type TierSource interface {
 
 // Service orchestrates the v1 file API on the master.
 type Service struct {
-	store    JobStore
-	tiers    TierSource
-	coord    *cluster.Coordinator
-	profiles func() map[string]cluster.ProcessingProfile
-	usage    func() map[string]uint64
-	client   *http.Client
+	store            JobStore
+	tiers            TierSource
+	coord            *cluster.Coordinator
+	profiles         func() map[string]cluster.ProcessingProfile
+	usage            func() map[string]uint64
+	ingestOrder      func() []int
+	moveHandler      func(w http.ResponseWriter, r *http.Request, key string)
+	placementHandler func(w http.ResponseWriter, r *http.Request, key string)
+	demandHandler    func(w http.ResponseWriter, r *http.Request, key string)
+	client           *http.Client
+	secret           string
+	authValidator    func(r *http.Request) bool
+	creatorResolver  func(r *http.Request) string
+	deleteHandler    func(key string)
+	strikeMu         sync.Mutex
+	missingStrike    map[string]int
+}
+
+// SetCreatorResolver configures request provenance identification (API key label or Dashboard).
+func (s *Service) SetCreatorResolver(fn func(r *http.Request) string) {
+	s.creatorResolver = fn
+}
+
+// SetAuthValidator configures custom request authentication (API keys or admin session).
+func (s *Service) SetAuthValidator(fn func(r *http.Request) bool) {
+	s.authValidator = fn
+}
+
+// SetSecret sets the cluster secret used to authenticate requests to workers.
+func (s *Service) SetSecret(secret string) {
+	s.secret = secret
+}
+
+// SetIngestOrder injects a provider returning the ordered tier IDs for new file placement.
+func (s *Service) SetIngestOrder(fn func() []int) {
+	s.ingestOrder = fn
+}
+
+// SetMoveHandler registers the HTTP handler for POST /api/v1/files/{key}/move without importing lifecycle.
+func (s *Service) SetMoveHandler(fn func(w http.ResponseWriter, r *http.Request, key string)) {
+	s.moveHandler = fn
+}
+
+// SetPlacementHandler registers the HTTP handler for GET /api/v1/files/{key}/placement without importing lifecycle.
+func (s *Service) SetPlacementHandler(fn func(w http.ResponseWriter, r *http.Request, key string)) {
+	s.placementHandler = fn
+}
+
+// SetDemandHandler registers the HTTP handler for POST /api/v1/files/{key}/demand without importing lifecycle.
+func (s *Service) SetDemandHandler(fn func(w http.ResponseWriter, r *http.Request, key string)) {
+	s.demandHandler = fn
+}
+
+// SetDeleteHandler registers a callback invoked whenever a file is deleted from the cluster.
+func (s *Service) SetDeleteHandler(fn func(key string)) {
+	s.deleteHandler = fn
 }
 
 // NewService wires the orchestration service. profiles and usage are injected
 // as funcs so the service always sees live values.
 func NewService(store JobStore, tiers TierSource, coord *cluster.Coordinator,
 	profiles func() map[string]cluster.ProcessingProfile, usage func() map[string]uint64) *Service {
-	s := &Service{
-		store:    store,
-		tiers:    tiers,
-		coord:    coord,
-		profiles: profiles,
-		usage:    usage,
-		client:   &http.Client{Timeout: 30 * time.Second},
+	return &Service{
+		store:         store,
+		tiers:         tiers,
+		coord:         coord,
+		profiles:      profiles,
+		usage:         usage,
+		client:        &http.Client{Timeout: 30 * time.Second},
+		missingStrike: make(map[string]int),
 	}
-	go s.startWatchdogLoop()
-	return s
 }
 
-// startWatchdogLoop scans active jobs periodically. If a worker goes offline for > 3m,
-// the job is marked as failed to prevent permanent UI lockup.
-func (s *Service) startWatchdogLoop() {
+// Run executes the background job watchdog until ctx is cancelled.
+func (s *Service) Run(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	reconcileCounter := 0
 
-	for range ticker.C {
-		reconcileCounter++
-		if reconcileCounter%2 == 0 { // Every 60 seconds
-			_, _ = s.ReconcileGhostRecords()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.sweepStaleJobs()
 		}
+	}
+}
 
-		jobs, err := s.store.ListFileJobs()
-		if err != nil {
+// sweepStaleJobs scans active jobs and marks them failed if their worker goes offline for > 3m.
+// Without a backing store (degraded in-memory coordinator) there is nothing to sweep.
+func (s *Service) sweepStaleJobs() {
+	if s.store == nil {
+		return
+	}
+	jobs, err := s.store.ListFileJobs()
+	if err != nil {
+		return
+	}
+	now := time.Now().UTC()
+	for _, job := range jobs {
+		if job.State == StateCompleted || job.State == StateFailed {
 			continue
 		}
-		now := time.Now().UTC()
-		for _, job := range jobs {
-			if job.State == StateCompleted || job.State == StateFailed {
-				continue
-			}
-			if now.Sub(job.UpdatedAt) > 3*time.Minute {
-				worker := s.nodeByID(job.NodeID)
-				if worker == nil || worker.Status == cluster.StatusOffline {
-					job.State = StateFailed
-					job.Error = fmt.Sprintf("worker node '%s' went offline or timed out", job.NodeID)
-					job.UpdatedAt = now
-					_ = s.store.SaveFileJob(job)
-					fmt.Printf("[FileAPI Watchdog] ⚠️ File job '%s' on %s marked failed: worker went offline\n", job.Key, job.NodeID)
-				}
+		if now.Sub(job.UpdatedAt) > 3*time.Minute {
+			worker := s.nodeByID(job.NodeID)
+			if worker == nil || worker.Status == cluster.StatusOffline {
+				job.State = StateFailed
+				job.Error = fmt.Sprintf("worker node '%s' went offline or timed out", job.NodeID)
+				job.UpdatedAt = now
+				_ = s.store.SaveFileJob(job)
+				fmt.Printf("[FileAPI Watchdog] ⚠️ File job '%s' on %s marked failed: worker went offline\n", job.Key, job.NodeID)
 			}
 		}
 	}
 }
 
 // ReconcileGhostRecords verifies that completed file records actually exist on the target worker.
-// If an admin manually deleted files from the disk (e.g. rm -rf /stream/media/<key>),
-// this cleans the ghost record from BadgerDB so cluster state reflects physical storage.
+// Requires 3 consecutive 404 strikes before deleting DB rows to avoid purging on transient glitches.
 func (s *Service) ReconcileGhostRecords() (int, error) {
 	recs, err := s.store.ListFileRecords()
 	if err != nil {
@@ -116,19 +173,57 @@ func (s *Service) ReconcileGhostRecords() (int, error) {
 			continue
 		}
 		probeURL := fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), rec.Key)
-		resp, err := client.Head(probeURL)
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusNotFound {
-				fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing on %s disk — cleaning DB record\n",
+		req, err := http.NewRequest(http.MethodHead, probeURL, nil)
+		if err != nil {
+			continue
+		}
+		if s.secret != "" {
+			req.Header.Set("X-Cluster-Secret", s.secret)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			continue
+		}
+		io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+
+		s.strikeMu.Lock()
+		if s.missingStrike == nil {
+			s.missingStrike = make(map[string]int)
+		}
+		if resp.StatusCode == http.StatusNotFound {
+			s.missingStrike[rec.Key]++
+			strikes := s.missingStrike[rec.Key]
+			if strikes >= 3 {
+				delete(s.missingStrike, rec.Key)
+				s.strikeMu.Unlock()
+				fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing on %s disk (3 strikes) — cleaning DB record\n",
 					rec.Key, rec.Filename, job.Placement.NodeID)
+				if s.deleteHandler != nil {
+					s.deleteHandler(rec.Key)
+				}
 				_ = s.store.DeleteFileJob(rec.Key)
 				_ = s.store.DeleteFileRecord(rec.Key)
 				purged++
+				continue
 			}
+		} else {
+			delete(s.missingStrike, rec.Key)
 		}
+		s.strikeMu.Unlock()
 	}
 	return purged, nil
+}
+
+// MissingStrikeStats reports the ghost-record strike tracker's live usage.
+func (s *Service) MissingStrikeStats() cache.Snapshot {
+	s.strikeMu.Lock()
+	defer s.strikeMu.Unlock()
+	var bytes int64
+	for key := range s.missingStrike {
+		bytes += int64(len(key)) + 16
+	}
+	return cache.Snapshot{Name: "ghost_strike_tracker", Entries: len(s.missingStrike), Bytes: bytes}
 }
 
 // uniqueKey generates a key until it is free in the file table.
@@ -178,103 +273,76 @@ func (s *Service) resolveUsage() map[string]uint64 {
 	return merged
 }
 
-// PlanPlacement picks the target block for requiredBytes: Tier 2 (HDD)
-// first; if nothing fits, last-uploaded HDD files are evicted (worker-side
-// delete + DB rows) and the pick retried; then Tier 1 (SSD) as overflow.
-// Tier 0 is never considered. Blocks may sit on any receiver node — the
-// processing worker is chosen separately and transfers when it does not
-// own the block.
-func (s *Service) PlanPlacement(requiredBytes uint64, receivers map[string]bool) (Placement, []string, error) {
+// PlanPlacement picks the target block for requiredBytes:
+// When an ingestOrder provider is configured, it iterates those tier IDs in order.
+// Otherwise it falls back to:
+// 1. Default/bulk tier (Default flag or Tier 2 HDD)
+// 2. Warm tier (Tier 1 SSD) as overflow
+// 3. Any available tier with headroom (Tier 0 hot buffer or custom tiers) as fallback.
+func (s *Service) PlanPlacement(requiredBytes uint64, receivers map[string]bool) (Placement, error) {
 	nodes := s.coord.GetNodes()
 	statuses := s.tiers.Resolve(nodes, s.resolveUsage())
 
-	hdd := s.tierByID(statuses, DefaultPolicy.HDDTierID)
-	ssd := s.tierByID(statuses, DefaultPolicy.SSDTierID)
-
-	// 1. Straight fit on the cold tier.
-	if bs := PickBlockInTier(hdd, requiredBytes, receivers); bs != nil {
-		return s.placementOf(hdd, bs), nil, nil
-	}
-
-	// 2. Evict last-uploaded files from HDD blocks (never SSD) until one fits.
-	evicted := make([]string, 0)
-	for bs := PickBlockInTier(hdd, requiredBytes, receivers); bs == nil; bs = PickBlockInTier(hdd, requiredBytes, receivers) {
-		victim, err := s.newestHDDFile(hdd, receivers)
-		if err != nil {
-			return Placement{}, nil, err
-		}
-		if victim == nil {
-			break // nothing left to evict on HDD
-		}
-		if err := s.deleteFromWorker(victim, hdd); err != nil {
-			log.Printf("[FileAPI] ⚠️ eviction delete failed for %s: %v", victim.Key, err)
-			// Mark as failed locally so the loop does not retry it forever.
-			if job, _ := s.store.GetFileJob(victim.Key); job != nil {
-				job.State = StateFailed
-				job.Error = "eviction delete failed: " + err.Error()
-				_ = s.store.SaveFileJob(job)
-				continue
+	if s.ingestOrder != nil {
+		for _, tierID := range s.ingestOrder() {
+			st := s.tierByID(statuses, tierID)
+			if bs := PickBlockInTier(st, requiredBytes, receivers); bs != nil {
+				return s.placementOf(st, bs), nil
 			}
 		}
-		evicted = append(evicted, victim.Key)
-		if len(evicted) > 1000 {
-			break // hard safety valve
+		return Placement{}, fmt.Errorf("insufficient storage: all storage tiers are full for %d bytes", requiredBytes)
+	}
+
+	// 1. Direct fit on the preferred default / bulk tier.
+	var defaultTier *storage.TierStatus
+	for i := range statuses {
+		if statuses[i].Default {
+			defaultTier = &statuses[i]
+			break
 		}
 	}
-	if len(evicted) > 0 {
-		if bs := PickBlockInTier(hdd, requiredBytes, receivers); bs != nil {
-			return s.placementOf(hdd, bs), evicted, nil
+	if defaultTier == nil {
+		defaultTier = s.tierByID(statuses, DefaultPolicy.HDDTierID)
+	}
+
+	if bs := PickBlockInTier(defaultTier, requiredBytes, receivers); bs != nil {
+		return s.placementOf(defaultTier, bs), nil
+	}
+
+	// 2. Overflow onto the warm tier (SSD).
+	ssd := s.tierByID(statuses, DefaultPolicy.SSDTierID)
+	if ssd != nil && (defaultTier == nil || ssd.ID != defaultTier.ID) {
+		if bs := PickBlockInTier(ssd, requiredBytes, receivers); bs != nil {
+			return s.placementOf(ssd, bs), nil
 		}
 	}
 
-	// 3. Overflow onto the warm tier.
-	if bs := PickBlockInTier(ssd, requiredBytes, receivers); bs != nil {
-		return s.placementOf(ssd, bs), evicted, nil
+	// 3. Fallback onto any other configured tier with usable capacity (Hot NVMe or custom tiers).
+	for i := range statuses {
+		st := &statuses[i]
+		if (defaultTier != nil && st.ID == defaultTier.ID) || (ssd != nil && st.ID == ssd.ID) {
+			continue
+		}
+		if bs := PickBlockInTier(st, requiredBytes, receivers); bs != nil {
+			return s.placementOf(st, bs), nil
+		}
 	}
 
-	return Placement{}, evicted, fmt.Errorf("no storage: tier2 (HDD) and tier1 (SSD) are full for %d bytes (visitor-based eviction not implemented yet)", requiredBytes)
+	return Placement{}, fmt.Errorf("insufficient storage: all storage tiers are full for %d bytes", requiredBytes)
 }
 
 func (s *Service) placementOf(tier *storage.TierStatus, bs *storage.BlockStatus) Placement {
+	pubHost := bs.Block.PublicHost
+	if pubHost == "" && tier != nil {
+		pubHost = tier.PublicHost
+	}
 	return Placement{
 		TierID:     tier.ID,
 		TierLabel:  TierLabel(tier.ID),
 		NodeID:     bs.Block.NodeID,
 		Path:       bs.Block.Path,
-		PublicHost: bs.Block.PublicHost,
+		PublicHost: pubHost,
 	}
-}
-
-// newestHDDFile returns the most recently uploaded completed file that lives
-// on an HDD-tier block owned by a receiver node.
-func (s *Service) newestHDDFile(hdd *storage.TierStatus, receivers map[string]bool) (*FileRecord, error) {
-	hddNodes := make(map[string]bool)
-	if hdd != nil {
-		for _, b := range hdd.Blocks {
-			hddNodes[b.Block.NodeID] = true
-		}
-	}
-	recs, err := s.store.ListFileRecords()
-	if err != nil {
-		return nil, err
-	}
-	for _, rec := range recs { // already newest-first
-		job, err := s.store.GetFileJob(rec.Key)
-		if err != nil || job == nil {
-			continue
-		}
-		if job.State != StateCompleted {
-			continue
-		}
-		if job.Placement.TierID != DefaultPolicy.HDDTierID {
-			continue // only ever evict from HDD
-		}
-		if !hddNodes[job.Placement.NodeID] || !receivers[job.Placement.NodeID] {
-			continue
-		}
-		return rec, nil
-	}
-	return nil, nil
 }
 
 // deleteFromWorker removes a file's folder from its worker and drops the DB rows.
@@ -292,9 +360,12 @@ func (s *Service) deleteFromWorker(rec *FileRecord, hdd *storage.TierStatus) err
 	if err != nil {
 		return err
 	}
+	if s.secret != "" {
+		req.Header.Set("X-Cluster-Secret", s.secret)
+	}
 	q := req.URL.Query()
 	q.Set("key", rec.Key)
-	q.Set("dir", job.Placement.Path)
+	q.Set("dir", CleanPlacementPath(job.Placement.Path))
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := s.client.Do(req)
@@ -324,13 +395,21 @@ func (s *Service) nodeByID(nodeID string) *cluster.NodeRecord {
 
 // CreateFromURL validates a remote video via HEAD probe, reserves placement,
 // persists file + job rows and dispatches the download to the worker.
-func (s *Service) CreateFromURL(rawURL string) (*CreateResponse, error) {
+func (s *Service) CreateFromURL(rawURL string, createdBy ...string) (*CreateResponse, error) {
 	rawURL = strings.TrimSpace(rawURL)
 	if rawURL == "" {
 		return nil, fmt.Errorf("url is required")
 	}
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		return nil, fmt.Errorf("url must start with http:// or https://")
+	}
+
+	creator := ""
+	if len(createdBy) > 0 {
+		creator = strings.TrimSpace(createdBy[0])
+	}
+	if creator == "" {
+		creator = "Dashboard"
 	}
 
 	// Requirement: at least one processing VPS with aria2c + ffmpeg.
@@ -358,12 +437,9 @@ func (s *Service) CreateFromURL(rawURL string) (*CreateResponse, error) {
 
 	required := RequiredHeadroom(probe.SizeBytes)
 	receivers := ReceiverCandidates(s.coord.GetNodes())
-	placement, evicted, err := s.PlanPlacement(required, receivers)
+	placement, err := s.PlanPlacement(required, receivers)
 	if err != nil {
 		return nil, err
-	}
-	if len(evicted) > 0 {
-		log.Printf("[FileAPI] ♻️ evicted %d file(s) from tier2 to fit %s", len(evicted), key)
 	}
 
 	// Pick the processing worker independently: prefer the block owner
@@ -384,6 +460,7 @@ func (s *Service) CreateFromURL(rawURL string) (*CreateResponse, error) {
 		SizeBytes:  probe.SizeBytes,
 		MimeType:   probe.ContentType,
 		SourceType: SourceURL,
+		CreatedBy:  creator,
 		CreatedAt:  now,
 	}
 	job := &FileJob{
@@ -415,9 +492,11 @@ func (s *Service) CreateFromURL(rawURL string) (*CreateResponse, error) {
 		Filename:  rec.Filename,
 		SizeBytes: rec.SizeBytes,
 		MimeType:  rec.MimeType,
+		CreatedBy: creator,
 		Placement: placement,
 		StatusURL: "/api/v1/files/" + key,
 		StreamURL: s.StreamURL(job),
+		PlayURL:   "/stream/" + key,
 		CreatedAt: now,
 	}, nil
 }
@@ -425,13 +504,21 @@ func (s *Service) CreateFromURL(rawURL string) (*CreateResponse, error) {
 // ReserveUpload creates an upload slot: the client receives the key plus a
 // one-shot upload URL. Placement is fixed now so bytes stream straight to
 // the owning worker.
-func (s *Service) ReserveUpload(rawFilename string, expectedSize int64) (*CreateResponse, error) {
+func (s *Service) ReserveUpload(rawFilename string, expectedSize int64, createdBy ...string) (*CreateResponse, error) {
 	if strings.TrimSpace(rawFilename) == "" {
 		return nil, fmt.Errorf("filename is required")
 	}
 	filename := media.SanitizeFilename(rawFilename)
 	if err := ValidateVideo(filename, ""); err != nil {
 		return nil, err
+	}
+
+	creator := ""
+	if len(createdBy) > 0 {
+		creator = strings.TrimSpace(createdBy[0])
+	}
+	if creator == "" {
+		creator = "Dashboard"
 	}
 
 	workers, err := s.workerPool()
@@ -446,7 +533,7 @@ func (s *Service) ReserveUpload(rawFilename string, expectedSize int64) (*Create
 
 	required := RequiredHeadroom(expectedSize)
 	receivers := ReceiverCandidates(s.coord.GetNodes())
-	placement, _, err := s.PlanPlacement(required, receivers)
+	placement, err := s.PlanPlacement(required, receivers)
 	if err != nil {
 		return nil, err
 	}
@@ -462,6 +549,7 @@ func (s *Service) ReserveUpload(rawFilename string, expectedSize int64) (*Create
 		Filename:   filename,
 		SizeBytes:  expectedSize,
 		SourceType: SourceUpload,
+		CreatedBy:  creator,
 		CreatedAt:  now,
 	}
 	job := &FileJob{
@@ -484,9 +572,11 @@ func (s *Service) ReserveUpload(rawFilename string, expectedSize int64) (*Create
 		State:     StateAwaitingUpload,
 		Filename:  rec.Filename,
 		SizeBytes: rec.SizeBytes,
+		CreatedBy: creator,
 		UploadURL: "/api/v1/files/" + key + "/upload",
 		Placement: placement,
 		StatusURL: "/api/v1/files/" + key,
+		PlayURL:   "/stream/" + key,
 		CreatedAt: now,
 	}, nil
 }
@@ -507,9 +597,10 @@ func (s *Service) Dispatch(job *FileJob, rec *FileRecord) error {
 		"filename":   rec.Filename,
 	}
 
+	cleanTarget := CleanPlacementPath(job.Placement.Path)
 	if job.NodeID == job.Placement.NodeID {
 		// Direct: write onto the block this worker owns.
-		payload["target_dir"] = job.Placement.Path
+		payload["target_dir"] = cleanTarget
 	} else {
 		// Decoupled: process in scratch, then transfer to the block owner.
 		owner := s.nodeByID(job.Placement.NodeID)
@@ -518,13 +609,22 @@ func (s *Service) Dispatch(job *FileJob, rec *FileRecord) error {
 		}
 		payload["scratch"] = "true"
 		payload["final_node_id"] = job.Placement.NodeID
-		payload["final_dir"] = job.Placement.Path
+		payload["final_dir"] = cleanTarget
 		payload["final_addr"] = AgentBaseURL(owner)
 	}
 
 	body, _ := json.Marshal(payload)
 
-	resp, err := s.client.Post(AgentBaseURL(worker)+"/api/v1/ingest", "application/json", strings.NewReader(string(body)))
+	ingestReq, err := http.NewRequest(http.MethodPost, AgentBaseURL(worker)+"/api/v1/ingest", strings.NewReader(string(body)))
+	if err != nil {
+		return fmt.Errorf("create ingest request failed: %w", err)
+	}
+	ingestReq.Header.Set("Content-Type", "application/json")
+	if s.secret != "" {
+		ingestReq.Header.Set("X-Cluster-Secret", s.secret)
+	}
+
+	resp, err := s.client.Do(ingestReq)
 	if err != nil {
 		return fmt.Errorf("worker unreachable: %w", err)
 	}
@@ -662,12 +762,18 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		return nil, fmt.Errorf("file '%s' not found", key)
 	}
 
+	createdBy := rec.CreatedBy
+	if createdBy == "" {
+		createdBy = "Dashboard"
+	}
+
 	resp := &StatusResponse{
 		Key:              key,
 		State:            job.State,
 		Filename:         rec.Filename,
 		SizeBytes:        rec.SizeBytes,
 		MimeType:         rec.MimeType,
+		CreatedBy:        createdBy,
 		Progress:         job.Progress,
 		Speed:            job.Speed,
 		Error:            job.Error,
@@ -683,6 +789,7 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		WorkerNodeID:     job.NodeID,
 		Placement:        job.Placement,
 		StreamURL:        s.StreamURL(job),
+		PlayURL:          "/stream/" + key,
 		CreatedAt:        rec.CreatedAt,
 		UpdatedAt:        job.UpdatedAt,
 	}
@@ -753,8 +860,8 @@ func (s *Service) StreamURL(job *FileJob) string {
 	// 1. Check if placement cached a custom domain / host link
 	publicHost := job.Placement.PublicHost
 
-	// 2. If not cached (e.g. older job, or updated tier block configuration),
-	// dynamically look up the live block's PublicHost in the tier definition
+	// 2. If not cached (e.g. older job, or updated tier block / tier configuration),
+	// dynamically look up the live block's PublicHost or fallback to tier's PublicHost
 	if publicHost == "" && s.tiers != nil {
 		for _, t := range s.tiers.List() {
 			for _, b := range t.Blocks {
@@ -766,6 +873,10 @@ func (s *Service) StreamURL(job *FileJob) string {
 				}
 			}
 			if publicHost != "" {
+				break
+			}
+			if (t.ID == job.Placement.TierID || t.Label() == job.Placement.TierLabel) && t.PublicHost != "" {
+				publicHost = t.PublicHost
 				break
 			}
 		}
@@ -786,7 +897,7 @@ func (s *Service) StreamURL(job *FileJob) string {
 
 	// 3. Fallback: worker agent's direct reachable address
 	node := s.nodeByID(job.Placement.NodeID)
-	if node == nil {
+	if node == nil || node.Status == cluster.StatusOffline {
 		return ""
 	}
 	return fmt.Sprintf("%s/stream/%s", AgentBaseURL(node), job.Key)
@@ -812,4 +923,37 @@ func PreferAgentAddrSafe(node *cluster.NodeRecord) string {
 		return addr
 	}
 	return "127.0.0.1"
+}
+
+// Retry resets and re-dispatches a failed file job.
+func (s *Service) Retry(key string) (*FileJob, error) {
+	job, err := s.store.GetFileJob(key)
+	if err != nil || job == nil {
+		return nil, fmt.Errorf("job not found for key %s", key)
+	}
+	rec, err := s.store.GetFileRecord(key)
+	if err != nil || rec == nil {
+		return nil, fmt.Errorf("file record not found for key %s", key)
+	}
+	if job.State != StateFailed {
+		return nil, fmt.Errorf("only failed jobs can be retried (current state: %s)", job.State)
+	}
+	job.State = StateDownloading
+	job.Error = ""
+	job.Progress = 0
+	job.Speed = "Restarting..."
+	job.Stage = "download"
+	job.StageName = "Restarting Job"
+	job.StagePercent = 0
+	job.UpdatedAt = time.Now().UTC()
+	if err := s.store.SaveFileJob(job); err != nil {
+		return nil, err
+	}
+	if err := s.Dispatch(job, rec); err != nil {
+		job.State = StateFailed
+		job.Error = err.Error()
+		_ = s.store.SaveFileJob(job)
+		return nil, err
+	}
+	return job, nil
 }

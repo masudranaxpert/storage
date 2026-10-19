@@ -268,8 +268,8 @@ func TestBlockExclusivityAcrossTiers(t *testing.T) {
 func TestBlockDeduplicationWithinTier(t *testing.T) {
 	m := storage.NewManager(newMemStore())
 	_ = m.Upsert(storage.Tier{
-		ID:      1,
-		Name:    "Tier 1",
+		ID:   1,
+		Name: "Tier 1",
 		Blocks: []storage.Block{
 			{NodeID: "vps-01", Path: "/mnt/ssd", DiskType: "SSD"},
 			{NodeID: "vps-01", Path: "/mnt/ssd", DiskType: "SSD"},
@@ -289,8 +289,8 @@ func TestBlockPublicHostPreservation(t *testing.T) {
 	store := newMemStore()
 	m := storage.NewManager(store)
 	err := m.Upsert(storage.Tier{
-		ID:      1,
-		Name:    "Tier 1 · Hot",
+		ID:   1,
+		Name: "Tier 1 · Hot",
 		Blocks: []storage.Block{
 			{NodeID: "vps-01", Path: "/mnt/ssd", DiskType: "SSD", PublicHost: "cdn1.streammesh.com:2053"},
 		},

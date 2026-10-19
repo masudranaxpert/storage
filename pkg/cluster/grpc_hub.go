@@ -69,6 +69,14 @@ func NewGRPCHub(coord *Coordinator, store DataStore, secret string) *GRPCHub {
 	return h
 }
 
+// Secret returns the shared cluster secret configured on the control plane.
+func (h *GRPCHub) Secret() string {
+	if h == nil {
+		return ""
+	}
+	return h.secret
+}
+
 // ListenAndServe starts the gRPC server on the given port.
 func (h *GRPCHub) ListenAndServe(port int) error {
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -250,7 +258,7 @@ func (h *GRPCHub) NodeChannel(stream pb.Mesh_NodeChannelServer) error {
 						Status:              string(record.Status),
 						NodeEnabled:         true,
 						LatestVersion:       telemetry.CurrentVersion,
-						DownloadUrl:         "/download/stream-linux-amd64",
+						DownloadUrl:         "/download/stream-bundle-linux-amd64.tar.gz",
 						UpdateAvailable:     needsUpgrade,
 						InstallMissingTools: false,
 					},
@@ -320,9 +328,7 @@ func (h *GRPCHub) IsNodeStreamed(nodeID string) bool {
 	return exists
 }
 
-// ---------------------------------------------------------------------------
-// conversions between protobuf wire types and telemetry structs
-// ---------------------------------------------------------------------------
+// Conversions between protobuf wire types and telemetry structs.
 
 func metricsToProto(m telemetry.NodeMetrics) *pb.Heartbeat {
 	hb := &pb.Heartbeat{

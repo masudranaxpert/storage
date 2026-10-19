@@ -1,45 +1,126 @@
-<div class="modal-overlay" id="node-detail-modal">
-    <div class="modal-dialog">
-        <div class="modal-header">
-            <div>
-                <h3 class="modal-title" id="modal-node-title">Node Telemetry</h3>
-                <div style="font-size:13px;color:var(--text-secondary);margin-top:2px;" id="modal-node-sub">Node Details</div>
-            </div>
-            <button class="modal-close-btn" onclick="closeNodeDetailModal()">&times;</button>
-        </div>
-
-        <div class="modal-body">
-            <!-- Hardware Specifications -->
-            <div style="margin-bottom:24px;">
-                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px;">Hardware Specifications</div>
-                <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:14px;">
-                    <div style="font-size:13px;margin-bottom:6px;"><strong>CPU:</strong> <span id="modal-cpu-info">Loading...</span></div>
-                    <div style="font-size:13px;"><strong>Memory:</strong> <span id="modal-ram-info">Loading...</span></div>
+<!-- Modal: Edit VPS Configuration & Quota -->
+<div class="modal-overlay" id="node-detail-modal" role="dialog" aria-modal="true" aria-labelledby="modal-node-title">
+    <div class="modal-dialog" style="max-width:620px;">
+        <form id="form-edit-node" onsubmit="handleSaveNodeConfig(event)" style="display:flex;flex-direction:column;max-height:88vh;overflow:hidden;">
+            <!-- Header -->
+            <div class="modal-header">
+                <div style="display:flex;align-items:center;gap:12px;">
+                    <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="modal-title" id="modal-node-title" style="font-size:18px;">Edit VPS Node</h3>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;" id="modal-node-sub">Node Configuration &amp; Storage Quota</div>
+                    </div>
                 </div>
+                <button type="button" class="modal-close-btn" onclick="closeNodeDetailModal()" aria-label="Close modal">&times;</button>
             </div>
 
-            <!-- Resource Allocation / Quota Manager -->
-            <div>
-                <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-secondary);margin-bottom:6px;">
-                    Cluster Pool Storage Contribution (Quota)
+            <!-- Body -->
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;padding:22px 24px;">
+                <!-- Group 1: Identity & Status -->
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);">Node Identity &amp; State</span>
+                    <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;align-items:start;">
+                        <div>
+                            <label class="form-label" for="modal-edit-label">Node Alias / Friendly Name</label>
+                            <input type="text" id="modal-edit-label" class="form-input" placeholder="e.g. Frankfurt NVMe Storage">
+                        </div>
+                        <div>
+                            <label class="form-label">Cluster Status</label>
+                            <label style="display:flex;align-items:center;gap:8px;height:38px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-primary);padding:0 8px;border:1px solid var(--border-light);border-radius:var(--radius-sm);background:var(--bg-body);">
+                                <input type="checkbox" id="modal-edit-enabled" style="accent-color:var(--orange-primary);cursor:pointer;" checked>
+                                <span>Active in Pool</span>
+                            </label>
+                        </div>
+                    </div>
                 </div>
-                <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">
-                    Control how much disk space this VPS is allowed to offer to the distributed pool. Set to 0 for 100% full capacity.
-                </p>
 
-                <div class="form-group">
-                    <label class="form-label">Allocated Storage Cap:</label>
-                    <input type="text" class="form-input" id="modal-quota-value" readonly value="Unlimited (Full Capacity)">
-                    <div class="quota-slider-wrap">
-                        <input type="range" class="quota-slider" id="modal-quota-slider" min="0" max="1000" value="0" oninput="onQuotaSliderChange(this.value)">
+                <!-- Group 2: Storage Quota & Peering URL -->
+                <div style="display:flex;flex-direction:column;gap:14px;">
+                    <!-- Storage Allocation Cap -->
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+                            <label class="form-label" for="modal-quota-input" style="margin-bottom:0;font-weight:600;">Storage Allocation Cap</label>
+                            <span id="modal-quota-display" style="font-size:11px;font-weight:600;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;background:var(--bg-subtle);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">Unlimited (Full Drive)</span>
+                        </div>
+                        <div style="position:relative;display:flex;align-items:center;">
+                            <input type="number" id="modal-quota-input" class="form-input" min="0" placeholder="0" oninput="onQuotaNumberChange(this.value)" style="padding-right:48px;">
+                            <span style="position:absolute;right:14px;font-size:12px;font-weight:600;color:var(--text-muted);pointer-events:none;">GB</span>
+                        </div>
+                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Leave 0 for full drive capacity (unmetered pooling).</span>
+                    </div>
+
+                    <!-- Coordinator Peering URL -->
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+                            <label class="form-label" for="modal-edit-coord-url" style="margin-bottom:0;font-weight:600;">Coordinator Peering URL (Agent Callback) *</label>
+                            <span id="modal-edit-coord-badge" style="font-size:11px;font-weight:600;"></span>
+                        </div>
+                        <input type="text" id="modal-edit-coord-url" class="form-input" placeholder="e.g. https://xxxx.trycloudflare.com or http://public-ip:1212" oninput="checkEditCoordUrlSafety(this.value)" required>
+                        <div id="modal-edit-coord-warning" style="display:none;margin-top:6px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);border-radius:var(--radius-sm);padding:8px 10px;font-size:11.5px;color:var(--orange-dark);line-height:1.4;">
+                            ⚠️ <strong>Private Address Detected:</strong> Remote VPS nodes cannot reach RFC 1918 private IPs or localhost. Use a public IP, domain, or Cloudflare Tunnel URL.
+                        </div>
+                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Public address the remote agent dials to send heartbeats and connect to the cluster.</span>
+                    </div>
+                </div>
+
+                <!-- Group 3: SSH Peering & Credentials -->
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);">SSH Access &amp; Remote Management</span>
+                    <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;">
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-host">SSH Host / IP</label>
+                            <input type="text" id="modal-edit-ssh-host" class="form-input" placeholder="e.g. 204.136.10.31">
+                        </div>
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-port">SSH Port</label>
+                            <input type="number" id="modal-edit-ssh-port" class="form-input" placeholder="22" min="1" max="65535">
+                        </div>
+                    </div>
+                    <div class="modal-grid-1-1" style="display:grid;grid-template-columns: 1fr 1fr;gap:12px;">
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-user">SSH User</label>
+                            <input type="text" id="modal-edit-ssh-user" class="form-input" placeholder="root">
+                        </div>
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-password">SSH Password</label>
+                            <input type="password" id="modal-edit-ssh-password" class="form-input" placeholder="Leave blank to keep current">
+                        </div>
+                    </div>
+                    <div>
+                        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--text-primary);margin-top:2px;">
+                            <input type="checkbox" id="modal-edit-ssh-sudo" style="accent-color:var(--orange-primary);cursor:pointer;">
+                            <span>Use Sudo Elevation (for non-root SSH user)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Group 4: Hardware Specs (Read-Only Reference) -->
+                <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:12px 14px;">
+                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);display:block;margin-bottom:6px;">Hardware Telemetry</span>
+                    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-primary);">
+                        <div><strong>CPU:</strong> <span id="modal-cpu-info">Loading...</span></div>
+                        <div><strong>RAM:</strong> <span id="modal-ram-info">Loading...</span></div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="closeNodeDetailModal()">Cancel</button>
-            <button class="btn btn-primary" onclick="saveNodeAllocation()">Save Allocation to BadgerDB</button>
-        </div>
+            <!-- Footer -->
+            <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-top:1px solid var(--border-light);background:var(--bg-surface);">
+                <button type="button" class="btn btn-secondary" onclick="closeNodeDetailModal()">Cancel</button>
+                <button type="submit" id="btn-save-node-config" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                        <polyline points="7 3 7 8 15 8"></polyline>
+                    </svg>
+                    <span>Save Node Settings</span>
+                </button>
+            </div>
+        </form>
     </div>
 </div>

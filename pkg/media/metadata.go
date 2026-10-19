@@ -3,7 +3,6 @@ package media
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +18,7 @@ type VideoStreamInfo struct {
 	Width       int     `json:"width,omitempty"`
 	Height      int     `json:"height,omitempty"`
 	FPS         float64 `json:"fps,omitempty"`
+	PixFmt      string  `json:"pix_fmt,omitempty"`
 	AspectRatio string  `json:"aspect_ratio,omitempty"`
 	BitrateBps  int64   `json:"bitrate_bps,omitempty"`
 }
@@ -59,6 +59,7 @@ type MediaMetadata struct {
 	AudioTracks      []AudioTrackInfo    `json:"audio_tracks,omitempty"`
 	Subtitles        []SubtitleTrackInfo `json:"subtitles,omitempty"`
 	MasterM3U8       string              `json:"master_m3u8,omitempty"`
+	Processing       *ProcessingInfo     `json:"processing,omitempty"`
 	CreatedAt        time.Time           `json:"created_at"`
 }
 
@@ -83,6 +84,7 @@ type ffprobeStream struct {
 	CodecType          string `json:"codec_type"`
 	CodecName          string `json:"codec_name"`
 	Profile            string `json:"profile"`
+	PixFmt             string `json:"pix_fmt"`
 	Width              int    `json:"width"`
 	Height             int    `json:"height"`
 	RFrameRate         string `json:"r_frame_rate"`
@@ -176,6 +178,7 @@ func enrichViaFFprobe(ffprobePath, filePath string, meta *MediaMetadata) error {
 				meta.Video = &VideoStreamInfo{
 					Codec:       s.CodecName,
 					Profile:     s.Profile,
+					PixFmt:      s.PixFmt,
 					Width:       s.Width,
 					Height:      s.Height,
 					FPS:         fps,
@@ -227,7 +230,7 @@ func parseFPS(val string) float64 {
 
 func isWebAudioCodec(codec string) bool {
 	c := strings.ToLower(strings.TrimSpace(codec))
-	return c == "aac" || c == "mp4a"
+	return c == "aac" || c == "mp4a" || c == "mp3"
 }
 
 func isTextSubtitle(codec string) bool {
@@ -235,107 +238,83 @@ func isTextSubtitle(codec string) bool {
 	return c == "subrip" || c == "srt" || c == "ass" || c == "ssa" || c == "webvtt" || c == "vtt" || c == "mov_text" || c == "text"
 }
 
-// RemuxToStreamableMP4 processes a video according to streaming specifications:
-// - Single audio stream: Keeps audio in the MP4 directly (zero external audio files).
-// - Multiple audio streams: Produces video-only MP4 (-an) + extracts each audio track
-//   as a standalone web-optimized .m4a file in a single unified, ultra-fast pass.
-// - Smart Passthrough: Copies web-ready AAC audio without re-encoding (-c:a copy),
-//   reducing processing time from ~9 minutes down to ~5-10 seconds with near-zero CPU!
-// - Subtitle streams: Extracts each subtitle track as a standalone WebVTT (.vtt) sidecar.
+// RemuxToStreamableMP4 produces a browser-playable, fast-start MP4 in one ffmpeg pass:
+//   - Video: copied when the codec is browser-decodable (H.264 8-bit, HEVC, AV1, VP9),
+//     otherwise re-encoded to H.264 (see PlanVideo). A failed copy pass is retried once
+//     as a transcode; there is no fallback that stores an unplayable file.
+//   - Audio: AAC/MP3 copied, anything else encoded to AAC. Multiple tracks become
+//     standalone .m4a files plus an fMP4 HLS master playlist.
+//   - Subtitles: text tracks extracted to WebVTT sidecars; bitmap tracks are skipped.
 func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*MediaMetadata, error) {
 	dstDir := filepath.Dir(dstPath)
 	ffmpegPath, err := exec.LookPath("ffmpeg")
+	if err != nil || ffmpegPath == "" {
+		return nil, fmt.Errorf("ffmpeg not found: required to produce streamable MP4 container")
+	}
 	ffprobePath, _ := exec.LookPath("ffprobe")
 
 	srcMeta := &MediaMetadata{}
+	probed := false
 	if ffprobePath != "" {
-		_ = enrichViaFFprobe(ffprobePath, srcPath, srcMeta)
+		probed = enrichViaFFprobe(ffprobePath, srcPath, srcMeta) == nil
 	}
 	numAudios := len(srcMeta.AudioTracks)
-
-	if err == nil && ffmpegPath != "" {
-		var ffmpegArgs []string
-		ffmpegArgs = append(ffmpegArgs, "-y", "-i", srcPath)
-
+	audioPaths := make([]string, numAudios)
+	for idx, aTrack := range srcMeta.AudioTracks {
+		audioPaths[idx] = filepath.Join(dstDir, audioTrackFilename(idx, aTrack))
+	}
+	cleanup := func() {
+		_ = os.Remove(dstPath)
 		if numAudios > 1 {
-			// Multi-audio: Output 1 is video-only MP4 (-an), each audio track is extracted as a standalone .m4a
-			ffmpegArgs = append(ffmpegArgs,
-				"-map", "0:v:0?",
-				"-an",
-				"-c:v", "copy",
-				"-max_muxing_queue_size", "1024",
-				"-movflags", "+faststart",
-				dstPath,
-			)
-
-			// Outputs 2..N: Extract each audio track in the SAME single streaming pass!
-			for idx, aTrack := range srcMeta.AudioTracks {
-				lang := aTrack.Language
-				if lang == "" {
-					lang = fmt.Sprintf("track_%d", idx+1)
-				}
-				audioFilename := fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
-				audioOutPath := filepath.Join(dstDir, audioFilename)
-
-				ffmpegArgs = append(ffmpegArgs, "-map", fmt.Sprintf("0:a:%d", idx))
-				if isWebAudioCodec(aTrack.Codec) {
-					ffmpegArgs = append(ffmpegArgs, "-c:a", "copy")
-				} else {
-					ffmpegArgs = append(ffmpegArgs, "-c:a", "aac", "-b:a", "192k", "-threads", "2")
-				}
-				ffmpegArgs = append(ffmpegArgs, audioOutPath)
-			}
-		} else {
-			// Single or zero audio: keep audio inside the MP4
-			ffmpegArgs = append(ffmpegArgs,
-				"-map", "0:v:0?",
-				"-map", "0:a:0?",
-				"-c:v", "copy",
-			)
-			if numAudios == 1 && isWebAudioCodec(srcMeta.AudioTracks[0].Codec) {
-				ffmpegArgs = append(ffmpegArgs, "-c:a", "copy")
-			} else if numAudios == 1 {
-				ffmpegArgs = append(ffmpegArgs, "-c:a", "aac", "-b:a", "192k", "-threads", "2")
-			}
-			ffmpegArgs = append(ffmpegArgs,
-				"-max_muxing_queue_size", "1024",
-				"-movflags", "+faststart",
-				dstPath,
-			)
-		}
-
-		cmd := exec.Command(ffmpegPath, ffmpegArgs...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			_ = os.Remove(dstPath)
-			// If copy failed due to incompatible container/codecs, fallback to direct copy
-			if copyErr := CopyFileSimple(srcPath, dstPath); copyErr != nil {
-				return nil, fmt.Errorf("remux failed: %v (%s)", err, string(out))
+			for _, p := range audioPaths {
+				_ = os.Remove(p)
 			}
 		}
-	} else {
-		if copyErr := CopyFileSimple(srcPath, dstPath); copyErr != nil {
-			return nil, fmt.Errorf("copy fallback failed: %w", copyErr)
-		}
+	}
+
+	plan := PlanVideo(srcMeta.Video, probed)
+	forceAAC := false
+	out, runErr := runRemux(ffmpegPath, srcPath, dstPath, plan, srcMeta.AudioTracks, audioPaths, probed, forceAAC)
+	if runErr != nil && plan.Mode == VideoCopy {
+		// Copy can still fail on broken timestamps or odd bitstreams; one
+		// re-encode pass normalises both video and audio.
+		cleanup()
+		plan = TranscodePlan("copy pass failed: " + lastLine(out))
+		forceAAC = true
+		out, runErr = runRemux(ffmpegPath, srcPath, dstPath, plan, srcMeta.AudioTracks, audioPaths, probed, forceAAC)
+	}
+	if runErr != nil {
+		cleanup()
+		return nil, fmt.Errorf("ffmpeg %s failed: %v: %s", plan.Mode, runErr, lastLines(out, 6))
 	}
 
 	meta, err := ExtractMetadata(dstPath, mediaID, originalFilename)
 	if err != nil {
+		cleanup()
 		return nil, err
+	}
+	// Guard: never hand back an MP4 whose video a browser cannot decode.
+	if srcMeta.Video != nil && meta.Video != nil && !isBrowserVideo(meta.Video) {
+		cleanup()
+		return nil, fmt.Errorf("output video codec %q is not browser-playable", meta.Video.Codec)
+	}
+	meta.Processing = &ProcessingInfo{
+		VideoMode:   plan.Mode,
+		VideoReason: plan.Reason,
+		AudioMode:   audioMode(srcMeta.AudioTracks, forceAAC),
 	}
 
 	// Multi-audio: register extracted external audio tracks
 	if numAudios > 1 {
 		meta.AudioTracks = make([]AudioTrackInfo, 0, numAudios)
 		for idx, aTrack := range srcMeta.AudioTracks {
-			lang := aTrack.Language
-			if lang == "" {
-				lang = fmt.Sprintf("track_%d", idx+1)
-			}
-			audioFilename := fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
-			audioOutPath := filepath.Join(dstDir, audioFilename)
+			audioFilename := audioTrackFilename(idx, aTrack)
+			audioOutPath := audioPaths[idx]
 			if stat, statErr := os.Stat(audioOutPath); statErr == nil && stat.Size() > 0 {
 				aTrack.File = audioFilename
-				aTrack.Codec = "aac"
+				if forceAAC || !isWebAudioCodec(aTrack.Codec) {
+					aTrack.Codec = "aac"
+				}
 				meta.AudioTracks = append(meta.AudioTracks, aTrack)
 			}
 		}
@@ -442,22 +421,69 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 	return meta, nil
 }
 
-// CopyFileSimple copies data from src to dst.
-func CopyFileSimple(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
+// runRemux executes one ffmpeg pass. Subtitles and data streams are never
+// muxed into the MP4 (-sn -dn); text subtitles are extracted separately.
+func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []AudioTrackInfo,
+	audioPaths []string, probed, forceAAC bool) ([]byte, error) {
+	audioFor := func(codec string) []string {
+		if forceAAC {
+			return []string{"-c:a", "aac", "-b:a", "192k"}
+		}
+		return AudioArgs(codec)
 	}
-	defer in.Close()
+	mp4Opts := []string{
+		"-max_muxing_queue_size", "1024",
+		"-avoid_negative_ts", "make_zero",
+		"-movflags", "+faststart",
+	}
 
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
+	args := []string{"-y", "-fflags", "+genpts", "-i", srcPath}
+	if plan.Mode != VideoNone {
+		args = append(args, "-map", "0:v:0?")
+		args = append(args, plan.Args...)
 	}
-	defer out.Close()
+	if len(tracks) > 1 {
+		// Multi-audio: video-only MP4, then one .m4a per track in the same pass.
+		args = append(args, "-an", "-sn", "-dn")
+		args = append(args, mp4Opts...)
+		args = append(args, dstPath)
+		for idx, t := range tracks {
+			args = append(args, "-map", fmt.Sprintf("0:a:%d", idx))
+			args = append(args, audioFor(t.Codec)...)
+			args = append(args, "-vn", "-sn", "-dn", audioPaths[idx])
+		}
+	} else {
+		args = append(args, "-map", "0:a:0?")
+		switch {
+		case len(tracks) == 1:
+			args = append(args, audioFor(tracks[0].Codec)...)
+		case !probed:
+			args = append(args, "-c:a", "aac", "-b:a", "192k")
+		}
+		args = append(args, "-sn", "-dn")
+		args = append(args, mp4Opts...)
+		args = append(args, dstPath)
+	}
+	return exec.Command(ffmpegPath, args...).CombinedOutput()
+}
 
-	if _, err := io.Copy(out, in); err != nil {
-		return err
+func audioTrackFilename(idx int, t AudioTrackInfo) string {
+	lang := t.Language
+	if lang == "" {
+		lang = fmt.Sprintf("track_%d", idx+1)
 	}
-	return out.Sync()
+	return fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
+}
+
+// lastLines returns the tail of ffmpeg output, where the actual error lives.
+func lastLines(out []byte, n int) string {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, " | ")
+}
+
+func lastLine(out []byte) string {
+	return lastLines(out, 1)
 }

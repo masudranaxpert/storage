@@ -17,6 +17,7 @@ func TestResolveTargetDir(t *testing.T) {
 	}{
 		{"", filepath.Join("data", "media")},
 		{".", filepath.Join("data", "media")},
+		{"/", filepath.Join("data", "media")},
 		{"/mnt/hdd", filepath.Join("/mnt/hdd", "stream", "media")},
 		{"/data", filepath.Join("/data", "stream", "media")},
 		{"/mnt/hdd/stream/media", filepath.Join("/mnt/hdd", "stream", "media")},

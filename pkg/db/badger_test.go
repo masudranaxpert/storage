@@ -8,6 +8,7 @@ import (
 
 	"stream/pkg/cluster"
 	"stream/pkg/db"
+	"stream/pkg/lifecycle"
 	"stream/pkg/telemetry"
 )
 
@@ -63,5 +64,64 @@ func TestBadgerStoreSaveAndRetrieve(t *testing.T) {
 	}
 	if fetchedCfg.AllocatedMaxBytes != 500*1024*1024*1024 {
 		t.Fatalf("expected 500GB allocation, got %d", fetchedCfg.AllocatedMaxBytes)
+	}
+
+	// Verify registered admin tables include flow, lcstate, lctask, lcactive, lcaudit even when empty
+	tables, err := store.AdminTables()
+	if err != nil {
+		t.Fatalf("AdminTables failed: %v", err)
+	}
+	tableNames := make(map[string]bool, len(tables))
+	for _, tbl := range tables {
+		tableNames[tbl.Name] = true
+	}
+	for _, expected := range []string{"flow", "lcstate", "lctask", "lcactive", "lcaudit"} {
+		if !tableNames[expected] {
+			t.Fatalf("expected %q in AdminTables, got %v", expected, tables)
+		}
+	}
+
+	// Flow policy persistence
+	pol := &lifecycle.FlowPolicy{Version: 1, Ingest: []int{2, 1, 0}, HalfLifeHours: 24, TickSeconds: 60, MaxTasksPerTick: 20}
+	if err := store.SaveFlowPolicy(pol); err != nil {
+		t.Fatalf("SaveFlowPolicy failed: %v", err)
+	}
+	gotPol, err := store.GetFlowPolicy()
+	if err != nil || gotPol == nil || gotPol.Version != 1 {
+		t.Fatalf("GetFlowPolicy = %+v, err=%v", gotPol, err)
+	}
+
+	// lcstate, lctask, lcactive, lcaudit round-trips
+	st := &lifecycle.FileState{Key: "k1", Score: 12.5}
+	if err := store.SaveLifecycleState(st); err != nil {
+		t.Fatalf("SaveLifecycleState: %v", err)
+	}
+	if gotSt, err := store.GetLifecycleState("k1"); err != nil || gotSt == nil || gotSt.Score != 12.5 {
+		t.Fatalf("GetLifecycleState = %+v, err=%v", gotSt, err)
+	}
+
+	task := &lifecycle.Task{ID: "t1", Key: "k1", Kind: lifecycle.TaskPromote, State: lifecycle.TaskQueued, CreatedAt: time.Now().UTC()}
+	if err := store.SaveLifecycleTask(task); err != nil {
+		t.Fatalf("SaveLifecycleTask: %v", err)
+	}
+	if gotTask, err := store.GetLifecycleTask("t1"); err != nil || gotTask == nil || gotTask.Key != "k1" {
+		t.Fatalf("GetLifecycleTask = %+v, err=%v", gotTask, err)
+	}
+
+	if err := store.SetActiveLifecycleTask("k1", "t1"); err != nil {
+		t.Fatalf("SetActiveLifecycleTask: %v", err)
+	}
+	if activeID, err := store.GetActiveLifecycleTask("k1"); err != nil || activeID != "t1" {
+		t.Fatalf("GetActiveLifecycleTask = %q, err=%v", activeID, err)
+	}
+	if err := store.DeleteActiveLifecycleTask("k1"); err != nil {
+		t.Fatalf("DeleteActiveLifecycleTask: %v", err)
+	}
+
+	if err := store.SaveLifecycleAudit(&lifecycle.AuditEntry{Key: "k1", Filename: "a.mp4", Reason: "expired", At: time.Now().UTC()}); err != nil {
+		t.Fatalf("SaveLifecycleAudit: %v", err)
+	}
+	if audits, err := store.ListLifecycleAudits(10); err != nil || len(audits) != 1 || audits[0].Key != "k1" {
+		t.Fatalf("ListLifecycleAudits = %+v, err=%v", audits, err)
 	}
 }

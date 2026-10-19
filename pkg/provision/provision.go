@@ -25,11 +25,13 @@ type Request struct {
 	User           string `json:"user"`               // e.g. "root"
 	Password       string `json:"password,omitempty"` // SSH password
 	PrivateKey     string `json:"private_key,omitempty"`
-	UseSudo        bool   `json:"use_sudo,omitempty"` // Explicit sudo elevation toggle
-	NodeName       string `json:"node_name"`          // e.g. "vps-hetzner-1"
-	CoordinatorURL string `json:"coordinator_url"`    // must be reachable from VPS (public/VPC IP)
-	HeartbeatSec   int    `json:"heartbeat_sec,omitempty"` // Defaults to 5s
+	UseSudo        bool   `json:"use_sudo,omitempty"`       // Explicit sudo elevation toggle
+	NodeName       string `json:"node_name"`                // e.g. "vps-hetzner-1"
+	CoordinatorURL string `json:"coordinator_url"`          // must be reachable from VPS (public/VPC IP)
+	HeartbeatSec   int    `json:"heartbeat_sec,omitempty"`  // Defaults to 5s
 	AdvertiseAddr  string `json:"advertise_addr,omitempty"` // override; defaults to Host when Host is an IP
+	Secret         string `json:"secret,omitempty"`
+	QuotaBytes     uint64 `json:"quota_bytes,omitempty"`
 }
 
 // Result holds the provisioning output and status
@@ -95,14 +97,6 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	defer client.Close()
 	logMsg("SSH connection established successfully.")
 
-	// Step 1: aria2 (download) + ffmpeg (CMAF) + rclone (node/S3/FTP transfer)
-	logMsg("Verifying media worker tools (aria2, ffmpeg, rclone)...")
-	if _, err := runRemote(client, tools.EnsureMediaToolsShell(), req.User, req.Password, req.UseSudo); err != nil {
-		logMsg("Note: media packages installation skipped or non-apt system.")
-	} else {
-		logMsg("Media engine tools (aria2, ffmpeg, rclone) active.")
-	}
-
 	// Optimize Linux TCP stack: enable Google BBR & 32MB WAN socket buffers
 	tcpTuneCmd := `sysctl -w net.core.default_qdisc=fq 2>/dev/null; ` +
 		`sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null; ` +
@@ -116,24 +110,53 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	resolvedCoordinator := ResolveCoordinatorURL(req.CoordinatorURL)
 	logMsg(fmt.Sprintf("Coordinator mesh target resolved to: %s", resolvedCoordinator))
 
-	// Step 2: Deploy stream Linux binary
-	logMsg("Deploying stream worker daemon to /usr/local/bin/stream...")
+	// Detect unreachable network routing: public VPS with private/loopback coordinator
+	if !isPrivateOrLoopback(req.Host) && isPrivateOrLoopback(resolvedCoordinator) {
+		logMsg(fmt.Sprintf("⚠️ WARNING: Target VPS '%s' is a public IP, but coordinator target '%s' is private LAN/loopback! Remote VPS cannot reach this coordinator over the public internet without a public IP, domain, or tunnel (e.g. Cloudflare/ngrok).", req.Host, resolvedCoordinator))
+	}
+
+	// Prepare /opt/stream directory hierarchy and unprivileged service user.
+	logMsg("Preparing /opt/stream directory hierarchy and unprivileged stream user...")
+	prepDirsCmd := `mkdir -p /opt/stream/bin /opt/stream/data/media /opt/stream/data/processing /opt/stream/etc && ` +
+		`(id -u stream >/dev/null 2>&1 || useradd -r -s /bin/false stream 2>/dev/null || true)`
+	_, _ = runRemote(client, prepDirsCmd, req.User, req.Password, req.UseSudo)
+
 	// Safely stop stream-agent service or process only, NEVER kill coordinator
 	_, _ = runRemote(client, "systemctl stop stream-agent 2>/dev/null || pkill -9 -f 'stream agent' 2>/dev/null || true", req.User, req.Password, req.UseSudo)
 
-	curlDeployCmd := fmt.Sprintf("curl -fsSL %s/download/stream-linux-amd64 -o /usr/local/bin/stream && chmod +x /usr/local/bin/stream", resolvedCoordinator)
+	// Deploy self-contained worker bundle.
+	logMsg("Deploying self-contained worker bundle to /opt/stream...")
+	curlDeployCmd := fmt.Sprintf(
+		"curl -fsSL %s/download/%s -o /tmp/%s && tar -xzf /tmp/%s -C /opt/stream --strip-components=1 && chmod +x /opt/stream/bin/* && ln -sf /opt/stream/bin/stream /usr/local/bin/stream",
+		resolvedCoordinator, BundleFileName, BundleFileName, BundleFileName,
+	)
 	if _, err := runRemote(client, curlDeployCmd, req.User, req.Password, req.UseSudo); err != nil {
-		if len(linuxBinData) > 0 {
-			logMsg("HTTP binary pull failed, uploading binary via SSH...")
-			if err := uploadData(client, linuxBinData, "/usr/local/bin/stream", req.User, req.Password, req.UseSudo); err != nil {
-				errFormatted := fmt.Sprintf("failed to upload binary: %v", err)
-				logMsg("❌ " + errFormatted)
-				return result, fmt.Errorf("%s", errFormatted)
-			}
-			_, _ = runRemote(client, "chmod +x /usr/local/bin/stream", req.User, req.Password, req.UseSudo)
+		logMsg("HTTP bundle pull failed, uploading worker bundle via SSH...")
+		bundleBytes, err := BuildOrGetWorkerBundle()
+		if err != nil {
+			errFormatted := fmt.Sprintf("failed to build bundle: %v", err)
+			logMsg("❌ " + errFormatted)
+			return result, fmt.Errorf("%s", errFormatted)
 		}
+		if err := uploadData(client, bundleBytes, "/tmp/"+BundleFileName, req.User, req.Password, req.UseSudo); err != nil {
+			errFormatted := fmt.Sprintf("failed to upload bundle: %v", err)
+			logMsg("❌ " + errFormatted)
+			return result, fmt.Errorf("%s", errFormatted)
+		}
+		extractCmd := fmt.Sprintf("tar -xzf /tmp/%s -C /opt/stream --strip-components=1 && chmod +x /opt/stream/bin/* && ln -sf /opt/stream/bin/stream /usr/local/bin/stream", BundleFileName)
+		_, _ = runRemote(client, extractCmd, req.User, req.Password, req.UseSudo)
 	}
-	logMsg("Binary deployed to /usr/local/bin/stream.")
+	logMsg("Worker bundle deployed successfully to /opt/stream.")
+
+	// Verify media tools; fallback to package installer if binary is missing.
+	logMsg("Verifying media worker tools (aria2c, ffmpeg, rclone)...")
+	checkToolsCmd := `export PATH=/opt/stream/bin:$PATH; which aria2c >/dev/null 2>&1 && which ffmpeg >/dev/null 2>&1 && which rclone >/dev/null 2>&1`
+	if _, err := runRemote(client, checkToolsCmd, req.User, req.Password, req.UseSudo); err != nil {
+		logMsg("Tool not bundled; running fallback package installer...")
+		_, _ = runRemote(client, tools.EnsureMediaToolsShell(), req.User, req.Password, req.UseSudo)
+	} else {
+		logMsg("Media engine tools active in /opt/stream/bin.")
+	}
 
 	advertise := strings.TrimSpace(req.AdvertiseAddr)
 	if advertise == "" {
@@ -159,6 +182,14 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	if advertise != "" {
 		advertiseFlag = fmt.Sprintf(" --advertise-addr=%s", advertise)
 	}
+	secretFlag := ""
+	if req.Secret != "" {
+		secretFlag = fmt.Sprintf(" --secret=%s", req.Secret)
+	}
+	quotaFlag := ""
+	if req.QuotaBytes > 0 {
+		quotaFlag = fmt.Sprintf(" --quota-bytes=%d", req.QuotaBytes)
+	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Stream Distributed Storage Mesh Agent
@@ -167,14 +198,15 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=root
-ExecStart=/usr/local/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/var/lib/stream/media%s
+User=stream
+Environment="PATH=/opt/stream/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s
 Restart=always
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, resolvedCoordinator, req.NodeName, interval, advertiseFlag)
+`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag)
 
 	if err := uploadData(client, []byte(serviceContent), "/etc/systemd/system/stream-agent.service", req.User, req.Password, req.UseSudo); err != nil {
 		errFormatted := fmt.Sprintf("failed to write systemd unit: %v", err)
@@ -182,8 +214,8 @@ WantedBy=multi-user.target
 		return result, fmt.Errorf("%s", errFormatted)
 	}
 
-	// Prepare high-capacity storage paths (/mnt/hdd, /data, /mnt/storage)
-	prepStorageCmd := `mkdir -p /var/lib/stream; if [ -d "/mnt/hdd" ]; then mkdir -p /mnt/hdd/stream/media && ln -sfn /mnt/hdd/stream/media /var/lib/stream/media; elif [ -d "/data" ]; then mkdir -p /data/stream/media && ln -sfn /data/stream/media /var/lib/stream/media; elif [ -d "/mnt/storage" ]; then mkdir -p /mnt/storage/stream/media && ln -sfn /mnt/storage/stream/media /var/lib/stream/media; else mkdir -p /var/lib/stream/media; fi`
+	// Prepare high-capacity storage paths (/mnt/hdd, /data, /mnt/storage) and set ownership
+	prepStorageCmd := `mkdir -p /opt/stream/data/media /var/lib/stream /stream/media /stream/processing; for d in /mnt/hdd /data /mnt/storage; do if [ -d "$d" ]; then mkdir -p "$d/stream/media" "$d/stream/processing" && chown -R stream:stream "$d/stream" 2>/dev/null || true; chmod -R 775 "$d/stream" 2>/dev/null || true; ln -sfn "$d/stream/media" /opt/stream/data/media; break; fi; done; chown -R stream:stream /opt/stream /var/lib/stream /stream 2>/dev/null || true; chmod -R 775 /stream 2>/dev/null || true`
 	_, _ = runRemote(client, prepStorageCmd, req.User, req.Password, req.UseSudo)
 
 	startCmd := "systemctl daemon-reload && systemctl enable stream-agent && systemctl restart stream-agent"
@@ -373,6 +405,96 @@ func StopServiceOverSSH(ctx context.Context, req Request) error {
 	return nil
 }
 
+// UpdateServiceOverSSH connects via SSH to reconfigure stream-agent with a new coordinator URL or quota.
+func UpdateServiceOverSSH(ctx context.Context, req Request) error {
+	port := req.Port
+	if port <= 0 {
+		port = 22
+	}
+	addr := req.Host
+	if !strings.Contains(addr, ":") {
+		addr = fmt.Sprintf("%s:%d", addr, port)
+	}
+
+	var authMethods []ssh.AuthMethod
+	if req.Password != "" {
+		authMethods = append(authMethods, ssh.Password(req.Password))
+	}
+	if req.PrivateKey != "" {
+		if signer, err := ssh.ParsePrivateKey([]byte(req.PrivateKey)); err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+		}
+	}
+
+	config := &ssh.ClientConfig{
+		User:            req.User,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return fmt.Errorf("ssh dial failed: %w", err)
+	}
+	defer client.Close()
+
+	resolvedCoordinator := ResolveCoordinatorURL(req.CoordinatorURL)
+	advertise := strings.TrimSpace(req.AdvertiseAddr)
+	if advertise == "" {
+		hostOnly := strings.Split(req.Host, ":")[0]
+		if net.ParseIP(hostOnly) != nil {
+			advertise = hostOnly
+		}
+	}
+
+	interval := req.HeartbeatSec
+	if interval <= 0 {
+		interval = 5
+	}
+
+	advertiseFlag := ""
+	if advertise != "" {
+		advertiseFlag = fmt.Sprintf(" --advertise-addr=%s", advertise)
+	}
+	secretFlag := ""
+	if req.Secret != "" {
+		secretFlag = fmt.Sprintf(" --secret=%s", req.Secret)
+	}
+	quotaFlag := ""
+	if req.QuotaBytes > 0 {
+		quotaFlag = fmt.Sprintf(" --quota-bytes=%d", req.QuotaBytes)
+	}
+
+	serviceContent := fmt.Sprintf(`[Unit]
+Description=Stream Distributed Storage Mesh Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stream
+Environment="PATH=/opt/stream/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag)
+
+	if err := uploadData(client, []byte(serviceContent), "/etc/systemd/system/stream-agent.service", req.User, req.Password, req.UseSudo); err != nil {
+		return fmt.Errorf("failed to update systemd unit: %w", err)
+	}
+
+	startCmd := "systemctl daemon-reload && systemctl restart stream-agent"
+	if out, err := runRemote(client, startCmd, req.User, req.Password, req.UseSudo); err != nil {
+		return fmt.Errorf("failed to restart stream-agent: %w (%s)", err, out)
+	}
+
+	return nil
+}
+
 func quoteBash(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
@@ -481,13 +603,16 @@ func linuxBinaryCandidates() []string {
 		}
 		paths = append(paths, p)
 	}
+	root := findProjectRoot()
+	add(filepath.Join(root, "stream-linux-amd64"))
+	add(filepath.Join(root, "stream"))
 	add("stream-linux-amd64")
 	add(filepath.Join(".", "stream-linux-amd64"))
 	add("/app/stream-linux-amd64")
 	add("/usr/local/bin/stream-linux-amd64")
 	// Same linux amd64 binary as the coordinator process inside Docker.
 	add("/usr/local/bin/stream")
-	if exe, err := os.Executable(); err == nil {
+	if exe, err := os.Executable(); err == nil && !strings.Contains(filepath.Base(exe), ".test") {
 		dir := filepath.Dir(exe)
 		add(filepath.Join(dir, "stream-linux-amd64"))
 		// When coordinator itself is linux/amd64, reuse it for agents.
@@ -541,4 +666,30 @@ func GetLocalLANIPv4() string {
 		}
 	}
 	return ""
+}
+
+// isPrivateOrLoopback reports whether a target IP/host is an RFC 1918 private address or loopback.
+func isPrivateOrLoopback(target string) bool {
+	host := target
+	if strings.Contains(host, "://") {
+		parts := strings.Split(host, "://")
+		if len(parts) > 1 {
+			host = parts[1]
+		}
+	}
+	if strings.Contains(host, "/") {
+		host = strings.Split(host, "/")[0]
+	}
+	if strings.Contains(host, ":") {
+		host = strings.Split(host, ":")[0]
+	}
+	host = strings.TrimSpace(host)
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()
 }

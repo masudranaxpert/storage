@@ -1,4 +1,4 @@
-﻿package media
+package media
 
 import (
 	"encoding/json"

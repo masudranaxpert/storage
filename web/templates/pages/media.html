@@ -1,22 +1,15 @@
 <div class="page-view {{if eq .CurrentPage "media"}}active{{end}}" id="view-media">
     <!-- Top Action Bar -->
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
-        <div style="display:flex; align-items:center; gap:10px;">
-            <span class="pulse-pill" style="font-size:13px; padding:6px 14px;" id="media-total-badge">
-                <span class="pulse-light"></span>
-                <span>0 Media Assets</span>
-            </span>
-        </div>
-
-        <div style="display:flex; gap:10px; flex-wrap:wrap;">
-            <!-- Button: Audit & Sync Storage -->
-            <button class="btn btn-secondary" onclick="triggerStorageSync()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;" id="btn-sync-storage" title="Probe online workers, reconcile physical files on disk, and purge any deleted ghost records">
-                <svg id="icon-sync-storage" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="23 4 23 10 17 10"></polyline>
-                    <polyline points="1 20 1 14 7 14"></polyline>
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    <div class="page-action-header" style="display:flex; justify-content:flex-end; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+        <div class="page-action-btns" style="display:flex; gap:10px; flex-wrap:wrap; width:100%; justify-content:flex-end;">
+            <!-- Button: Direct Upload (Primary) -->
+            <button class="btn btn-primary" onclick="openUploadModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
                 </svg>
-                <span id="text-sync-storage">Audit &amp; Sync Storage</span>
+                <span>Upload Video</span>
             </button>
 
             <!-- Button: Ingest from URL -->
@@ -25,70 +18,86 @@
                     <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
                 </svg>
-                <span>Ingest via URL</span>
+                <span>Ingest URL</span>
             </button>
 
-            <!-- Button: Direct Upload -->
-            <button class="btn btn-primary" onclick="openUploadModal()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="17 8 12 3 7 8"></polyline>
-                    <line x1="12" y1="3" x2="12" y2="15"></line>
+            <!-- Button: Audit & Sync Storage -->
+            <button class="btn btn-secondary" onclick="triggerStorageSync()" style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;" id="btn-sync-storage" title="Probe online workers, reconcile physical files on disk, and purge any deleted ghost records">
+                <svg id="icon-sync-storage" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="23 4 23 10 17 10"></polyline>
+                    <polyline points="1 20 1 14 7 14"></polyline>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                 </svg>
-                <span>Upload Video File</span>
+                <span id="text-sync-storage">Sync Storage</span>
             </button>
         </div>
     </div>
 
-    <!-- Media Summary Cards (4-Card Grid) -->
+    <!-- Media Summary Cards (BoardUI Double-Surface 4-Card Grid) -->
     <div class="metrics-row" style="margin-bottom: 24px;">
-        <div class="metric-card">
-            <div class="metric-top">
-                <span class="metric-title">TOTAL VIDEOS</span>
-                <div class="metric-icon-wrap">
+        <div class="bui-stat-tray">
+            <div class="bui-stat-top">
+                <div class="bui-tray-titles">
+                    <span class="bui-tray-headline">Videos</span>
+                </div>
+                <div class="bui-squircle-icon grad-orange">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect></svg>
                 </div>
             </div>
-            <div class="metric-number" id="media-stat-count">0</div>
-            <div class="metric-subtext">CMAF Packaged Assets</div>
+            <div class="bui-stat-inner">
+                <div class="bui-stat-number tabular-num" id="media-stat-count">0</div>
+                <div class="bui-stat-sub">Total indexed videos</div>
+            </div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-top">
-                <span class="metric-title">TOTAL MEDIA STORAGE</span>
-                <div class="metric-icon-wrap">
+        <div class="bui-stat-tray">
+            <div class="bui-stat-top">
+                <div class="bui-tray-titles">
+                    <span class="bui-tray-headline">Media Storage</span>
+                </div>
+                <div class="bui-squircle-icon grad-blue">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
                 </div>
             </div>
-            <div class="metric-number" id="media-stat-size">0 B</div>
-            <div class="metric-subtext">Encapsulated Video Data</div>
+            <div class="bui-stat-inner">
+                <div class="bui-stat-number tabular-num" id="media-stat-size">0 B</div>
+                <div class="bui-stat-sub">Cluster disk usage</div>
+            </div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-top">
-                <span class="metric-title">ACTIVE STREAMS</span>
-                <div class="metric-icon-wrap">
+        <div class="bui-stat-tray">
+            <div class="bui-stat-top">
+                <div class="bui-tray-titles">
+                    <span class="bui-tray-headline">Ready Streams</span>
+                </div>
+                <div class="bui-squircle-icon grad-emerald">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>
                 </div>
             </div>
-            <div class="metric-number" id="media-stat-ready" style="color:var(--status-online);">0</div>
-            <div class="metric-subtext">Ready for Byte-Range Play</div>
+            <div class="bui-stat-inner">
+                <div class="bui-stat-number tabular-num" id="media-stat-ready" style="color:var(--status-online);">0</div>
+                <div class="bui-stat-sub">Available for HTTP playback</div>
+            </div>
         </div>
 
-        <div class="metric-card">
-            <div class="metric-top">
-                <span class="metric-title">ACTIVE INGEST TASKS</span>
-                <div class="metric-icon-wrap">
+        <div class="bui-stat-tray">
+            <div class="bui-stat-top">
+                <div class="bui-tray-titles">
+                    <span class="bui-tray-headline">Ingest Tasks</span>
+                </div>
+                <div class="bui-squircle-icon grad-violet">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                 </div>
             </div>
-            <div class="metric-number" id="media-stat-tasks" style="color:var(--orange-primary);">0</div>
-            <div class="metric-subtext">Downloading & Packaging</div>
+            <div class="bui-stat-inner">
+                <div class="bui-stat-number tabular-num" id="media-stat-tasks" style="color:var(--orange-primary);">0</div>
+                <div class="bui-stat-sub">Active background jobs</div>
+            </div>
         </div>
     </div>
 
     <!-- View Controls & Filter Bar -->
-    <div class="view-controls" style="margin-bottom: 20px;">
+    <div class="view-controls" style="margin-bottom: 16px;">
         <div class="filter-group">
             <button class="filter-btn active" data-media-filter="all" onclick="setMediaFilter('all')">All</button>
             <button class="filter-btn" data-media-filter="completed" onclick="setMediaFilter('completed')">Ready Streams</button>
@@ -96,7 +105,7 @@
             <button class="filter-btn" data-media-filter="failed" onclick="setMediaFilter('failed')">Failed</button>
         </div>
 
-        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="view-search-wrap" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <div class="search-input-wrap">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                     <circle cx="11" cy="11" r="8"></circle>
@@ -107,41 +116,45 @@
         </div>
     </div>
 
-    <!-- Media Data Table Container -->
-    <div class="custom-table-wrap" style="margin-bottom: 20px;">
-        <table class="custom-table" id="media-data-table">
-            <thead>
-                <tr>
-                    <th style="width:26%;">MEDIA ASSET</th>
-                    <th style="width:16%;">SPECS &amp; TRACKS</th>
-                    <th style="width:16%;">STORAGE LOCATION</th>
-                    <th style="width:10%;">SIZE</th>
-                    <th style="width:18%;">STATUS &amp; PIPELINE</th>
-                    <th style="text-align: right; width:14%;">ACTIONS</th>
-                </tr>
-            </thead>
-            <tbody id="media-table-body">
-                <!-- Dynamically populated via app.js -->
-                <tr>
-                    <td colspan="7" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                        No media items match your search or filter.
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+    <!-- Media Data Table Container (BoardUI Double-Surface Table Tray) -->
+    <div class="bui-table-tray" style="margin-bottom: 18px;">
+        <div class="bui-inner-table-card custom-table-wrap" style="border:none;box-shadow:none;">
+            <table class="custom-table responsive-card-table" id="media-data-table">
+                <thead>
+                    <tr>
+                        <th style="width:23%;">MEDIA ASSET</th>
+                        <th style="width:12%;">CREATED BY</th>
+                        <th style="width:13%;">SPECS &amp; TRACKS</th>
+                        <th style="width:14%;">STORAGE LOCATION</th>
+                        <th style="width:8%;">SIZE</th>
+                        <th style="width:9%;">HEAT SCORE</th>
+                        <th style="width:11%;">STATUS &amp; PIPELINE</th>
+                        <th style="text-align: right; width:10%;">ACTIONS</th>
+                    </tr>
+                </thead>
+                <tbody id="media-table-body">
+                    <!-- Dynamically populated via media.js -->
+                    <tr>
+                        <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                            No media items match your search or filter.
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 
     <!-- Pagination Footer Controls -->
-    <div class="metric-card" style="padding: 12px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+    <div class="bui-tray-card bui-pagination-tray" style="padding: 10px 16px;">
         <div style="font-size:13px; color:var(--text-secondary);" id="media-pagination-info">
             Showing 0 to 0 of 0 entries
         </div>
 
-        <div style="display:flex; align-items:center; gap:12px;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
             <!-- Items Per Page Selector -->
             <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
                 <span>Show:</span>
-                <select id="media-page-size" onchange="onMediaPageSizeChange()" style="padding:4px 8px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-body); font-size:12px; font-family:inherit; outline:none; cursor:pointer;">
+                <select id="media-page-size" onchange="onMediaPageSizeChange()" style="padding:4px 8px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-family:inherit; outline:none; cursor:pointer;">
                     <option value="10">10 / page</option>
                     <option value="25">25 / page</option>
                     <option value="50">50 / page</option>
@@ -149,7 +162,7 @@
             </div>
 
             <!-- Page Buttons (Prev / Numbers / Next) -->
-            <div class="pagination-buttons" id="media-pagination-buttons" style="display:flex; gap:4px;">
+            <div class="pagination-buttons" id="media-pagination-buttons" style="display:flex; gap:4px; flex-wrap:wrap;">
                 <!-- Dynamically rendered -->
             </div>
         </div>
@@ -166,7 +179,7 @@
                 </div>
                 <div>
                     <h3 class="modal-title" style="font-size:18px;">Ingest Video from URL</h3>
-                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Automated remote probe, tiered placement (HDD/SSD) &amp; CMAF packaging</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Fetch remote video and place across storage tiers</div>
                 </div>
             </div>
             <button class="modal-close-btn" type="button" onclick="closeIngestURLModal()">&times;</button>
@@ -183,10 +196,7 @@
 
             <div style="background:var(--bg-subtle); border:1px solid var(--border-light); border-radius:var(--radius-md); padding:12px 14px; font-size:12px; color:var(--text-secondary); display:flex; align-items:flex-start; gap:10px;">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--orange-primary)" stroke-width="2.2" style="flex-shrink:0;margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                <div style="line-height:1.5;">
-                    <strong style="color:var(--text-primary);display:block;margin-bottom:2px;">Automated Cluster Placement</strong>
-                    Storage tier (Tier 2 HDD &rarr; Tier 1 SSD overflow) and compute worker VPS are automatically planned and orchestrated by the coordinator.
-                </div>
+                    Storage tier and worker node are selected automatically based on available drive capacity.
             </div>
         </div>
 
@@ -207,7 +217,7 @@
                 </div>
                 <div>
                     <h3 class="modal-title" style="font-size:18px;">Upload Video File</h3>
-                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Direct upload with instant MIME detection & CMAF packaging</div>
+                    <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;">Direct upload to the cluster storage mesh</div>
                 </div>
             </div>
             <button class="modal-close-btn" type="button" onclick="closeUploadModal()">&times;</button>
@@ -310,3 +320,117 @@
         </div>
     </div>
 </div>
+
+    <!-- Media Asset Lifecycle & Placement Modal (Adaptive PC & Mobile) -->
+    <div id="modal-file-lifecycle" class="modal-overlay" onclick="if(event.target===this) closeFileLifecycleDrawer()" aria-hidden="true">
+        <div class="modal-dialog modal-lifecycle" role="dialog" aria-modal="true" aria-labelledby="drawer-lifecycle-filename">
+            <!-- Modal Header -->
+            <div class="modal-header ml-modal-header">
+                <div class="ml-header-info">
+                    <span class="ml-header-eyebrow">Asset Placement &amp; Lifecycle</span>
+                    <h3 id="drawer-lifecycle-filename" class="ml-header-filename" title="Media Lifecycle">Media Lifecycle</h3>
+                    <div class="ml-header-meta">
+                        <span class="ml-meta-label">ID:</span>
+                        <code id="drawer-lifecycle-key" class="ml-meta-key">-</code>
+                    </div>
+                </div>
+                <button type="button" class="ml-close-btn" onclick="closeFileLifecycleDrawer()" aria-label="Close dialog">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="modal-body modal-lifecycle-body ml-body">
+                <!-- 1. Current Storage Placement Component -->
+                <section class="ml-card">
+                    <div class="ml-card-head">
+                        <span class="ml-card-eyebrow">Current Placement</span>
+                        <span class="ml-card-status-pill">Active Location</span>
+                    </div>
+                    <div class="ml-grid-props">
+                        <div class="ml-prop-cell">
+                            <span class="ml-prop-k">Storage Tier</span>
+                            <span id="drawer-prop-tier" class="ml-prop-v ml-prop-highlight">-</span>
+                        </div>
+                        <div class="ml-prop-cell">
+                            <span class="ml-prop-k">Worker Node</span>
+                            <span id="drawer-prop-node" class="ml-prop-v ml-mono">-</span>
+                        </div>
+                        <div class="ml-prop-cell">
+                            <span class="ml-prop-k">Disk Mount</span>
+                            <span id="drawer-prop-path" class="ml-prop-v ml-mono">-</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 2. Heat Score & Demand Signal Component -->
+                <section class="ml-card">
+                    <div class="ml-card-head">
+                        <span class="ml-card-eyebrow">Heat &amp; Access Activity</span>
+                        <div id="drawer-prop-pin-badge"></div>
+                    </div>
+                    <div class="ml-heat-row">
+                        <div class="ml-heat-score-wrap">
+                            <div class="ml-heat-score-label">Decayed Heat Score</div>
+                            <div class="ml-heat-score-value">
+                                <span id="drawer-prop-score" class="tabular-num">0.00</span>
+                                <span class="ml-heat-score-unit">pts</span>
+                            </div>
+                        </div>
+                        <div class="ml-heat-timing">
+                            <div class="ml-heat-timing-label">Last Request</div>
+                            <div id="drawer-prop-pin-details" class="ml-heat-timing-val">Never</div>
+                        </div>
+                    </div>
+                    <div class="ml-action-row">
+                        <button type="button" class="btn btn-secondary ml-btn-action ml-btn-pin" id="btn-drawer-demand-high" onclick="setDrawerDemand('high')">
+                            <span>Pin High Demand</span>
+                        </button>
+                        <button type="button" class="btn btn-secondary ml-btn-action" id="btn-drawer-demand-normal" onclick="setDrawerDemand('normal')">
+                            <span>Unpin</span>
+                        </button>
+                    </div>
+                </section>
+
+                <!-- 3. Next Lifecycle Transition / Active Relocation -->
+                <section class="ml-card drawer-transition-card" id="drawer-transition-card">
+                    <div class="ml-card-head">
+                        <span class="ml-card-eyebrow" id="drawer-transition-label">Next Lifecycle Transition</span>
+                        <div id="drawer-transition-status-badge"></div>
+                    </div>
+                    <div id="drawer-transition-body" class="ml-transition-container">
+                        <div id="drawer-prop-next-action" class="ml-trans-action">Evaluating...</div>
+                        <div id="drawer-prop-next-reason" class="ml-trans-reason">-</div>
+                        <div id="drawer-prop-next-eta" class="ml-trans-eta tabular-num">-</div>
+                    </div>
+                </section>
+
+                <!-- 4. Manual Relocation Action -->
+                <section class="ml-card" id="drawer-manual-relocate-card">
+                    <div class="ml-card-head">
+                        <span class="ml-card-eyebrow">Manual Relocation</span>
+                    </div>
+                    <div id="drawer-move-busy-notice" class="ml-busy-banner" style="display:none;">
+                        Relocation currently in progress. Target tier changes are disabled until completion.
+                    </div>
+                    <div class="ml-relocate-form">
+                        <select id="drawer-move-tier-select" class="form-select ml-select" aria-label="Select destination tier"></select>
+                        <button type="button" class="btn btn-primary ml-btn-move" id="btn-drawer-move" onclick="submitDrawerMove()">Move to Tier</button>
+                    </div>
+                </section>
+
+                <!-- 5. Migration History Timeline -->
+                <section class="ml-card">
+                    <div class="ml-card-head">
+                        <span class="ml-card-eyebrow">Migration History</span>
+                    </div>
+                    <div id="drawer-history-list" class="ml-history-list">
+                        <div class="ml-empty-state">No recorded relocations.</div>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </div>
+

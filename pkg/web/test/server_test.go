@@ -230,3 +230,112 @@ func TestWebServerAPIs(t *testing.T) {
 		}
 	}
 }
+
+func TestRequireAdmin(t *testing.T) {
+	testDir := filepath.Join(os.TempDir(), "stream_web_auth_test_db")
+	os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir)
+
+	store, err := db.Open(testDir)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer store.Close()
+
+	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, store)
+	hub := cluster.NewGRPCHub(coord, store, "cluster-secret-2026")
+	tiers := storage.NewManager(store)
+	srv := web.NewServer(":0", coord, hub, store, tiers, "../../../web/static", "../../../web/templates")
+	handler := srv.Handler()
+
+	mutateBody := []byte(`{"table":"file"}`)
+
+	// 1. Spoofed Sec-Fetch-Site: same-origin from non-loopback must be rejected.
+	reqSpoof := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqSpoof.RemoteAddr = "203.0.113.50:54321"
+	reqSpoof.Header.Set("Sec-Fetch-Site", "same-origin")
+	recSpoof := httptest.NewRecorder()
+	handler.ServeHTTP(recSpoof, reqSpoof)
+	if recSpoof.Code != http.StatusUnauthorized {
+		t.Fatalf("spoofed Sec-Fetch-Site must return 401, got %d", recSpoof.Code)
+	}
+
+	// 2. Spoofed 127.0.0.1 prefix in RemoteAddr must be rejected.
+	reqPrefix := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqPrefix.RemoteAddr = "127.0.0.1.attacker.example:54321"
+	recPrefix := httptest.NewRecorder()
+	handler.ServeHTTP(recPrefix, reqPrefix)
+	if recPrefix.Code != http.StatusUnauthorized {
+		t.Fatalf("spoofed loopback prefix must return 401, got %d", recPrefix.Code)
+	}
+
+	// 3. Valid X-Cluster-Secret from non-loopback -> 200 OK.
+	reqSecret := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqSecret.RemoteAddr = "203.0.113.50:54321"
+	reqSecret.Header.Set("X-Cluster-Secret", "cluster-secret-2026")
+	recSecret := httptest.NewRecorder()
+	handler.ServeHTTP(recSecret, reqSecret)
+	if recSecret.Code != http.StatusOK {
+		t.Fatalf("valid X-Cluster-Secret must return 200, got %d: %s", recSecret.Code, recSecret.Body.String())
+	}
+
+	// 4. Valid Authorization: Bearer from non-loopback -> 200 OK.
+	reqBearer := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqBearer.RemoteAddr = "203.0.113.50:54321"
+	reqBearer.Header.Set("Authorization", "Bearer cluster-secret-2026")
+	recBearer := httptest.NewRecorder()
+	handler.ServeHTTP(recBearer, reqBearer)
+	if recBearer.Code != http.StatusOK {
+		t.Fatalf("valid Bearer token must return 200, got %d", recBearer.Code)
+	}
+
+	// 5. Loopback IPv4 and IPv6 without secret -> 200 OK.
+	for _, addr := range []string{"127.0.0.1:43210", "[::1]:43210"} {
+		reqLoop := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+		reqLoop.RemoteAddr = addr
+		recLoop := httptest.NewRecorder()
+		handler.ServeHTTP(recLoop, reqLoop)
+		if recLoop.Code != http.StatusOK {
+			t.Fatalf("loopback %s must return 200, got %d", addr, recLoop.Code)
+		}
+	}
+
+	// 6. Browser flow from non-loopback: GET / sets stream_admin cookie, which authorizes mutations.
+	reqPage := httptest.NewRequest(http.MethodGet, "/database", nil)
+	reqPage.RemoteAddr = "203.0.113.50:54321"
+	recPage := httptest.NewRecorder()
+	handler.ServeHTTP(recPage, reqPage)
+
+	var adminCookie *http.Cookie
+	for _, c := range recPage.Result().Cookies() {
+		if c.Name == "stream_admin" {
+			adminCookie = c
+			break
+		}
+	}
+	if adminCookie == nil {
+		t.Fatal("expected stream_admin cookie to be set on HTML GET")
+	}
+	if !adminCookie.HttpOnly || adminCookie.SameSite != http.SameSiteStrictMode {
+		t.Fatalf("expected HttpOnly SameSite=Strict cookie, got HttpOnly=%v SameSite=%v", adminCookie.HttpOnly, adminCookie.SameSite)
+	}
+
+	reqCookie := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqCookie.RemoteAddr = "203.0.113.50:54321"
+	reqCookie.AddCookie(adminCookie)
+	recCookie := httptest.NewRecorder()
+	handler.ServeHTTP(recCookie, reqCookie)
+	if recCookie.Code != http.StatusOK {
+		t.Fatalf("valid stream_admin cookie must return 200, got %d", recCookie.Code)
+	}
+
+	// 7. Tampered stream_admin cookie -> 401.
+	reqBadCookie := httptest.NewRequest(http.MethodPost, "/api/dbadmin/truncate", bytes.NewReader(mutateBody))
+	reqBadCookie.RemoteAddr = "203.0.113.50:54321"
+	reqBadCookie.AddCookie(&http.Cookie{Name: "stream_admin", Value: "forged-hmac"})
+	recBadCookie := httptest.NewRecorder()
+	handler.ServeHTTP(recBadCookie, reqBadCookie)
+	if recBadCookie.Code != http.StatusUnauthorized {
+		t.Fatalf("tampered stream_admin cookie must return 401, got %d", recBadCookie.Code)
+	}
+}

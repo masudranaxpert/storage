@@ -85,7 +85,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		"record":                record,
 		"node_id":               record.Metrics.NodeID,
 		"latest_version":        telemetry.CurrentVersion,
-		"download_url":          "/download/stream-linux-amd64",
+		"download_url":          "/download/stream-bundle-linux-amd64.tar.gz",
 		"update_available":      needsUpgrade,
 		"install_missing_tools": false,
 	}
@@ -103,6 +103,11 @@ func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		if !s.requireAdmin(w, r) {
+			return
+		}
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/nodes/")
 	w.Header().Set("Content-Type", "application/json")
 
@@ -198,11 +203,122 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 		if s.store != nil {
 			cfg, err := s.store.GetNodeConfig(nodeID)
 			if err == nil {
-				json.NewEncoder(w).Encode(cfg)
+				safeCfg := *cfg
+				if safeCfg.SSHPassword != "" {
+					safeCfg.SSHPassword = "******"
+				}
+				json.NewEncoder(w).Encode(safeCfg)
 				return
 			}
 		}
 		json.NewEncoder(w).Encode(db.NodeConfig{NodeID: nodeID, Enabled: true})
+		return
+	}
+
+	if (action == "config" || action == "edit") && (r.Method == http.MethodPost || r.Method == http.MethodPut) {
+		var payload struct {
+			CustomLabel       *string `json:"custom_label,omitempty"`
+			AllocatedMaxBytes *uint64 `json:"allocated_max_bytes,omitempty"`
+			Enabled           *bool   `json:"enabled,omitempty"`
+			CoordinatorURL    *string `json:"coordinator_url,omitempty"`
+			SSHHost           *string `json:"ssh_host,omitempty"`
+			SSHPort           *int    `json:"ssh_port,omitempty"`
+			SSHUser           *string `json:"ssh_user,omitempty"`
+			SSHPassword       *string `json:"ssh_password,omitempty"`
+			SSHUseSudo        *bool   `json:"ssh_use_sudo,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, fmt.Sprintf("invalid payload: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		var cfg *db.NodeConfig
+		if s.store != nil {
+			cfg, _ = s.store.GetNodeConfig(nodeID)
+		}
+		if cfg == nil {
+			cfg = &db.NodeConfig{NodeID: nodeID, Enabled: true}
+		}
+
+		var coordChanged bool
+		var quotaChanged bool
+
+		if payload.CustomLabel != nil {
+			cfg.CustomLabel = strings.TrimSpace(*payload.CustomLabel)
+			if s.coord != nil {
+				s.coord.SetNodeCustomLabel(nodeID, cfg.CustomLabel)
+			}
+		}
+		if payload.AllocatedMaxBytes != nil {
+			if *payload.AllocatedMaxBytes != cfg.AllocatedMaxBytes {
+				quotaChanged = true
+			}
+			cfg.AllocatedMaxBytes = *payload.AllocatedMaxBytes
+		}
+		if payload.Enabled != nil {
+			cfg.Enabled = *payload.Enabled
+		}
+		if payload.CoordinatorURL != nil {
+			newURL := strings.TrimSpace(*payload.CoordinatorURL)
+			if newURL != "" && newURL != cfg.CoordinatorURL {
+				cfg.CoordinatorURL = newURL
+				coordChanged = true
+			}
+		}
+		if payload.SSHHost != nil && *payload.SSHHost != "" {
+			cfg.SSHHost = strings.TrimSpace(*payload.SSHHost)
+		}
+		if payload.SSHPort != nil && *payload.SSHPort > 0 {
+			cfg.SSHPort = *payload.SSHPort
+		}
+		if payload.SSHUser != nil && *payload.SSHUser != "" {
+			cfg.SSHUser = strings.TrimSpace(*payload.SSHUser)
+		}
+		if payload.SSHPassword != nil && *payload.SSHPassword != "" && *payload.SSHPassword != "******" {
+			cfg.SSHPassword = *payload.SSHPassword
+		}
+		if payload.SSHUseSudo != nil {
+			cfg.SSHUseSudo = *payload.SSHUseSudo
+		}
+
+		if s.store != nil {
+			if err := s.store.SaveNodeConfig(cfg); err != nil {
+				http.Error(w, fmt.Sprintf("failed to save node config: %v", err), http.StatusInternalServerError)
+				return
+			}
+		}
+
+		if (coordChanged || quotaChanged) && cfg.SSHHost != "" && cfg.SSHPassword != "" {
+			go func(c db.NodeConfig) {
+				secret := ""
+				if s.hub != nil {
+					secret = s.hub.Secret()
+				}
+				req := provision.Request{
+					Host:           c.SSHHost,
+					Port:           c.SSHPort,
+					User:           c.SSHUser,
+					Password:       c.SSHPassword,
+					UseSudo:        c.SSHUseSudo,
+					NodeName:       c.NodeID,
+					CoordinatorURL: c.CoordinatorURL,
+					QuotaBytes:     c.AllocatedMaxBytes,
+					Secret:         secret,
+				}
+				if err := provision.UpdateServiceOverSSH(context.Background(), req); err != nil {
+					fmt.Printf("[Config Update] Remote agent reconfiguration on '%s' (%s) failed: %v\n", c.NodeID, c.SSHHost, err)
+					return
+				}
+				fmt.Printf("[Config Update] Remote agent on '%s' reconfigured (join=%s, quota=%d)\n", c.NodeID, c.CoordinatorURL, c.AllocatedMaxBytes)
+			}(*cfg)
+		}
+
+		safeCfg := *cfg
+		if safeCfg.SSHPassword != "" {
+			safeCfg.SSHPassword = "******"
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(safeCfg)
 		return
 	}
 
@@ -568,6 +684,15 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 		req.CoordinatorURL = fmt.Sprintf("%s://%s", scheme, r.Host)
 	}
 
+	if s.hub != nil && s.hub.Secret() != "" && req.Secret == "" {
+		req.Secret = s.hub.Secret()
+	}
+	if s.store != nil {
+		if cfg, _ := s.store.GetNodeConfig(req.NodeName); cfg != nil && cfg.AllocatedMaxBytes > 0 && req.QuotaBytes == 0 {
+			req.QuotaBytes = cfg.AllocatedMaxBytes
+		}
+	}
+
 	fmt.Printf("[Server] 🚀 Received Provisioning Request: Node='%s', Host='%s', User='%s', Port=%d, Sudo=%v\n",
 		req.NodeName, req.Host, req.User, req.Port, req.UseSudo)
 
@@ -602,12 +727,17 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 			cfg = &db.NodeConfig{NodeID: req.NodeName}
 		}
 		cfg.Enabled = true // Enable node so heartbeats are accepted immediately
+		cfg.CoordinatorURL = req.CoordinatorURL
 		cfg.SSHHost = req.Host
 		cfg.SSHUser = req.User
 		cfg.SSHPassword = req.Password
 		cfg.SSHPort = req.Port
 		cfg.SSHUseSudo = req.UseSudo
 		_ = s.store.SaveNodeConfig(cfg)
+	}
+
+	if s.coord != nil {
+		s.coord.RegisterProvisionedNode(req.NodeName, req.Host)
 	}
 
 	w.WriteHeader(http.StatusOK)

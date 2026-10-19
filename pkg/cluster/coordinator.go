@@ -80,6 +80,7 @@ func (c *Coordinator) RegisterHeartbeat(metrics telemetry.NodeMetrics) *NodeReco
 		c.nodes[metrics.NodeID] = record
 	}
 
+	metrics.IPs = PreferAgentAddrs(metrics.IPs)
 	record.Metrics = metrics
 	record.Status = StatusOnline
 	record.LastSeen = time.Now().UTC()
@@ -89,6 +90,51 @@ func (c *Coordinator) RegisterHeartbeat(metrics telemetry.NodeMetrics) *NodeReco
 	}
 
 	return record
+}
+
+// RegisterProvisionedNode registers a newly provisioned VPS node in StatusConnecting
+// so it immediately appears on the cluster dashboard while awaiting its first heartbeat.
+func (c *Coordinator) RegisterProvisionedNode(nodeID, host string) *NodeRecord {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	record, exists := c.nodes[nodeID]
+	if !exists {
+		record = &NodeRecord{
+			Status:   StatusConnecting,
+			LastSeen: time.Now().UTC(),
+			Metrics: telemetry.NodeMetrics{
+				NodeID:   nodeID,
+				Hostname: nodeID,
+				IPs:      []string{host},
+				OS:       "linux",
+				Platform: "linux/amd64",
+			},
+		}
+		c.nodes[nodeID] = record
+	} else if record.Status != StatusOnline {
+		record.Status = StatusConnecting
+		record.LastSeen = time.Now().UTC()
+	}
+
+	if c.store != nil {
+		_ = c.store.SaveNode(record)
+	}
+
+	return record
+}
+
+// SetNodeCustomLabel updates the display alias for a node in memory and persistence.
+func (c *Coordinator) SetNodeCustomLabel(nodeID, label string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if record, exists := c.nodes[nodeID]; exists {
+		record.CustomLabel = label
+		if c.store != nil {
+			_ = c.store.SaveNode(record)
+		}
+	}
 }
 
 // sortNodes guarantees deterministic ordering so node cards never jitter or change positions randomly.
@@ -153,6 +199,9 @@ func (c *Coordinator) GetPoolSummary() *ClusterPoolSummary {
 
 		if node.Status == StatusOffline {
 			summary.OfflineNodes++
+			continue
+		}
+		if node.Status == StatusConnecting {
 			continue
 		}
 
@@ -232,6 +281,12 @@ func (c *Coordinator) auditNodes() {
 
 	now := time.Now().UTC()
 	for _, node := range c.nodes {
+		if node.Status == StatusConnecting {
+			if now.Sub(node.LastSeen) >= c.offlineThreshold*2 {
+				node.Status = StatusOffline
+			}
+			continue
+		}
 		elapsed := now.Sub(node.LastSeen)
 		if elapsed >= c.offlineThreshold {
 			node.Status = StatusOffline
@@ -242,4 +297,3 @@ func (c *Coordinator) auditNodes() {
 		}
 	}
 }
-

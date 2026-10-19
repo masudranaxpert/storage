@@ -23,9 +23,9 @@ var videoExtensions = map[string]bool{
 // ProbeResult is the metadata harvested from the remote source before any
 // byte is downloaded.
 type ProbeResult struct {
-	Filename    string
-	SizeBytes   int64
-	ContentType string
+	Filename     string
+	SizeBytes    int64
+	ContentType  string
 	AcceptRanges bool
 }
 

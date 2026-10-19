@@ -24,6 +24,14 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	action := strings.TrimPrefix(r.URL.Path, "/api/dbadmin/")
+
+	// Require admin authorization for all mutations.
+	if action == "truncate" || action == "batch-delete" || r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete {
+		if !s.requireAdmin(w, r) {
+			return
+		}
+	}
+
 	switch {
 	case action == "tables" && r.Method == http.MethodGet:
 		tables, err := s.store.AdminTables()
@@ -41,10 +49,27 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		page, _ := strconv.Atoi(q.Get("page"))
 		limit, _ := strconv.Atoi(q.Get("limit"))
-		res, err := s.store.AdminListRows(q.Get("table"), q.Get("search"), page, limit)
+		table := q.Get("table")
+		res, err := s.store.AdminListRows(table, q.Get("search"), page, limit)
 		if err != nil {
 			writeJSONErr(w, http.StatusBadRequest, err.Error())
 			return
+		}
+		if table == "nodes" && res != nil {
+			for i := range res.Rows {
+				valStr := string(res.Rows[i].Value)
+				if strings.Contains(valStr, `"ssh_password"`) {
+					var rawMap map[string]interface{}
+					if err := json.Unmarshal(res.Rows[i].Value, &rawMap); err == nil {
+						if _, ok := rawMap["ssh_password"]; ok {
+							rawMap["ssh_password"] = "******"
+							if b, err := json.MarshalIndent(rawMap, "", "  "); err == nil {
+								res.Rows[i].Value = b
+							}
+						}
+					}
+				}
+			}
 		}
 		json.NewEncoder(w).Encode(res)
 
@@ -93,6 +118,23 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(map[string]string{"status": "deleted", "key": q.Get("key")})
 
+	case action == "batch-delete" && r.Method == http.MethodPost:
+		var req struct {
+			Table string   `json:"table"`
+			Keys  []string `json:"keys"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeJSONErr(w, http.StatusBadRequest, "invalid json body")
+			return
+		}
+		count := 0
+		for _, k := range req.Keys {
+			if err := s.store.AdminDeleteEntry(req.Table, k); err == nil {
+				count++
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "deleted", "deleted": count})
+
 	case action == "truncate" && r.Method == http.MethodPost:
 		var req struct {
 			Table string `json:"table"`
@@ -101,12 +143,26 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 			writeJSONErr(w, http.StatusBadRequest, "invalid json body")
 			return
 		}
+		if req.Table == "*" || req.Table == "all" {
+			tables, err := s.store.AdminTables()
+			if err != nil {
+				writeJSONErr(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			totalRemoved := 0
+			for _, t := range tables {
+				rem, _ := s.store.AdminTruncate(t.Name)
+				totalRemoved += rem
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"status": "truncated", "removed": totalRemoved, "table": "all"})
+			return
+		}
 		removed, err := s.store.AdminTruncate(req.Table)
 		if err != nil {
 			writeJSONErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"status": "truncated", "removed": removed})
+		json.NewEncoder(w).Encode(map[string]interface{}{"status": "truncated", "removed": removed, "table": req.Table})
 
 	default:
 		writeJSONErr(w, http.StatusNotFound, "unknown dbadmin action")

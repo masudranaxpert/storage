@@ -1,28 +1,78 @@
 <div class="page-view {{if eq .CurrentPage "tiers"}}active{{end}}" id="view-tiers">
 
-    <div class="tiers-section-header">
-        <div class="tiers-section-title">Storage Tiers</div>
-        <button class="btn btn-secondary" style="padding:6px 14px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="addNewTier()">
-            <span style="font-size:14px;line-height:1;">+</span> Add Tier
-        </button>
+    <div class="tiers-header-bar">
+        <div>
+            <h2 class="tiers-page-heading">Multi-Tier Storage Pools</h2>
+        </div>
+        <div class="tiers-header-actions">
+            <button class="btn btn-primary" onclick="addNewTier()" style="display:inline-flex;align-items:center;gap:6px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                <span>Add Storage Tier</span>
+            </button>
+        </div>
     </div>
+
     <div id="tiers-grid" class="tiers-grid"></div>
 
-    <div class="tiers-section-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-        <div style="display:flex;align-items:center;gap:12px;">
-            <div class="tiers-section-title">Processing VPS Pool</div>
-            <span class="node-tag" id="processing-eligible-count" style="font-family:'JetBrains Mono',monospace;">-</span>
+    <div class="tiers-header-bar tiers-proc-header">
+        <div>
+            <div style="display:flex;align-items:center;gap:10px;">
+                <h2 class="tiers-page-heading">Processing VPS Pool</h2>
+                <span class="proc-worker-chip" id="processing-eligible-count">-</span>
+            </div>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;">
-            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="bulkSetProcessing(true)" title="Enable processing across all cluster nodes">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+        <div class="tiers-header-actions">
+            <button class="btn-proc-bulk-enable" onclick="bulkSetProcessing(true)" title="Enable processing across all cluster nodes">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 <span>Enable All</span>
             </button>
-            <button class="btn btn-secondary" style="padding:5px 12px;font-size:12px;display:inline-flex;align-items:center;gap:6px;" onclick="bulkSetProcessing(false)" title="Disable processing across all cluster nodes">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <button class="btn-proc-bulk-disable" onclick="bulkSetProcessing(false)" title="Disable processing across all cluster nodes">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
                 <span>Disable All</span>
             </button>
         </div>
     </div>
+
     <div id="processing-grid" class="processing-grid"></div>
+
+    <!-- Modern Minimal Tier & Pool Action Modal -->
+    <div id="tier-action-modal" class="tier-modal-backdrop" onclick="if(event.target === this) closeTierModal()">
+        <div class="tier-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="tier-modal-title">
+            <div class="tier-modal-header">
+                <div class="tier-modal-title-group">
+                    <div id="tier-modal-icon" class="tier-modal-icon-box">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <ellipse cx="12" cy="5" rx="9" ry="3"></ellipse>
+                            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path>
+                            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 id="tier-modal-title" class="tier-modal-title">Create Storage Tier</h3>
+                        <p id="tier-modal-subtitle" class="tier-modal-subtitle">Define a custom placement pool for cluster drives</p>
+                    </div>
+                </div>
+                <button type="button" class="btn-close-drawer" onclick="closeTierModal()" aria-label="Close modal">✕</button>
+            </div>
+
+            <div class="tier-modal-body">
+                <p id="tier-modal-desc" class="tier-modal-desc" style="display:none;"></p>
+                <div id="tier-modal-input-wrap" class="tier-modal-input-group">
+                    <label id="tier-modal-label" for="tier-modal-input" class="tier-modal-label">Tier Name</label>
+                    <input type="text" id="tier-modal-input" class="tier-modal-input" placeholder="e.g. Tier 3 · Archive (HDD)" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();submitTierModal();}else if(event.key==='Escape'){closeTierModal();}">
+                    <div id="tier-modal-presets" class="tier-modal-presets">
+                        <span class="preset-hint">Quick presets:</span>
+                        <button type="button" class="preset-chip" onclick="fillTierModalPreset('Tier 3 · Archive (HDD)')">Tier 3 · Archive</button>
+                        <button type="button" class="preset-chip" onclick="fillTierModalPreset('Tier 4 · Edge Cache')">Edge Cache</button>
+                        <button type="button" class="preset-chip" onclick="fillTierModalPreset('Origin Vault')">Origin Vault</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="tier-modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeTierModal()">Cancel</button>
+                <button type="button" id="tier-modal-submit-btn" class="btn btn-primary" onclick="submitTierModal()">Create Tier</button>
+            </div>
+        </div>
+    </div>
 </div>

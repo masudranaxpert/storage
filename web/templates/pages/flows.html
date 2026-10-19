@@ -1,0 +1,172 @@
+<div class="page-view {{if eq .CurrentPage "flows"}}active{{end}}" id="view-flows">
+    <div class="fl-page" id="fl-page">
+
+        <header class="fl-head">
+            <div class="fl-head-text">
+                <h2>Data flow</h2>
+                <p>Where new files land, and when they move between tiers.</p>
+            </div>
+            <div class="fl-head-actions">
+                <button type="button" class="fl-btn is-ghost" data-action="open-docs" title="বাংলা গাইড ও রুল নির্দেশিকা">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                    <span>গাইড (Docs)</span>
+                </button>
+                <span class="fl-save-state" id="fl-save-state" role="status" aria-live="polite">
+                    <span class="fl-save-dot"></span><span data-role="text">Saved</span>
+                </span>
+                <button type="button" class="fl-btn" data-action="discard" hidden>Discard</button>
+                <button type="button" class="fl-btn is-primary" data-action="save" disabled>Save policy</button>
+            </div>
+        </header>
+
+        <section class="fl-stats" id="fl-stats" aria-label="Flow summary"></section>
+
+        <div class="fl-layout">
+            <section class="fl-card fl-board" aria-label="Tier flow">
+                <div class="fl-board-bar">
+                    <ul class="fl-legend" aria-label="Legend">
+                        <li class="fl-tone-ingest"><i></i>Ingest</li>
+                        <li class="fl-tone-promote"><i></i>Promote</li>
+                        <li class="fl-tone-demote"><i></i>Demote</li>
+                        <li class="fl-tone-expire"><i></i>Expire</li>
+                    </ul>
+                    <div class="fl-board-tools">
+                        <button type="button" class="fl-btn is-small" data-action="refresh" aria-label="Reload cluster state">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                            <span>Refresh</span>
+                        </button>
+                        <button type="button" class="fl-btn is-small is-primary" data-action="new-rule">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                            <span>Add rule</span>
+                        </button>
+                    </div>
+                </div>
+                <p class="fl-board-hint" data-role="hint">Drag the dot on a tier onto another tier to add a rule. Click anything to edit it.</p>
+                <div class="fl-board-body" id="fl-board">
+                    <div class="fl-skeleton" aria-hidden="true"><span></span><span></span><span></span></div>
+                </div>
+            </section>
+
+            <aside class="fl-card fl-panel" id="fl-panel" aria-label="Details">
+                <div class="fl-pane" role="region" id="fl-pane-details"></div>
+            </aside>
+        </div>
+
+        <div class="fl-dirtybar" data-role="dirtybar" hidden>
+            <span>Unsaved changes</span>
+            <button type="button" class="fl-btn" data-action="discard">Discard</button>
+            <button type="button" class="fl-btn is-primary" data-action="save">Save</button>
+        </div>
+    </div>
+
+    <div id="flow-expire-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal-dialog fl-modal" role="dialog" aria-modal="true" aria-labelledby="fl-expire-title" aria-describedby="fl-expire-desc">
+            <div class="fl-modal-head">
+                <span class="fl-modal-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </span>
+                <div>
+                    <h3 id="fl-expire-title">Allow permanent deletion?</h3>
+                    <p id="fl-expire-desc">This policy has an expire rule. Matching files are deleted from disk and the database. This cannot be undone.</p>
+                </div>
+            </div>
+            <div class="fl-modal-body">
+                <div class="fl-summary is-danger"><span class="fl-summary-label">Dry run</span><p data-role="expire-count">Counting matching files…</p></div>
+                <label class="fl-field">
+                    <span class="fl-field-label">Type <code>DELETE FILES</code> to confirm</span>
+                    <input class="fl-input" type="text" autocomplete="off" spellcheck="false" placeholder="DELETE FILES" data-role="expire-input">
+                </label>
+            </div>
+            <div class="fl-modal-foot">
+                <button type="button" class="fl-btn" data-action="expire-cancel">Cancel</button>
+                <button type="button" class="fl-btn is-danger" data-action="expire-confirm" disabled>Delete files and save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bengali Lifecycle & Flow Rules Documentation Modal -->
+    <div id="flow-docs-modal" class="modal-overlay" aria-hidden="true">
+        <div class="modal-dialog fl-modal fl-docs-modal" role="dialog" aria-modal="true" aria-labelledby="fl-docs-title">
+            <div class="fl-modal-head">
+                <span class="fl-modal-icon fl-docs-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                </span>
+                <div>
+                    <h3 id="fl-docs-title">লাইফসাইকেল ও রুল নির্দেশিকা (বাংলা ডকস)</h3>
+                    <p>ডাটা ফ্লো ও টায়ার লাইফসাইকেল রুলসমূহের সহজ ব্যাখ্যা ও কার্যপদ্ধতি</p>
+                </div>
+            </div>
+            <div class="fl-modal-body fl-docs-body">
+                <!-- Section 1 -->
+                <div class="fl-docs-card">
+                    <div class="fl-docs-card-head">
+                        <span class="fl-docs-badge is-primary">১</span>
+                        <h4>Rule enabled বনাম Kept in policy but skipped</h4>
+                    </div>
+                    <div class="fl-docs-content">
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-online">Rule enabled (অন থাকলে)</span>
+                            <p>রুলটি সক্রিয় থাকবে এবং পলিসি ইঞ্জিন প্রতি টিক মূল্যায়নে (evaluation tick) ফাইল স্বয়ংক্রিয়ভাবে প্রমোট, ডিমোট বা এক্সপায়ার (ডিলিট) করার কাজ পরিচালনা করবে।</p>
+                        </div>
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-muted">Kept in the policy but skipped (অফ থাকলে)</span>
+                            <p>রুলটি পলিসির ভেতর সেভ থাকবে (কনফিগারেশন মুছে যাবে না), কিন্তু সিস্টেম রুলটিকে <strong>সাময়িকভাবে স্কিপ</strong> করবে। কোনো ফাইল এই রুলের কারণে স্থানান্তরিত বা ডিলিট হবে না।</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 2 -->
+                <div class="fl-docs-card">
+                    <div class="fl-docs-card-head">
+                        <span class="fl-docs-badge is-danger">২</span>
+                        <h4>Only under capacity pressure (ক্যাপাসিটি প্রেশার)</h4>
+                    </div>
+                    <div class="fl-docs-content">
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-muted">সাধারণ নিয়ম (অপশনটি অফ থাকলে)</span>
+                            <p>নির্দিষ্ট বয়স (যেমন ৩০ দিন) বা অলস সময় পার হলেই ফাইলটি স্বয়ংক্রিয়ভাবে এক্সপায়ার/ডিলিট হয়ে যাবে—ড্রাইভে ফাঁকা জায়গা থাকুক বা না থাকুক।</p>
+                        </div>
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-warning">সক্রিয় থাকলে (High Watermark Pressure)</span>
+                            <p>ড্রাইভে পর্যাপ্ত জায়গা থাকলে নির্ধারিত সময় পার হলেও <strong>কোনো ফাইল ডিলিট হবে না</strong>। শুধুমাত্র যখন টিয়ারের স্টোরেজ তার <strong>High Watermark</strong> (যেমন: ৯০%) অতিক্রম করবে, কেবল তখনই ড্রাইভ ফুল হওয়া ঠেকাতে জায়গা খালি করার জন্য শর্ত পূরণকারী পুরোনো ফাইলগুলো ক্রমান্বয়ে ডিলিট করা হবে।</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 3 -->
+                <div class="fl-docs-card">
+                    <div class="fl-docs-card-head">
+                        <span class="fl-docs-badge is-info">৩</span>
+                        <h4>Promote (হিট প্রমোশন) ও Demote (ডিমোশন)</h4>
+                    </div>
+                    <div class="fl-docs-content">
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-orange">Heat score at least (হিট স্কোর)</span>
+                            <p>ভিডিও/মিডিয়া প্লে হলে হিট স্কোর বাড়ে। স্কোর নির্ধারিত থ্রেশহোল্ড ছাড়ালে ফাইলটি স্বয়ংক্রিয়ভাবে দ্রুতগতির টিয়ারে (যেমন NVMe SSD) স্থানান্তরিত হয়।</p>
+                        </div>
+                        <div class="fl-docs-item">
+                            <span class="fl-docs-tag is-blue">Idle days &amp; Heat below (হিস্টেরেসিস)</span>
+                            <p>অনেকদিন কোনো প্লে না হলে (idle days) ফাইলটি ধীরগতির বা সাশ্রয়ী টিয়ারে (HDD) নামিয়ে দেওয়া হয়। হিট গ্যাপ ফ্ল্যাপিং (বারবার ওঠা-নামা) প্রতিরোধ করে।</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Section 4 -->
+                <div class="fl-docs-card">
+                    <div class="fl-docs-card-head">
+                        <span class="fl-docs-badge is-dark">৪</span>
+                        <h4>Ingest Order (নতুন ফাইল জমা হওয়ার ক্রম)</h4>
+                    </div>
+                    <div class="fl-docs-content">
+                        <div class="fl-docs-item">
+                            <p>নতুন কোনো ফাইল ক্লাস্টারে আপলোড হলে Ingest তালিকার ১ নম্বর টিয়ারে জায়গা থাকলে সেখানে যাবে। সেই টিয়ার হাই ওয়াটারমার্কে পৌঁছে গেলে স্বয়ংক্রিয়ভাবে ২ নম্বর টিয়ারে ফাইল জমা হবে।</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="fl-modal-foot">
+                <button type="button" class="fl-btn is-primary" data-action="docs-close">বুঝেছি (Close)</button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -30,10 +30,9 @@ type CMAFPackage struct {
 	CreatedAt   time.Time    `json:"created_at"`
 }
 
-// RemuxAndPackageCMAF prepares a stream-ready CMAF fMP4 video package using FFmpeg.
-// It copies the video stream (-c:v copy) with zero re-encoding loss, normalizes audio
-// tracks to web-compatible AAC (-c:a aac -b:a 192k), and produces fragmented MP4
-// container structures (+faststart+frag_keyframe+empty_moov+default_base_moof).
+// RemuxAndPackageCMAF prepares a single-file, fast-start MP4 for byte-range
+// streaming. Video is copied when browser-decodable and re-encoded to H.264
+// otherwise (PlanVideo); audio is copied when AAC/MP3, else encoded to AAC.
 func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, error) {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("create cmaf dir: %w", err)
@@ -47,46 +46,26 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 
 	ffprobePath, _ := exec.LookPath("ffprobe")
 	srcMeta := &MediaMetadata{}
+	probed := false
 	if ffprobePath != "" {
-		_ = enrichViaFFprobe(ffprobePath, srcPath, srcMeta)
+		probed = enrichViaFFprobe(ffprobePath, srcPath, srcMeta) == nil
 	}
-	numAudios := len(srcMeta.AudioTracks)
-
-	var ffmpegArgs []string
-	if numAudios > 1 {
-		ffmpegArgs = []string{
-			"-y",
-			"-i", srcPath,
-			"-map", "0:v:0?",
-			"-an",
-			"-c:v", "copy",
-			"-max_muxing_queue_size", "1024",
-			"-movflags", "+faststart",
-			targetMP4Path,
-		}
-	} else {
-		codecArg := []string{"-c:a", "copy"}
-		if numAudios == 1 && !isWebAudioCodec(srcMeta.AudioTracks[0].Codec) {
-			codecArg = []string{"-c:a", "aac", "-b:a", "192k", "-threads", "2"}
-		}
-		ffmpegArgs = []string{
-			"-y",
-			"-i", srcPath,
-			"-map", "0:v:0?",
-			"-map", "0:a:0?",
-			"-c:v", "copy",
-		}
-		ffmpegArgs = append(ffmpegArgs, codecArg...)
-		ffmpegArgs = append(ffmpegArgs,
-			"-max_muxing_queue_size", "1024",
-			"-movflags", "+faststart",
-			targetMP4Path,
-		)
+	// Only the primary audio track is kept in this single-file package.
+	tracks := srcMeta.AudioTracks
+	if len(tracks) > 1 {
+		tracks = tracks[:1]
 	}
 
-	cmd := exec.Command(ffmpegPath, ffmpegArgs...)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("ffmpeg remux failed: %v, output: %s", err, string(out))
+	plan := PlanVideo(srcMeta.Video, probed)
+	out, runErr := runRemux(ffmpegPath, srcPath, targetMP4Path, plan, tracks, nil, probed, false)
+	if runErr != nil && plan.Mode == VideoCopy {
+		_ = os.Remove(targetMP4Path)
+		plan = TranscodePlan("copy pass failed: " + lastLine(out))
+		out, runErr = runRemux(ffmpegPath, srcPath, targetMP4Path, plan, tracks, nil, probed, true)
+	}
+	if runErr != nil {
+		_ = os.Remove(targetMP4Path)
+		return nil, fmt.Errorf("ffmpeg %s failed: %v: %s", plan.Mode, runErr, lastLines(out, 6))
 	}
 
 	stat, err := os.Stat(targetMP4Path)

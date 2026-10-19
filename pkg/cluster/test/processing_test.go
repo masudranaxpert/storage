@@ -12,10 +12,10 @@ func procNode(id string, cores int, freeRAM uint64, disks []telemetry.DiskStat) 
 	return &cluster.NodeRecord{
 		Status: cluster.StatusOnline,
 		Metrics: telemetry.NodeMetrics{
-			NodeID:  id,
-			CPU:     telemetry.CPUStat{Cores: cores},
-			Memory:  telemetry.MemoryStat{AvailableBytes: freeRAM},
-			Disks:   disks,
+			NodeID: id,
+			CPU:    telemetry.CPUStat{Cores: cores},
+			Memory: telemetry.MemoryStat{AvailableBytes: freeRAM},
+			Disks:  disks,
 		},
 		LastSeen: time.Now(),
 	}

@@ -22,7 +22,7 @@
 
             <div class="modal-body" style="display:flex;flex-direction:column;gap:16px;overflow-y:auto;flex:1;padding:22px 24px;">
                 <!-- Host & Alias -->
-                <div style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;">
+                <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;">
                     <div>
                         <label class="form-label">VPS Public / VPC IP *</label>
                         <input type="text" id="vps-input-host" class="form-input" placeholder="e.g. 203.0.113.10" required>
@@ -34,7 +34,7 @@
                 </div>
 
                 <!-- SSH Credentials -->
-                <div style="display:grid;grid-template-columns: 1fr 1fr;gap:12px;">
+                <div class="modal-grid-1-1" style="display:grid;grid-template-columns: 1fr 1fr;gap:12px;">
                     <div>
                         <label class="form-label">SSH User</label>
                         <input type="text" id="vps-input-user" class="form-input" value="root" required oninput="handleUserInputChange(this.value)">
@@ -42,6 +42,18 @@
                     <div>
                         <label class="form-label">SSH Password *</label>
                         <input type="password" id="vps-input-password" class="form-input" placeholder="SSH password" required>
+                    </div>
+                </div>
+
+                <!-- Coordinator Peering URL -->
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+                        <label class="form-label" style="margin-bottom:0;">Coordinator Peering URL (Agent Callback) *</label>
+                        <span id="coord-reachability-badge" style="font-size:11px;font-weight:600;"></span>
+                    </div>
+                    <input type="text" id="vps-input-coordinator-url" class="form-input" placeholder="e.g. http://203.0.113.5:1212 or https://stream.example.com" oninput="checkCoordUrlSafety(this.value)">
+                    <div id="coord-warning-box" style="display:none;margin-top:6px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);border-radius:var(--radius-sm);padding:8px 10px;font-size:11.5px;color:var(--orange-dark);line-height:1.4;">
+                        ⚠️ <strong>Private Address Detected:</strong> Coordinator is accessed via localhost or a private LAN IP. A remote public VPS cannot dial private addresses over the public internet. Provide a public IP, domain, or Cloudflare/ngrok tunnel URL.
                     </div>
                 </div>
 

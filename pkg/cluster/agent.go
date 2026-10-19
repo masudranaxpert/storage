@@ -1,8 +1,10 @@
 package cluster
 
 import (
+	"archive/tar"
 	"bufio"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/hex"
 	"encoding/json"
@@ -34,7 +36,15 @@ var (
 	isInstallingTools bool
 	isUpgrading       bool
 	agentOpMu         sync.Mutex
+
+	activeTransferFilesMu sync.Mutex
+	activeTransferFiles   = make(map[string]*activeTransferEntry)
 )
+
+type activeTransferEntry struct {
+	file       *os.File
+	lastAccess time.Time
+}
 
 // Agent runs on worker VPS nodes. It gathers telemetry, keeps a persistent
 // control-plane connection to the coordinator, and serves byte-range HTTP
@@ -49,12 +59,16 @@ type Agent struct {
 	GRPCTarget     string // host:port of the coordinator gRPC control plane
 	Secret         string // shared cluster secret for gRPC stream auth
 	AdvertiseAddr  string // SeaweedFS-style: reachable host/IP other nodes must dial
+	Quota          *QuotaGuard
 	client         *http.Client
 	transferClient *http.Client // long-timeout client for node-to-node folder pushes
 	httpServer     *http.Server
 
 	rootMu     sync.RWMutex
 	extraRoots map[string]bool // additional media roots served by the range server
+
+	relocateMu    sync.Mutex
+	relocateTasks map[string]context.CancelFunc
 }
 
 // TransferTarget names the final home of a decoupled file job: the node
@@ -131,11 +145,14 @@ func (a *Agent) loadRoots() {
 // into the dedicated media directory (e.g. /mnt/hdd/stream/media) so media files
 // never pollute the root of a partition.
 func (a *Agent) resolveTargetDir(dir string) string {
-	if dir == "" || dir == "." || strings.Contains(dir, "..") {
+	if dir == "" || dir == "." || dir == "/" || strings.Contains(dir, "..") {
 		return a.MediaDir
 	}
 	dir = filepath.Clean(dir)
 	slashDir := filepath.ToSlash(dir)
+	if slashDir == "/" || slashDir == "." {
+		return a.MediaDir
+	}
 	if strings.HasSuffix(slashDir, "/stream/media") || strings.HasSuffix(slashDir, "/media") {
 		return dir
 	}
@@ -205,7 +222,7 @@ func autoSelectBestMediaDir(requestedDir string) string {
 	if runtime.GOOS != "linux" {
 		return requestedDir
 	}
-	if requestedDir != "" && requestedDir != "/var/lib/stream/media" && requestedDir != filepath.Join("data", "media") {
+	if requestedDir != "/var/lib/stream/media" {
 		return requestedDir
 	}
 
@@ -268,6 +285,11 @@ func NewAgent(nodeID, coordinatorURL string, interval time.Duration, listenPort 
 		grpcTarget = DeriveGRPCTarget(coordinatorURL, DefaultGRPCPort)
 	}
 
+	q := NewQuotaGuard(0)
+	if size, err := ScanDirSize(mediaDir); err == nil {
+		q.UpdateUsedBytes(size)
+	}
+
 	return &Agent{
 		NodeID:         nodeID,
 		CoordinatorURL: coordinatorURL,
@@ -277,6 +299,7 @@ func NewAgent(nodeID, coordinatorURL string, interval time.Duration, listenPort 
 		ScratchDir:     filepath.Join(filepath.Dir(mediaDir), "processing"),
 		GRPCTarget:     grpcTarget,
 		Secret:         secret,
+		Quota:          q,
 		extraRoots:     make(map[string]bool),
 		client: &http.Client{
 			Timeout: 10 * time.Second,
@@ -373,6 +396,54 @@ func (a *Agent) triggerSelfUpgradeAsync(downloadPath, newVersion string) {
 			return
 		}
 
+		// If payload is a tar.gz worker bundle, extract all binaries to /opt/stream/bin
+		if len(binBytes) >= 2 && binBytes[0] == 0x1f && binBytes[1] == 0x8b {
+			gr, err := gzip.NewReader(bytes.NewReader(binBytes))
+			if err == nil {
+				tr := tar.NewReader(gr)
+				_ = os.MkdirAll("/opt/stream/bin", 0755)
+				extractedCount := 0
+				for {
+					header, err := tr.Next()
+					if err == io.EOF {
+						break
+					}
+					if err != nil {
+						break
+					}
+					if header.Typeflag == tar.TypeReg && strings.HasPrefix(header.Name, "stream/bin/") {
+						targetName := filepath.Base(header.Name)
+						targetPath := filepath.Join("/opt/stream/bin", targetName)
+						fileData, err := io.ReadAll(tr)
+						if err != nil {
+							continue
+						}
+						tmpPath := targetPath + ".new"
+						if err := os.WriteFile(tmpPath, fileData, 0755); err == nil {
+							if err := os.Rename(tmpPath, targetPath); err != nil {
+								_ = os.Remove(targetPath)
+								_ = os.Rename(tmpPath, targetPath)
+							}
+							extractedCount++
+						}
+					}
+				}
+				_ = gr.Close()
+
+				if extractedCount > 0 {
+					_ = os.Remove("/usr/local/bin/stream")
+					_ = os.Symlink("/opt/stream/bin/stream", "/usr/local/bin/stream")
+
+					fmt.Printf("[Agent %s] Worker bundle successfully upgraded to %s (%d binaries refreshed). Restarting...\n", a.NodeID, newVersion, extractedCount)
+					_ = exec.Command("systemctl", "restart", "stream-agent").Start()
+					_ = exec.Command("systemctl", "restart", "stream").Start()
+					time.Sleep(500 * time.Millisecond)
+					os.Exit(0)
+					return
+				}
+			}
+		}
+
 		currentExe, err := os.Executable()
 		if err != nil {
 			currentExe = "/usr/local/bin/stream"
@@ -398,6 +469,8 @@ func (a *Agent) triggerSelfUpgradeAsync(downloadPath, newVersion string) {
 
 		_ = exec.Command("systemctl", "restart", "stream-agent").Start()
 		_ = exec.Command("systemctl", "restart", "stream").Start()
+		time.Sleep(500 * time.Millisecond)
+		os.Exit(0)
 	}()
 }
 
@@ -516,9 +589,54 @@ func tuneLinuxTCPBuffers() {
 	}
 }
 
+// verifySecret validates whether an HTTP request supplies the matching cluster secret.
+func (a *Agent) verifySecret(r *http.Request) bool {
+	if a.Secret == "" {
+		return true
+	}
+	if r.Header.Get("X-Cluster-Secret") == a.Secret {
+		return true
+	}
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == a.Secret {
+		return true
+	}
+	return false
+}
+
 // startStreamingServer initializes the local Byte-Range HTTP streaming server on port 2052
 func (a *Agent) startStreamingServer(ctx context.Context) {
 	tuneLinuxTCPBuffers()
+
+	// Clean up stale in-flight file descriptors periodically to prevent leaks
+	go func() {
+		ticker := time.NewTicker(1 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				activeTransferFilesMu.Lock()
+				for p, entry := range activeTransferFiles {
+					_ = entry.file.Sync()
+					_ = entry.file.Close()
+					delete(activeTransferFiles, p)
+				}
+				activeTransferFilesMu.Unlock()
+				return
+			case now := <-ticker.C:
+				activeTransferFilesMu.Lock()
+				for p, entry := range activeTransferFiles {
+					if now.Sub(entry.lastAccess) > 10*time.Minute {
+						_ = entry.file.Sync()
+						_ = entry.file.Close()
+						delete(activeTransferFiles, p)
+					}
+				}
+				activeTransferFilesMu.Unlock()
+			}
+		}
+	}()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -530,6 +648,10 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 	mux.HandleFunc("/api/install-tools", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
+		if !a.verifySecret(r) {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
 		tool := r.URL.Query().Get("tool")
 		go func() {
 			cmd := exec.Command("bash", "-c", tools.InstallShell(tool))
@@ -543,6 +665,10 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 	mux.HandleFunc("/api/uninstall-tools", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Content-Type", "application/json")
+		if !a.verifySecret(r) {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
 		tool := r.URL.Query().Get("tool")
 		go func() {
 			cmd := exec.Command("bash", "-c", tools.UninstallShell(tool))
@@ -553,7 +679,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Write([]byte(`{"status":"uninstalling","message":"Uninstalling tools on host in background"}`))
 	})
 
-	// ---- v1 File API worker endpoints (dispatched by the master) ----
+	// File API worker endpoints dispatched by coordinator.
 
 	// POST /api/v1/ingest {key, source_url, filename, target_dir,
 	// final_node_id, final_dir, final_addr}: download from the source, then
@@ -568,6 +694,10 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !a.verifySecret(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		var req struct {
 			Key         string `json:"key"`
 			SourceURL   string `json:"source_url"`
@@ -579,6 +709,10 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
 			http.Error(w, "invalid request", http.StatusBadRequest)
+			return
+		}
+		if a.Quota != nil && a.Quota.AllocatedMaxBytes() > 0 && a.Quota.AvailableBytes() == 0 {
+			http.Error(w, "insufficient storage: node storage quota exhausted", http.StatusInsufficientStorage)
 			return
 		}
 		filename := media.SanitizeFilename(req.Filename)
@@ -612,9 +746,13 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !a.verifySecret(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		key := r.URL.Query().Get("key")
-		if key == "" {
-			http.Error(w, "key required", http.StatusBadRequest)
+		if !validKey(key) {
+			http.Error(w, "invalid key", http.StatusBadRequest)
 			return
 		}
 		filename := media.SanitizeFilename(r.URL.Query().Get("filename"))
@@ -635,22 +773,46 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			targetDir = a.ScratchDir
 		}
 
+		if a.Quota != nil && r.ContentLength > 0 {
+			if err := a.Quota.Reserve(uint64(r.ContentLength)); err != nil {
+				http.Error(w, fmt.Sprintf("insufficient storage quota: %v", err), http.StatusInsufficientStorage)
+				return
+			}
+		}
+
 		folder, err := media.PrepareMediaFolder(targetDir, key, filename)
 		if err != nil {
+			if a.Quota != nil && r.ContentLength > 0 {
+				a.Quota.Release(uint64(r.ContentLength))
+			}
 			http.Error(w, "folder prep failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		out, err := os.Create(folder.RawFilePath)
 		if err != nil {
+			if a.Quota != nil && r.ContentLength > 0 {
+				a.Quota.Release(uint64(r.ContentLength))
+			}
 			http.Error(w, "create file failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		if _, err := io.Copy(out, r.Body); err != nil {
+		written, err := io.Copy(out, r.Body)
+		if err != nil {
 			out.Close()
+			if a.Quota != nil && r.ContentLength > 0 {
+				a.Quota.Release(uint64(r.ContentLength))
+			}
 			http.Error(w, "stream interrupted: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		out.Close()
+		if a.Quota != nil {
+			if r.ContentLength > 0 {
+				a.Quota.Commit(uint64(r.ContentLength))
+			} else if written > 0 {
+				a.Quota.Commit(uint64(written))
+			}
+		}
 		if final == nil {
 			a.registerRoot(targetDir)
 		}
@@ -705,13 +867,23 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		files, err := media.UnpackFolder(r.Body, dest)
 		if err != nil {
 			_ = os.RemoveAll(dest)
-			http.Error(w, "unpack failed: "+err.Error(), http.StatusBadRequest)
+			http.Error(w, "unpack failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		if _, err := os.Stat(filepath.Join(dest, "metadata.json")); err != nil {
 			_ = os.RemoveAll(dest)
 			http.Error(w, "archive incomplete: metadata.json missing", http.StatusUnprocessableEntity)
 			return
+		}
+		if a.Quota != nil {
+			if sz, err := ScanDirSize(dest); err == nil && sz > 0 {
+				if err := a.Quota.Reserve(sz); err != nil {
+					_ = os.RemoveAll(dest)
+					http.Error(w, fmt.Sprintf("insufficient storage quota: %v", err), http.StatusInsufficientStorage)
+					return
+				}
+				a.Quota.Commit(sz)
+			}
 		}
 		a.registerRoot(dir)
 
@@ -755,11 +927,6 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		w.Write([]byte(`{"status":"initialized"}`))
 	})
 
-var (
-	activeTransferFilesMu sync.Mutex
-	activeTransferFiles   = make(map[string]*os.File)
-)
-
 	mux.HandleFunc("/api/v1/ingest-file-init", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method != http.MethodPost {
@@ -782,7 +949,7 @@ var (
 
 		activeTransferFilesMu.Lock()
 		if old, exists := activeTransferFiles[dest]; exists {
-			_ = old.Close()
+			_ = old.file.Close()
 		}
 		f, err := os.OpenFile(dest, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0644)
 		if err != nil {
@@ -793,19 +960,19 @@ var (
 		if size > 0 {
 			_ = f.Truncate(size)
 		}
-		activeTransferFiles[dest] = f
+		activeTransferFiles[dest] = &activeTransferEntry{file: f, lastAccess: time.Now()}
 		activeTransferFilesMu.Unlock()
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"file_ready"}`))
 	})
 
-var chunkBufPool = sync.Pool{
-	New: func() interface{} {
-		b := make([]byte, 1024*1024)
-		return &b
-	},
-}
+	var chunkBufPool = sync.Pool{
+		New: func() interface{} {
+			b := make([]byte, 1024*1024)
+			return &b
+		},
+	}
 
 	mux.HandleFunc("/api/v1/ingest-chunk", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -828,7 +995,12 @@ var chunkBufPool = sync.Pool{
 		dest := filepath.Join(dir, key, filename)
 
 		activeTransferFilesMu.Lock()
-		f := activeTransferFiles[dest]
+		entry := activeTransferFiles[dest]
+		var f *os.File
+		if entry != nil {
+			entry.lastAccess = time.Now()
+			f = entry.file
+		}
 		activeTransferFilesMu.Unlock()
 
 		if f == nil {
@@ -892,10 +1064,10 @@ var chunkBufPool = sync.Pool{
 
 		activeTransferFilesMu.Lock()
 		prefix := dest + string(os.PathSeparator)
-		for p, f := range activeTransferFiles {
+		for p, entry := range activeTransferFiles {
 			if strings.HasPrefix(p, prefix) || p == dest {
-				_ = f.Sync()
-				_ = f.Close()
+				_ = entry.file.Sync()
+				_ = entry.file.Close()
 				delete(activeTransferFiles, p)
 			}
 		}
@@ -905,6 +1077,16 @@ var chunkBufPool = sync.Pool{
 			_ = os.RemoveAll(dest)
 			http.Error(w, "metadata.json missing", http.StatusUnprocessableEntity)
 			return
+		}
+		if a.Quota != nil {
+			if sz, err := ScanDirSize(dest); err == nil && sz > 0 {
+				if err := a.Quota.Reserve(sz); err != nil {
+					_ = os.RemoveAll(dest)
+					http.Error(w, fmt.Sprintf("insufficient storage quota: %v", err), http.StatusInsufficientStorage)
+					return
+				}
+				a.Quota.Commit(sz)
+			}
 		}
 		a.registerRoot(dir)
 		fmt.Printf("[Agent %s] 📥 Parallel ingest complete for key '%s' into block %s\n", a.NodeID, key, dir)
@@ -919,16 +1101,29 @@ var chunkBufPool = sync.Pool{
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !a.verifySecret(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		key := r.URL.Query().Get("key")
+		if !validKey(key) {
+			http.Error(w, "invalid key", http.StatusBadRequest)
+			return
+		}
 		rawDir := filepath.Clean(r.URL.Query().Get("dir"))
 		dir := a.resolveTargetDir(rawDir)
-		if key == "" || dir == "" || dir == "." || strings.Contains(dir, "..") {
-			http.Error(w, "key and dir required", http.StatusBadRequest)
+		if dir == "" || dir == "." || strings.Contains(dir, "..") {
+			http.Error(w, "invalid dir", http.StatusBadRequest)
 			return
 		}
 		target := filepath.Join(dir, key)
+		if a.Quota != nil {
+			if freed, err := ScanDirSize(target); err == nil && freed > 0 {
+				a.Quota.Reclaim(freed)
+			}
+		}
 		_ = os.RemoveAll(target)
-		if rawDir != dir {
+		if rawDir != dir && !strings.Contains(rawDir, "..") {
 			_ = os.RemoveAll(filepath.Join(rawDir, key))
 		}
 		if a.ScratchDir != "" {
@@ -970,6 +1165,10 @@ var chunkBufPool = sync.Pool{
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if !a.verifySecret(r) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
 		target := r.URL.Query().Get("target")
 		requestedDir := r.URL.Query().Get("dir")
 
@@ -992,6 +1191,11 @@ var chunkBufPool = sync.Pool{
 				} else if target == "media" {
 					addCleanDir(d.MediaDir)
 				}
+			}
+			if target == "media" {
+				addCleanDir(a.MediaDir)
+				addCleanDir("/stream/media")
+				addCleanDir("/var/lib/stream/media")
 			}
 			if target == "processing" || target == "scratch" {
 				addCleanDir(a.ScratchDir)
@@ -1035,7 +1239,7 @@ var chunkBufPool = sync.Pool{
 			return
 		}
 
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type")
 		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
@@ -1056,13 +1260,15 @@ var chunkBufPool = sync.Pool{
 			w.Header().Set("Content-Type", "video/iso.segment")
 		}
 
-			if r.Method == http.MethodOptions {
+		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 
-			http.ServeFile(w, r, targetFilePath)
+		http.ServeFile(w, r, targetFilePath)
 	}
+
+	a.registerRelocateRoutes(mux)
 
 	mux.HandleFunc("/media/", mediaHandler)
 	mux.HandleFunc("/stream/", mediaHandler)
@@ -1070,7 +1276,7 @@ var chunkBufPool = sync.Pool{
 	addr := fmt.Sprintf(":%d", a.ListenPort)
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
-			fmt.Printf("[Agent %s] Port %d busy (%v), trying fallback port :8880...\n", a.NodeID, a.ListenPort, err)
+		fmt.Printf("[Agent %s] Port %d busy (%v), trying fallback port :8880...\n", a.NodeID, a.ListenPort, err)
 		addr = ":8880"
 		listener, err = net.Listen("tcp", addr)
 		if err != nil {
@@ -1266,11 +1472,21 @@ func (a *Agent) fileProgressReporter(key string) ProgressReporterFunc {
 		}
 		body, _ := json.Marshal(payload)
 		url := fmt.Sprintf("%s/api/v1/files/%s/progress", strings.TrimRight(a.CoordinatorURL, "/"), key)
-		resp, err := a.client.Post(url, "application/json", bytes.NewBuffer(body))
+		req, err := http.NewRequest(http.MethodPost, url, bytes.NewBuffer(body))
+		if err != nil {
+			fmt.Printf("[Agent %s] ⚠️ file progress request build failed for %s: %v\n", a.NodeID, key, err)
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if a.Secret != "" {
+			req.Header.Set("X-Cluster-Secret", a.Secret)
+		}
+		resp, err := a.client.Do(req)
 		if err != nil {
 			fmt.Printf("[Agent %s] ⚠️ file progress post failed for %s: %v\n", a.NodeID, key, err)
 			return
 		}
+		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 	}
 	return report
@@ -1494,7 +1710,16 @@ func (a *Agent) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 	dir := a.resolveTargetDir(filepath.Clean(rawDir))
 	dest := filepath.Join(dir, key)
 
+	if r.Method == http.MethodPut && a.Quota != nil && r.ContentLength > 0 {
+		if err := a.Quota.Reserve(uint64(r.ContentLength)); err != nil {
+			http.Error(w, fmt.Sprintf("insufficient storage quota: %v", err), http.StatusInsufficientStorage)
+			return
+		}
+		defer a.Quota.Commit(uint64(r.ContentLength))
+	}
+
 	_ = os.MkdirAll(dest, 0755)
+	a.registerRoot(dir)
 
 	prefix := "/api/v1/webdav/" + hexDir + "/" + key
 	handler := &webdav.Handler{
@@ -1538,10 +1763,14 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		}
 		initResp, initErr := a.transferClient.Do(initReq)
 		if initErr == nil {
-			initResp.Body.Close()
 			if initResp.StatusCode == http.StatusOK {
+				initResp.Body.Close()
 				return a.transferFolderParallel(ctx, key, baseDir, final, totalBytes, report)
 			}
+			body, _ := io.ReadAll(io.LimitReader(initResp.Body, 1024))
+			initResp.Body.Close()
+			fmt.Printf("[Agent %s] ⚠️ Ingest-init rejected (%s: %s), falling back to classic transfer...\n",
+				a.NodeID, initResp.Status, strings.TrimSpace(string(body)))
 		}
 	}
 
@@ -1604,10 +1833,16 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 		if err != nil {
 			return fmt.Errorf("failed to init remote file %s: %w", f.relPath, err)
 		}
-		resp.Body.Close()
 		if resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+			resp.Body.Close()
+			msg := strings.TrimSpace(string(body))
+			if msg != "" {
+				return fmt.Errorf("receiver refused file %s: %s (%s)", f.relPath, resp.Status, msg)
+			}
 			return fmt.Errorf("receiver refused file %s: %s", f.relPath, resp.Status)
 		}
+		resp.Body.Close()
 	}
 
 	type chunkTask struct {
@@ -1872,12 +2107,19 @@ func (a *Agent) transferFolderClassic(ctx context.Context, key, baseDir string, 
 		return err
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 300 {
-		err := fmt.Errorf("receiver answered %s", resp.Status)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		msg := strings.TrimSpace(string(body))
+		var err error
+		if msg != "" {
+			err = fmt.Errorf("receiver answered %s: %s", resp.Status, msg)
+		} else {
+			err = fmt.Errorf("receiver answered %s", resp.Status)
+		}
 		fmt.Printf("[Agent %s] ❌ Node transfer rejected for '%s' -> %s: %v\n", a.NodeID, key, final.NodeID, err)
 		return err
 	}
+	io.Copy(io.Discard, resp.Body)
 	elapsed := time.Since(cr.startTime)
 	avgSpeed := float64(totalBytes) / elapsed.Seconds()
 	fmt.Printf("[Agent %s] ✅ Node transfer complete: '%s' -> %s in %s (Avg: %s)\n",
@@ -1947,7 +2189,9 @@ func cleanDirContents(dir string) (uint64, int, error) {
 			freedBytes += s
 			freedCount++
 		}
-		_ = os.RemoveAll(p)
+		if err := os.RemoveAll(p); err != nil {
+			fmt.Printf("[CleanDir] Warning: failed to remove %s: %v\n", p, err)
+		}
 	}
 	return freedBytes, freedCount, nil
 }

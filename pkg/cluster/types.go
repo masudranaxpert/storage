@@ -11,9 +11,10 @@ import (
 type NodeStatus string
 
 const (
-	StatusOnline  NodeStatus = "online"
-	StatusStale   NodeStatus = "stale"
-	StatusOffline NodeStatus = "offline"
+	StatusOnline     NodeStatus = "online"
+	StatusStale      NodeStatus = "stale"
+	StatusOffline    NodeStatus = "offline"
+	StatusConnecting NodeStatus = "connecting"
 )
 
 // IsCoordinatorNode reports whether nodeID is the coordinator runner, not a
@@ -52,9 +53,10 @@ func IsPoolVPS(m telemetry.NodeMetrics) bool {
 
 // NodeRecord stores current telemetry and connection metadata for a cluster node.
 type NodeRecord struct {
-	Metrics  telemetry.NodeMetrics `json:"metrics"`
-	Status   NodeStatus            `json:"status"`
-	LastSeen time.Time             `json:"last_seen"`
+	Metrics     telemetry.NodeMetrics `json:"metrics"`
+	Status      NodeStatus            `json:"status"`
+	LastSeen    time.Time             `json:"last_seen"`
+	CustomLabel string                `json:"custom_label,omitempty"`
 }
 
 // MediumSummary holds aggregated metrics for a specific storage medium (NVMe, SSD, HDD).
@@ -68,18 +70,18 @@ type MediumSummary struct {
 
 // ClusterPoolSummary represents the aggregated compute and storage capacity of the cluster.
 type ClusterPoolSummary struct {
-	TotalNodes         int           `json:"total_nodes"`
-	ActiveNodes        int           `json:"active_nodes"`
-	OfflineNodes       int           `json:"offline_nodes"`
-	TotalDrives        int           `json:"total_drives"`
-	TotalStorageBytes  uint64        `json:"total_storage_bytes"`
-	FreeStorageBytes   uint64        `json:"free_storage_bytes"`
-	UsedStorageBytes   uint64        `json:"used_storage_bytes"`
-	StorageUsedPercent float64       `json:"storage_used_percent"`
-	TotalRAMBytes      uint64        `json:"total_ram_bytes"`
-	AvailableRAMBytes  uint64        `json:"available_ram_bytes"`
-	TotalCPUCores      int           `json:"total_cpu_cores"`
-	AvgCPULoadPercent  float64       `json:"avg_cpu_load_percent"`
+	TotalNodes         int     `json:"total_nodes"`
+	ActiveNodes        int     `json:"active_nodes"`
+	OfflineNodes       int     `json:"offline_nodes"`
+	TotalDrives        int     `json:"total_drives"`
+	TotalStorageBytes  uint64  `json:"total_storage_bytes"`
+	FreeStorageBytes   uint64  `json:"free_storage_bytes"`
+	UsedStorageBytes   uint64  `json:"used_storage_bytes"`
+	StorageUsedPercent float64 `json:"storage_used_percent"`
+	TotalRAMBytes      uint64  `json:"total_ram_bytes"`
+	AvailableRAMBytes  uint64  `json:"available_ram_bytes"`
+	TotalCPUCores      int     `json:"total_cpu_cores"`
+	AvgCPULoadPercent  float64 `json:"avg_cpu_load_percent"`
 
 	// Storage medium tier breakdowns
 	NVMe MediumSummary `json:"nvme"`

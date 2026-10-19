@@ -169,6 +169,39 @@ func runCoordinator(args []string) {
 	templateDir := filepath.Join("web", "templates")
 	srv := web.NewServer(addr, coord, hub, store, tiers, staticDir, templateDir)
 
+	procCtx, procCancel := context.WithCancel(context.Background())
+	defer procCancel()
+	if srv.Files() != nil {
+		go srv.Files().Run(procCtx)
+	}
+	if srv.Engine() != nil {
+		go srv.Engine().Run(procCtx)
+	}
+	if store != nil {
+		go func() {
+			gcTicker := time.NewTicker(10 * time.Minute)
+			defer gcTicker.Stop()
+			for {
+				select {
+				case <-procCtx.Done():
+					return
+				case <-gcTicker.C:
+					// Prune terminal lifecycle tasks older than 7 days
+					_, _ = store.PruneLifecycleTasks(7 * 24 * time.Hour)
+					// Prune expire audit trail older than 30 days or beyond 5,000 entries
+					_, _ = store.PruneLifecycleAudits(5000, 30*24*time.Hour)
+
+					// Discard ratio 0.5: rewrite vlog files with >=50% stale space
+					for {
+						if err := store.RunGC(0.5); err != nil {
+							break
+						}
+					}
+				}
+			}
+		}()
+	}
+
 	fmt.Printf("====================================================\n")
 	fmt.Printf("🚀 Stream Coordinator %s running at http://0.0.0.0:%d\n", telemetry.CurrentVersion, *port)
 	fmt.Printf("📊 Web Dashboard: http://localhost:%d\n", *port)
@@ -194,6 +227,7 @@ func runCoordinator(args []string) {
 
 	<-sigCh
 	fmt.Println("\nShutting down coordinator...")
+	procCancel()
 	close(stopCh)
 	if localAgentCancel != nil {
 		localAgentCancel()
@@ -216,6 +250,7 @@ func runAgent(args []string) {
 	mediaDir := fs.String("media-dir", "", "Root directory for local media storage")
 	scratchDir := fs.String("scratch-dir", "", "Scratch workspace for process-then-transfer jobs (defaults to <media-dir>/../processing)")
 	advertise := fs.String("advertise-addr", "", "Reachable host/IP other nodes dial (SeaweedFS-style; e.g. public VPS IP or docker service name)")
+	quotaBytes := fs.Uint64("quota-bytes", 0, "Hard storage quota ceiling in bytes (0 = unlimited)")
 	fs.Parse(args)
 
 	if *nodeName == "" {
@@ -234,6 +269,10 @@ func runAgent(args []string) {
 	agent := cluster.NewAgent(*nodeName, *joinURL, *interval, *port, *mediaDir, *grpcTarget, *secret)
 	if *scratchDir != "" {
 		agent.ScratchDir = *scratchDir
+	}
+	if *quotaBytes > 0 && agent.Quota != nil {
+		agent.Quota.SetAllocatedMaxBytes(*quotaBytes)
+		fmt.Printf("Storage quota enforced: %s max allocation\n", telemetry.FormatBytes(*quotaBytes))
 	}
 	if *advertise != "" {
 		agent.AdvertiseAddr = *advertise

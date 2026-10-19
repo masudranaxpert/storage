@@ -1,26 +1,38 @@
 <div class="page-view {{if eq .CurrentPage "nodes"}}active{{end}}" id="view-nodes">
     <!-- View Controls & Filters -->
     <div class="view-controls">
-        <div class="filter-group">
-            <button class="filter-btn active" data-filter="all">All Nodes</button>
-            <button class="filter-btn" data-filter="online">Online</button>
-            <button class="filter-btn" data-filter="stale">Stale</button>
-            <button class="filter-btn" data-filter="offline">Offline</button>
+        <div class="filter-group" role="tablist" aria-label="Node status filters">
+            <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true">
+                <span>All Nodes</span>
+                <span class="filter-count-badge" id="count-filter-all">0</span>
+            </button>
+            <button class="filter-btn" data-filter="online" role="tab" aria-selected="false">
+                <span>Online</span>
+                <span class="filter-count-badge online" id="count-filter-online">0</span>
+            </button>
+            <button class="filter-btn" data-filter="stale" role="tab" aria-selected="false">
+                <span>Stale</span>
+                <span class="filter-count-badge stale" id="count-filter-stale">0</span>
+            </button>
+            <button class="filter-btn" data-filter="offline" role="tab" aria-selected="false">
+                <span>Offline</span>
+                <span class="filter-count-badge offline" id="count-filter-offline">0</span>
+            </button>
         </div>
 
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
             <!-- Search Bar with Icon -->
             <div class="search-input-wrap">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input type="text" id="nodes-search-input" placeholder="Search by Node ID, Host or IP...">
+                <input type="text" id="nodes-search-input" placeholder="Search Node ID, Host or IP..." aria-label="Search nodes">
             </div>
             
             <!-- Grid / List Switcher -->
-            <div class="layout-toggle">
-                <button class="layout-btn active" id="btn-layout-grid" title="Grid View">
+            <div class="layout-toggle" role="group" aria-label="View layout switcher">
+                <button class="layout-btn active" id="btn-layout-grid" title="Grid View" aria-label="Grid layout">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="3" width="7" height="7"></rect>
                         <rect x="14" y="3" width="7" height="7"></rect>
@@ -28,7 +40,7 @@
                         <rect x="3" y="14" width="7" height="7"></rect>
                     </svg>
                 </button>
-                <button class="layout-btn" id="btn-layout-list" title="Horizontal List View">
+                <button class="layout-btn" id="btn-layout-list" title="Horizontal List View" aria-label="Horizontal list layout">
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <line x1="8" y1="6" x2="21" y2="6"></line>
                         <line x1="8" y1="12" x2="21" y2="12"></line>

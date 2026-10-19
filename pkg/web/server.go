@@ -5,26 +5,44 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"stream/pkg/cache"
 	"stream/pkg/cluster"
 	"stream/pkg/db"
 	"stream/pkg/fileapi"
+	"stream/pkg/lifecycle"
 	"stream/pkg/storage"
 )
 
 // Server encapsulates the HTTP API and modular template dashboard.
 type Server struct {
-	addr        string
-	coord       *cluster.Coordinator
-	hub         *cluster.GRPCHub
-	store       *db.Store
-	tiers       *storage.Manager
-	staticDir   string
-	templateDir string
-	tmpl        *template.Template
-	httpServer  *http.Server
-	files       *fileapi.Service
+	addr          string
+	coord         *cluster.Coordinator
+	hub           *cluster.GRPCHub
+	store         *db.Store
+	tiers         *storage.Manager
+	staticDir     string
+	templateDir   string
+	tmpl          *template.Template
+	httpServer    *http.Server
+	files         *fileapi.Service
+	engine        *lifecycle.Engine
+	deduper       *lifecycle.PlayDeduper
+	usageMu       sync.Mutex
+	usageCache    map[string]uint64
+	usageCachedAt time.Time
+}
+
+// Files returns the underlying file orchestration service.
+func (s *Server) Files() *fileapi.Service {
+	return s.files
+}
+
+// Engine returns the tier lifecycle engine.
+func (s *Server) Engine() *lifecycle.Engine {
+	return s.engine
 }
 
 // NewServer initializes a new web server for the control plane. The tier
@@ -41,8 +59,36 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 	}
 
 	s.loadTemplates()
-	s.files = fileapi.NewService(store, tiers, coord, s.processingProfiles, s.mediaUsagePerNode)
+	var jobStore fileapi.JobStore
+	var lcStore lifecycle.Store
+	if store != nil {
+		jobStore = store
+		lcStore = store
+	}
+	var secret string
 	if hub != nil {
+		secret = hub.Secret()
+	}
+	s.files = fileapi.NewService(jobStore, tiers, coord, s.processingProfiles, s.mediaUsagePerNode)
+	s.engine = lifecycle.New(
+		lcStore,
+		tiers,
+		coord,
+		s.files,
+		lifecycle.WithUsageFunc(s.mediaUsagePerNode),
+		lifecycle.WithJobStore(jobStore),
+		lifecycle.WithSecret(secret),
+	)
+	s.deduper = lifecycle.NewPlayDeduper(50000, 30*time.Minute)
+	s.files.SetIngestOrder(s.engine.IngestOrder)
+	s.files.SetMoveHandler(s.handleFileMove)
+	s.files.SetPlacementHandler(s.handleFilePlacement)
+	s.files.SetDemandHandler(s.handleFileDemand)
+	s.files.SetDeleteHandler(s.engine.OnFileDeleted)
+	s.files.SetAuthValidator(s.validateFileAPIAuth)
+	s.files.SetCreatorResolver(s.resolveFileAPICreator)
+	if hub != nil {
+		s.files.SetSecret(secret)
 		hub.OnJobProgress = func(p cluster.JobProgress) {
 			_ = s.files.ApplyProgress(p.JobID, &fileapi.ProgressUpdate{
 				State:    fileapi.FileState(p.Status),
@@ -52,6 +98,17 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 				CMAFJSON: p.CMAFJSON,
 			})
 		}
+	}
+
+	// Expose live cache usage to the settings dashboard.
+	cache.Default.Register("play_deduper", s.deduper.Snapshot)
+	cache.Default.Register("node_usage_snapshot", s.UsageCacheStats)
+	if s.engine != nil {
+		cache.Default.Register("play_hit_buffer", s.engine.HitBufferStats)
+		cache.Default.Register("relocation_inflight", s.engine.InFlightStats)
+	}
+	if s.files != nil {
+		cache.Default.Register("ghost_strike_tracker", s.files.MissingStrikeStats)
 	}
 	return s
 }

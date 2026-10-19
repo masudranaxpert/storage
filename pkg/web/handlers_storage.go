@@ -98,6 +98,9 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !s.requireAdmin(w, r) {
+		return
+	}
 
 	var req struct {
 		NodeID string `json:"node_id"`
@@ -218,6 +221,68 @@ func (s *Server) handleProcessing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleDriveEligibility(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		NodeID   string `json:"node_id"`
+		Path     string `json:"path"`
+		Eligible bool   `json:"eligible"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NodeID == "" || req.Path == "" {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+
+	if s.store != nil {
+		cfg, _ := s.store.GetNodeConfig(req.NodeID)
+		if cfg == nil {
+			cfg = &db.NodeConfig{NodeID: req.NodeID, Enabled: true}
+		}
+		var updated []string
+		for _, p := range cfg.ExcludedDrives {
+			if p != req.Path {
+				updated = append(updated, p)
+			}
+		}
+		if !req.Eligible {
+			updated = append(updated, req.Path)
+		}
+		cfg.ExcludedDrives = updated
+		_ = s.store.SaveNodeConfig(cfg)
+	}
+
+	// Detach excluded drive from any tier where it is currently assigned.
+	if !req.Eligible && s.tiers != nil {
+		for _, t := range s.tiers.List() {
+			var kept []storage.Block
+			changed := false
+			for _, b := range t.Blocks {
+				if b.NodeID == req.NodeID && b.Path == req.Path {
+					changed = true
+				} else {
+					kept = append(kept, b)
+				}
+			}
+			if changed {
+				t.Blocks = kept
+				_ = s.tiers.Upsert(t)
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":   "ok",
+		"node_id":  req.NodeID,
+		"path":     req.Path,
+		"eligible": req.Eligible,
+	})
+}
+
 func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 	path := strings.TrimPrefix(r.URL.Path, "/api/tiers")
 	path = strings.Trim(path, "/")
@@ -230,6 +295,7 @@ func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 		type tiersResponse struct {
 			Tiers            []storage.TierStatus `json:"tiers"`
 			UnassignedBlocks []storage.Block      `json:"unassigned_blocks"`
+			ExcludedBlocks   []string             `json:"excluded_blocks"`
 		}
 
 		statuses := s.tiers.Resolve(nodes, usage)
@@ -241,11 +307,27 @@ func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		excluded := make(map[string]bool)
+		var excludedList []string
+		if s.store != nil {
+			if cfgs, err := s.store.GetAllNodeConfigs(); err == nil {
+				for nodeID, cfg := range cfgs {
+					for _, p := range cfg.ExcludedDrives {
+						k := nodeID + "|" + p
+						if !excluded[k] {
+							excluded[k] = true
+							excludedList = append(excludedList, k)
+						}
+					}
+				}
+			}
+		}
+
 		var unassigned []storage.Block
 		for _, n := range nodes {
 			for _, d := range n.Metrics.Disks {
 				key := n.Metrics.NodeID + "|" + d.Path
-				if !assigned[key] {
+				if !assigned[key] && !excluded[key] {
 					unassigned = append(unassigned, storage.Block{
 						NodeID:     n.Metrics.NodeID,
 						Path:       d.Path,
@@ -257,7 +339,45 @@ func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		json.NewEncoder(w).Encode(tiersResponse{Tiers: statuses, UnassignedBlocks: unassigned})
+		json.NewEncoder(w).Encode(tiersResponse{
+			Tiers:            statuses,
+			UnassignedBlocks: unassigned,
+			ExcludedBlocks:   excludedList,
+		})
+		return
+	}
+
+	if r.Method == http.MethodPut && strings.HasSuffix(path, "/lifecycle") {
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		idPart := strings.TrimSuffix(path, "/lifecycle")
+		var id int
+		if _, err := fmt.Sscanf(idPart, "%d", &id); err != nil {
+			http.Error(w, `{"error":"invalid tier id"}`, http.StatusBadRequest)
+			return
+		}
+		var lc storage.TierLifecycle
+		if err := json.NewDecoder(r.Body).Decode(&lc); err != nil {
+			http.Error(w, `{"error":"invalid lifecycle payload"}`, http.StatusBadRequest)
+			return
+		}
+		updated, err := s.tiers.UpdateLifecycle(id, lc)
+		if err != nil {
+			status := http.StatusUnprocessableEntity
+			if strings.Contains(err.Error(), "not found") {
+				status = http.StatusNotFound
+			}
+			w.WriteHeader(status)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": err.Error(),
+				"errors": []map[string]string{
+					{"field": "lifecycle", "message": err.Error()},
+				},
+			})
+			return
+		}
+		json.NewEncoder(w).Encode(updated)
 		return
 	}
 

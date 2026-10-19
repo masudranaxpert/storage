@@ -1,0 +1,217 @@
+/* ================= Database Studio ================= */
+
+.dbstudio-grid {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    gap: 18px;
+    align-items: start;
+    width: 100%;
+}
+
+.dbstudio-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+
+.db-table-list-inner {
+    max-height: 520px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.db-table-chip {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color .15s ease, border-color .15s ease;
+}
+
+.db-table-chip:hover {
+    background: var(--bg-orange-soft);
+    border-color: var(--border-hover);
+}
+
+.db-table-chip.active {
+    background: var(--bg-orange-subtle);
+    border-color: var(--border-orange);
+}
+
+.db-table-name {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.db-table-chip.active .db-table-name {
+    color: var(--orange-darker);
+}
+
+.db-table-count {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+}
+
+.db-table-chip.active .db-table-count {
+    background: var(--orange-primary);
+    color: #ffffff;
+}
+
+.dbstudio-main {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+}
+
+.dbstudio-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.db-rows-scroll {
+    overflow-x: auto;
+    overscroll-behavior: contain;
+    max-width: 100%;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-light);
+}
+
+.db-rows-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: collapse;
+}
+
+.db-rows-table th {
+    background: var(--bg-body);
+    padding: 10px 12px;
+    font-size: 11.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-light);
+    white-space: nowrap;
+}
+
+.db-rows-table td {
+    padding: 10px 12px;
+    font-size: 12.5px;
+    border-bottom: 1px solid var(--border-light);
+    vertical-align: middle;
+}
+
+.db-rows-table tr:hover td {
+    background: var(--bg-surface-hover);
+}
+
+.db-rows-table tr.row-selected td {
+    background: var(--bg-orange-soft);
+}
+
+.db-row-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.db-row-action-btn:hover {
+    background: var(--bg-orange-soft);
+    color: var(--orange-dark);
+    border-color: var(--border-orange);
+}
+
+.db-row-action-btn.btn-delete:hover {
+    background: #fee2e2;
+    color: #dc2626;
+    border-color: #fca5a5;
+}
+
+/* JSON Viewer & Code Editor */
+.bui-json-viewer-card {
+    background: #18181b;
+    border: 1px solid #27272a;
+    border-radius: var(--radius-sm);
+    padding: 14px 16px;
+    overflow: auto;
+    max-height: 480px;
+    overscroll-behavior: contain;
+}
+
+.bui-json-viewer {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #e4e4e7;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.bui-code-editor-wrap {
+    position: relative;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    background: var(--bg-body);
+}
+
+.bui-code-editor-pre {
+    display: none;
+}
+
+.bui-code-editor-textarea {
+    width: 100%;
+    height: 100%;
+    min-height: 200px;
+    padding: 12px 14px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    background: transparent;
+    color: var(--text-primary);
+    border: none;
+    outline: none;
+    resize: vertical;
+    box-sizing: border-box;
+}
+
+@media (max-width: 900px) {
+    .dbstudio-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+@media (max-width: 640px) {
+    .db-rows-table {
+        min-width: 480px;
+    }
+}
+

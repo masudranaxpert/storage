@@ -1,0 +1,348 @@
+/* Table Style for Storage Pool View */
+.custom-table-wrap {
+    background: var(--bg-surface);
+    overflow-x: auto;
+}
+
+.bui-table-tray .custom-table-wrap {
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.custom-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+}
+
+.custom-table th {
+    background: var(--bg-body);
+    padding: 14px 20px;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-light);
+}
+
+.custom-table td {
+    padding: 16px 20px;
+    font-size: 14px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.custom-table tr:last-child td {
+    border-bottom: none;
+}
+
+#media-data-table th,
+#media-data-table td {
+    vertical-align: middle;
+    padding: 14px 14px;
+}
+
+#media-data-table tbody tr:hover td {
+    background: var(--bg-orange-soft);
+}
+
+/* Upload Dropzone */
+.upload-dropzone {
+    border: 2px dashed var(--border-orange);
+    border-radius: var(--radius-md);
+    padding: 32px 20px;
+    text-align: center;
+    background: var(--bg-orange-soft);
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.upload-dropzone:hover {
+    background: var(--bg-orange-subtle);
+    border-color: var(--orange-primary);
+}
+
+.upload-dropzone.dragover {
+    background: var(--bg-orange-subtle);
+    border-color: var(--orange-dark);
+    transform: scale(1.01);
+}
+
+/* Pagination Buttons */
+.page-btn {
+    min-width: 32px;
+    height: 32px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.page-btn:hover:not(:disabled) {
+    border-color: var(--orange-primary);
+    color: var(--orange-dark);
+    background: var(--bg-orange-soft);
+}
+
+.page-btn.active {
+    background: linear-gradient(135deg, var(--orange-primary), var(--orange-dark));
+    color: #ffffff;
+    border-color: var(--orange-dark);
+    box-shadow: 0 2px 6px var(--orange-glow);
+}
+
+.page-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+
+
+/* ==========================================================================
+   Segmented Tab Navigation (Volumes / Folders & Cleaning)
+   ========================================================================== */
+.storage-segmented-wrap {
+    display: inline-flex;
+    gap: 4px;
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 4px;
+}
+
+.storage-tab-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 700;
+    font-family: inherit;
+    padding: 7px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.storage-tab-btn:hover {
+    color: var(--text-primary);
+}
+
+.storage-tab-btn.active {
+    background: var(--bg-surface);
+    color: var(--orange-dark);
+    box-shadow: var(--shadow-sm);
+}
+
+.storage-tab-btn:focus-visible {
+    outline: 2px solid var(--orange-primary);
+    outline-offset: 2px;
+}
+
+.storage-tab-content {
+    margin-top: 18px;
+}
+
+/* Storage Top Metric Summary Grid */
+.storage-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 20px;
+    width: 100%;
+}
+
+@media (max-width: 992px) {
+    .storage-metric-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.bui-stat-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    box-shadow: var(--shadow-card);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 14px;
+    min-width: 0;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+}
+
+.bui-stat-card:hover {
+    border-color: var(--border-hover);
+    box-shadow: var(--shadow-hover);
+    transform: translateY(-1px);
+}
+
+.bui-stat-card .bui-stat-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.bui-stat-card .bui-stat-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.bui-stat-card .bui-stat-figure {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1.15;
+}
+
+.bui-stat-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--bg-body);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    min-height: 40px;
+}
+
+.bui-stat-footer-text {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.btn-maint-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: 11.5px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+
+.btn-maint-action:hover {
+    border-color: var(--border-orange);
+    color: var(--orange-dark);
+    background: var(--bg-orange-soft);
+    transform: translateY(-1px);
+}
+
+.btn-maint-action.purge:hover {
+    border-color: rgba(220, 38, 38, 0.35);
+    color: #dc2626;
+    background: #fef2f2;
+}
+
+[data-theme="dark"] .btn-maint-action.purge:hover {
+    background: rgba(220, 38, 38, 0.15);
+    color: #f87171;
+    border-color: rgba(248, 113, 113, 0.4);
+}
+
+/* ==========================================================================
+   Storage Table Toolbar & Tier Pool Toggles
+   ========================================================================== */
+.bui-table-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 20px;
+    background: var(--bg-surface);
+    border-bottom: 1px solid var(--border-light);
+    gap: 12px;
+    flex-wrap: wrap;
+    width: 100%;
+}
+
+.bui-table-toolbar-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.bui-table-toolbar-right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-wrap: wrap;
+}
+
+/* Tier Pool Toggle Cell */
+.drive-tier-toggle-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.drive-tier-toggle-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    transition: color 0.15s ease;
+}
+
+.drive-tier-toggle-label.allowed {
+    color: #047857;
+}
+
+.drive-tier-toggle-label.excluded {
+    color: var(--text-muted);
+}
+
+.storage-mount-cell {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.storage-path-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-subtle);
+    padding: 2px 7px;
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    border: 1px solid var(--border-light);
+}
+
+.fs-type-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    background: var(--bg-body);
+    padding: 2px 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+}
+

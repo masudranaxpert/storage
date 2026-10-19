@@ -259,7 +259,7 @@ func (a *Agent) ensureRcloneRCD(ctx context.Context) (*RcloneRCClient, error) {
 func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, final *TransferTarget,
 	totalBytes int64, report ProgressReporterFunc) error {
 
-	// Step 1: Probe and initialize destination directory on target agent
+	// Probe and initialize destination directory on target agent
 	initURL := fmt.Sprintf("%s/api/v1/ingest-init?key=%s&dir=%s",
 		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
 	initReq, err := http.NewRequestWithContext(ctx, http.MethodPost, initURL, nil)
@@ -278,13 +278,13 @@ func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, f
 		return fmt.Errorf("target node ingest-init returned HTTP %d", initResp.StatusCode)
 	}
 
-	// Step 2: Ensure local rclone rcd daemon is active
+	// Ensure local rclone rcd daemon is active.
 	rcClient, err := a.ensureRcloneRCD(ctx)
 	if err != nil {
 		return fmt.Errorf("rclone rcd daemon setup failed: %w", err)
 	}
 
-	// Step 3: Obscure password for on-the-fly rclone backend
+	// Obscure password for dynamic rclone backend.
 	passClear := a.Secret
 	if passClear == "" {
 		passClear = "stream"
@@ -294,23 +294,23 @@ func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, f
 		return fmt.Errorf("rclone obscure failed: %w", err)
 	}
 
-	// Step 4: Construct WebDAV destination URL with hex-encoded target directory
+	// Construct WebDAV destination URL with hex-encoded target directory.
 	hexDir := hex.EncodeToString([]byte(final.Dir))
 	targetWebdavURL := fmt.Sprintf("%s/api/v1/webdav/%s/%s",
 		strings.TrimRight(final.Addr, "/"), hexDir, url.PathEscape(key))
 	dstFs := fmt.Sprintf(":webdav,url='%s',user='admin',pass='%s':", targetWebdavURL, obscuredPass)
 	srcFs := filepath.Clean(baseDir)
 
-	fmt.Printf("[Agent %s] 🚀 Dispatching rclone RCD transfer for '%s' -> %s (%s, Total: %s)\n",
+	fmt.Printf("[Agent %s] Dispatching rclone RCD transfer for '%s' -> %s (%s, Total: %s)\n",
 		a.NodeID, key, final.NodeID, final.Addr, formatTransferSpeed(float64(totalBytes)))
 
-	// Step 5: Start copy job with 16 parallel streams
+	// Start copy job with 16 parallel streams.
 	jobID, err := rcClient.SyncCopy(ctx, srcFs, dstFs, 16)
 	if err != nil {
 		return fmt.Errorf("rclone sync/copy dispatch failed: %w", err)
 	}
 
-	// Step 6: Poll progress and report telemetry until completion
+	// Poll progress and report telemetry until completion.
 	ticker := time.NewTicker(750 * time.Millisecond)
 	defer ticker.Stop()
 	startTime := time.Now()
@@ -361,7 +361,7 @@ func (a *Agent) transferFolderRclone(ctx context.Context, key, baseDir string, f
 	}
 
 transferDone:
-	// Step 7: Finalize placement on target node
+	// Finalize placement on target node.
 	compURL := fmt.Sprintf("%s/api/v1/ingest-complete?key=%s&dir=%s",
 		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
 	compReq, err := http.NewRequestWithContext(ctx, http.MethodPost, compURL, nil)

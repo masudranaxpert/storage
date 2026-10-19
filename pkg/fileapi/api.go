@@ -1,6 +1,7 @@
 package fileapi
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,8 +48,19 @@ func (s *Service) handleSyncFiles(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Service) isAuthorized(r *http.Request) bool {
+	if s.authValidator == nil {
+		return true
+	}
+	return s.authValidator(r)
+}
+
 func (s *Service) handleFiles(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodOptions && !s.isAuthorized(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
+		return
+	}
 	switch r.Method {
 	case http.MethodPost:
 		s.handleCreate(w, r)
@@ -59,11 +71,55 @@ func (s *Service) handleFiles(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"files": list})
+	case http.MethodDelete:
+		s.handleBatchDelete(w, r)
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusOK)
 	default:
 		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 	}
+}
+
+func (s *Service) handleBatchDelete(w http.ResponseWriter, r *http.Request) {
+	var keys []string
+	if r.Body != nil {
+		var req struct {
+			Keys []string `json:"keys"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err == nil && len(req.Keys) > 0 {
+			keys = req.Keys
+		}
+	}
+	if len(keys) == 0 {
+		if q := r.URL.Query().Get("keys"); q != "" {
+			keys = strings.Split(q, ",")
+		} else if qList := r.URL.Query()["key"]; len(qList) > 0 {
+			keys = qList
+		}
+	}
+	if len(keys) == 0 {
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("no keys provided for deletion (provide 'keys' array in JSON body or ?keys=id1,id2)"))
+		return
+	}
+	deleted := make([]string, 0, len(keys))
+	failed := make(map[string]string)
+	for _, k := range keys {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		if err := s.Delete(k); err != nil {
+			failed[k] = err.Error()
+		} else {
+			deleted = append(deleted, k)
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":  "completed",
+		"deleted": deleted,
+		"failed":  failed,
+		"count":   len(deleted),
+	})
 }
 
 func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +132,14 @@ func (s *Service) handleCreate(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("'url' is required"))
 		return
 	}
-	resp, err := s.CreateFromURL(req.URL)
+	creator := ""
+	if s.creatorResolver != nil {
+		creator = s.creatorResolver(r)
+	}
+	if creator == "" && req.CreatedBy != "" {
+		creator = req.CreatedBy
+	}
+	resp, err := s.CreateFromURL(req.URL, creator)
 	if err != nil {
 		writeErr(w, classifyErr(err), err)
 		return
@@ -96,7 +159,14 @@ func (s *Service) handleReserveUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid json body"))
 		return
 	}
-	resp, err := s.ReserveUpload(req.Filename, req.ExpectedSize)
+	creator := ""
+	if s.creatorResolver != nil {
+		creator = s.creatorResolver(r)
+	}
+	if creator == "" && req.CreatedBy != "" {
+		creator = req.CreatedBy
+	}
+	resp, err := s.ReserveUpload(req.Filename, req.ExpectedSize, creator)
 	if err != nil {
 		writeErr(w, classifyErr(err), err)
 		return
@@ -126,8 +196,29 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		s.handleUpload(w, r, key)
 		return
 	}
+	if action == "retry" {
+		s.handleRetry(w, r, key)
+		return
+	}
+	if action == "move" && s.moveHandler != nil {
+		s.moveHandler(w, r, key)
+		return
+	}
+	if action == "placement" && s.placementHandler != nil {
+		s.placementHandler(w, r, key)
+		return
+	}
+	if action == "demand" && s.demandHandler != nil {
+		s.demandHandler(w, r, key)
+		return
+	}
 	if action != "" {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("not found"))
+		return
+	}
+
+	if r.Method != http.MethodOptions && !s.isAuthorized(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
 		return
 	}
 
@@ -140,6 +231,29 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(st)
 	case http.MethodDelete:
+		keys := strings.Split(key, ",")
+		if len(keys) > 1 {
+			deleted := make([]string, 0, len(keys))
+			failed := make(map[string]string)
+			for _, k := range keys {
+				k = strings.TrimSpace(k)
+				if k == "" {
+					continue
+				}
+				if err := s.Delete(k); err != nil {
+					failed[k] = err.Error()
+				} else {
+					deleted = append(deleted, k)
+				}
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":  "completed",
+				"deleted": deleted,
+				"failed":  failed,
+				"count":   len(deleted),
+			})
+			return
+		}
 		if err := s.Delete(key); err != nil {
 			writeErr(w, classifyErr(err), err)
 			return
@@ -150,10 +264,28 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleProgress accepts worker callbacks (state/percent/speed/cmaf).
+// validSecret verifies the cluster secret header or Bearer token when configured.
+func (s *Service) validSecret(r *http.Request) bool {
+	if s.secret == "" {
+		return true
+	}
+	provided := r.Header.Get("X-Cluster-Secret")
+	if provided == "" {
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			provided = strings.TrimPrefix(auth, "Bearer ")
+		}
+	}
+	return provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(s.secret)) == 1
+}
+
+// handleProgress accepts authenticated worker callbacks (state/percent/speed/cmaf).
 func (s *Service) handleProgress(w http.ResponseWriter, r *http.Request, key string) {
 	if r.Method != http.MethodPost {
 		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		return
+	}
+	if !s.validSecret(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid cluster secret required"))
 		return
 	}
 	var up ProgressUpdate
@@ -167,6 +299,24 @@ func (s *Service) handleProgress(w http.ResponseWriter, r *http.Request, key str
 	}
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Service) handleRetry(w http.ResponseWriter, r *http.Request, key string) {
+	if r.Method != http.MethodPost {
+		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
+		return
+	}
+	job, err := s.Retry(key)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "retrying",
+		"key":    job.Key,
+		"state":  job.State,
+	})
 }
 
 // handleUpload streams client bytes to the assigned worker, then the worker
@@ -198,16 +348,20 @@ func (s *Service) handleUpload(w http.ResponseWriter, r *http.Request, key strin
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
+	if s.secret != "" {
+		workerReq.Header.Set("X-Cluster-Secret", s.secret)
+	}
 	q := workerReq.URL.Query()
 	q.Set("key", key)
+	cleanTarget := CleanPlacementPath(job.Placement.Path)
 	if job.NodeID == job.Placement.NodeID {
 		// Direct mode: bytes stream straight onto the block this worker owns.
-		q.Set("dir", job.Placement.Path)
+		q.Set("dir", cleanTarget)
 	} else {
 		// Decoupled: land in the worker's scratch; it transfers after remux.
 		q.Set("scratch", "1")
 		q.Set("final_node_id", job.Placement.NodeID)
-		q.Set("final_dir", job.Placement.Path)
+		q.Set("final_dir", cleanTarget)
 		if owner := s.nodeByID(job.Placement.NodeID); owner != nil {
 			q.Set("final_addr", AgentBaseURL(owner))
 		} else {
@@ -367,7 +521,7 @@ func formatSpeedBps(bps float64) string {
 	return fmt.Sprintf("%.1f %cB/s", bps/float64(div), "KMGTPE"[exp])
 }
 
-// Delete removes a file from its worker and both tables.
+// Delete removes a file from its worker, cleans up lifecycle state/tasks, and drops both tables.
 func (s *Service) Delete(key string) error {
 	rec, err := s.store.GetFileRecord(key)
 	if err != nil {
@@ -377,13 +531,18 @@ func (s *Service) Delete(key string) error {
 	if err != nil || job == nil {
 		return fmt.Errorf("file '%s' not found", key)
 	}
-	if job.State == StateCompleted || job.Placement.NodeID != "" {
+	if (job.State == StateCompleted || job.Placement.NodeID != "") && s.tiers != nil && s.coord != nil {
 		statuses := s.tiers.Resolve(s.coord.GetNodes(), s.resolveUsage())
 		hdd := s.tierByID(statuses, DefaultPolicy.HDDTierID)
 		if err := s.deleteFromWorker(rec, hdd); err != nil {
 			return err
 		}
 	}
+	if s.deleteHandler != nil {
+		s.deleteHandler(key)
+	}
+	_ = s.store.DeleteFileJob(key)
+	_ = s.store.DeleteFileRecord(key)
 	return nil
 }
 

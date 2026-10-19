@@ -72,4 +72,3 @@ func TestMediaMetadataMasterM3U8JSON(t *testing.T) {
 		t.Errorf("expected master_m3u8 in json, got: %s", string(data))
 	}
 }
-
