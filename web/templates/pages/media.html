@@ -45,7 +45,7 @@
                 </div>
             </div>
             <div class="bui-stat-inner">
-                <div class="bui-stat-number tabular-num" id="media-stat-count">0</div>
+                <div class="bui-stat-number tabular-num" id="media-stat-count"><span class="skeleton-shimmer skeleton-text" style="width:36px;height:24px;"></span></div>
                 <div class="bui-stat-sub">Total indexed videos</div>
             </div>
         </div>
@@ -60,7 +60,7 @@
                 </div>
             </div>
             <div class="bui-stat-inner">
-                <div class="bui-stat-number tabular-num" id="media-stat-size">0 B</div>
+                <div class="bui-stat-number tabular-num" id="media-stat-size"><span class="skeleton-shimmer skeleton-text" style="width:54px;height:24px;"></span></div>
                 <div class="bui-stat-sub">Cluster disk usage</div>
             </div>
         </div>
@@ -75,7 +75,7 @@
                 </div>
             </div>
             <div class="bui-stat-inner">
-                <div class="bui-stat-number tabular-num" id="media-stat-ready" style="color:var(--status-online);">0</div>
+                <div class="bui-stat-number tabular-num" id="media-stat-ready" style="color:var(--status-online);"><span class="skeleton-shimmer skeleton-text" style="width:36px;height:24px;"></span></div>
                 <div class="bui-stat-sub">Available for HTTP playback</div>
             </div>
         </div>
@@ -90,7 +90,7 @@
                 </div>
             </div>
             <div class="bui-stat-inner">
-                <div class="bui-stat-number tabular-num" id="media-stat-tasks" style="color:var(--orange-primary);">0</div>
+                <div class="bui-stat-number tabular-num" id="media-stat-tasks" style="color:var(--orange-primary);"><span class="skeleton-shimmer skeleton-text" style="width:36px;height:24px;"></span></div>
                 <div class="bui-stat-sub">Active background jobs</div>
             </div>
         </div>
@@ -153,11 +153,44 @@
                     </tr>
                 </thead>
                 <tbody id="media-table-body">
-                    <!-- Dynamically populated via media.js -->
-                    <tr>
-                        <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                            No media items match your search or filter.
+                    <!-- Skeleton placeholder rows while data resolves -->
+                    <tr class="skeleton-media-row">
+                        <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:12px;">
+                                <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
+                                <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                                    <div class="skeleton-shimmer skeleton-text" style="width:75%;height:14px;"></div>
+                                    <div class="skeleton-shimmer skeleton-text" style="width:40%;height:11px;"></div>
+                                </div>
+                            </div>
                         </td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
+                        <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
+                    </tr>
+                    <tr class="skeleton-media-row">
+                        <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
+                        <td>
+                            <div style="display:flex;align-items:center;gap:12px;">
+                                <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
+                                <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                                    <div class="skeleton-shimmer skeleton-text" style="width:65%;height:14px;"></div>
+                                    <div class="skeleton-shimmer skeleton-text" style="width:35%;height:11px;"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
+                        <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
+                        <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
                     </tr>
                 </tbody>
             </table>
@@ -167,7 +200,7 @@
     <!-- Pagination Footer Controls -->
     <div class="bui-tray-card bui-pagination-tray" style="padding: 10px 16px;">
         <div style="font-size:13px; color:var(--text-secondary);" id="media-pagination-info">
-            Showing 0 to 0 of 0 entries
+            <span class="skeleton-shimmer skeleton-text" style="width:140px;height:13px;"></span>
         </div>
 
         <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">

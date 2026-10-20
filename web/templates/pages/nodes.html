@@ -4,19 +4,19 @@
         <div class="filter-group" role="tablist" aria-label="Node status filters">
             <button class="filter-btn active" data-filter="all" role="tab" aria-selected="true">
                 <span>All Nodes</span>
-                <span class="filter-count-badge" id="count-filter-all">0</span>
+                <span class="filter-count-badge" id="count-filter-all">—</span>
             </button>
             <button class="filter-btn" data-filter="online" role="tab" aria-selected="false">
                 <span>Online</span>
-                <span class="filter-count-badge online" id="count-filter-online">0</span>
+                <span class="filter-count-badge online" id="count-filter-online">—</span>
             </button>
             <button class="filter-btn" data-filter="stale" role="tab" aria-selected="false">
                 <span>Stale</span>
-                <span class="filter-count-badge stale" id="count-filter-stale">0</span>
+                <span class="filter-count-badge stale" id="count-filter-stale">—</span>
             </button>
             <button class="filter-btn" data-filter="offline" role="tab" aria-selected="false">
                 <span>Offline</span>
-                <span class="filter-count-badge offline" id="count-filter-offline">0</span>
+                <span class="filter-count-badge offline" id="count-filter-offline">—</span>
             </button>
         </div>
 
@@ -53,7 +53,7 @@
             </div>
 
             <!-- Total Node Count Pill -->
-            <span class="node-count-pill" id="nodes-total-count">0 Nodes</span>
+            <span class="node-count-pill" id="nodes-total-count">—</span>
 
             <!-- Primary Add VPS Node Button -->
             <button class="btn-add-node" onclick="openAddVPSModal()">
@@ -68,6 +68,31 @@
 
     <!-- Nodes Container -->
     <div class="nodes-container grid-view" id="nodes-full-list">
-        <!-- Injected via JS -->
+        <div class="node-skeleton-card">
+            <div style="display:flex;align-items:center;gap:14px;">
+                <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:12px;flex-shrink:0;"></div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+                    <div class="skeleton-shimmer skeleton-text" style="width:50%;height:16px;"></div>
+                    <div class="skeleton-shimmer skeleton-text" style="width:30%;height:12px;"></div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px;">
+                <div class="skeleton-shimmer" style="height:34px;border-radius:8px;"></div>
+                <div class="skeleton-shimmer" style="height:34px;border-radius:8px;"></div>
+            </div>
+        </div>
+        <div class="node-skeleton-card">
+            <div style="display:flex;align-items:center;gap:14px;">
+                <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:12px;flex-shrink:0;"></div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px;">
+                    <div class="skeleton-shimmer skeleton-text" style="width:45%;height:16px;"></div>
+                    <div class="skeleton-shimmer skeleton-text" style="width:35%;height:12px;"></div>
+                </div>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:12px;margin-top:10px;">
+                <div class="skeleton-shimmer" style="height:34px;border-radius:8px;"></div>
+                <div class="skeleton-shimmer" style="height:34px;border-radius:8px;"></div>
+            </div>
+        </div>
     </div>
 </div>

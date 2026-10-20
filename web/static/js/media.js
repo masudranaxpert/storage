@@ -14,8 +14,21 @@
     let selectedUploadFile = null;
     let lastMediaDataHash = '';
     let isMediaFetching = false;
+    let hasFetchedMediaOnce = false;
     let activeLifecycleTasks = {}; // key -> task object
     let mediaHotMap = {}; // key -> hot file state { score, pinned_tier, pin_until, last_hit_at }
+
+    // Instant Hydration: restore cached media files from sessionStorage
+    try {
+        const rawMedia = sessionStorage.getItem('stream_cached_media');
+        if (rawMedia) {
+            const parsed = JSON.parse(rawMedia);
+            if (parsed && Array.isArray(parsed.files) && parsed.files.length > 0) {
+                mediaList = parsed.files;
+                hasFetchedMediaOnce = true;
+            }
+        }
+    } catch (_) {}
 
     let currentArtPlayer = null;
     let lockstepController = null;
@@ -176,6 +189,14 @@
                 if (timeA !== timeB) return timeB - timeA;
                 return (b.key || '').localeCompare(a.key || '');
             });
+
+            hasFetchedMediaOnce = true;
+            try {
+                sessionStorage.setItem('stream_cached_media', JSON.stringify({
+                    files: files,
+                    timestamp: Date.now()
+                }));
+            } catch (_) {}
 
             updateNodeFilterDropdown();
 
@@ -375,6 +396,49 @@
         container.innerHTML = html;
     }
 
+    function renderSkeletonMediaRows() {
+        return `
+            <tr class="skeleton-media-row">
+                <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
+                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                            <div class="skeleton-shimmer skeleton-text" style="width:75%;height:14px;"></div>
+                            <div class="skeleton-shimmer skeleton-text" style="width:40%;height:11px;"></div>
+                        </div>
+                    </div>
+                </td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
+                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
+            </tr>
+            <tr class="skeleton-media-row">
+                <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
+                <td>
+                    <div style="display:flex;align-items:center;gap:12px;">
+                        <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
+                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
+                            <div class="skeleton-shimmer skeleton-text" style="width:65%;height:14px;"></div>
+                            <div class="skeleton-shimmer skeleton-text" style="width:35%;height:11px;"></div>
+                        </div>
+                    </div>
+                </td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
+                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
+            </tr>
+        `;
+    }
+
     function goToMediaPage(page) {
         mediaCurrentPage = page;
         renderMediaTable();
@@ -395,10 +459,12 @@
             if (m.state === 'downloading' || m.state === 'processing' || m.state === 'transferring' || m.state === 'detected' || m.state === 'awaiting_upload') activeTasksCount++;
         });
 
-        global.safeSetText('media-stat-count', totalCount);
-        global.safeSetText('media-stat-size', global.formatBytes(totalBytes));
-        global.safeSetText('media-stat-ready', readyCount);
-        global.safeSetText('media-stat-tasks', activeTasksCount);
+        if (hasFetchedMediaOnce || totalCount > 0) {
+            global.safeSetText('media-stat-count', totalCount);
+            global.safeSetText('media-stat-size', global.formatBytes(totalBytes));
+            global.safeSetText('media-stat-ready', readyCount);
+            global.safeSetText('media-stat-tasks', activeTasksCount);
+        }
 
         const filtered = mediaList.filter(item => {
             if (mediaFilterStatus !== 'all') {
@@ -469,6 +535,10 @@
         }
 
         if (paginatedItems.length === 0) {
+            if (!hasFetchedMediaOnce && mediaList.length === 0) {
+                tbody.innerHTML = renderSkeletonMediaRows();
+                return;
+            }
             tbody.innerHTML = (global.UI && typeof global.UI.emptyState === 'function')
                 ? global.UI.emptyState({ colspan: 9, padding: '40px', color: 'var(--text-muted)', message: 'No media items match your search or filter.' })
                 : `<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">No media items match your search or filter.</td></tr>`;
@@ -2093,6 +2163,9 @@
 
     function init() {
         destroy();
+        if (mediaList && mediaList.length > 0) {
+            renderMediaTable();
+        }
         fetchMediaList(true).then(() => {
             scheduleNextMediaPoll();
         });
@@ -2149,5 +2222,16 @@
 
     if (global.App && global.App.pages) {
         global.App.pages.media = { init, destroy };
+    }
+
+    // Instant Hydration: if mediaList was restored from cache, render table immediately
+    if (mediaList && mediaList.length > 0) {
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                if (global.currentView === 'media') renderMediaTable();
+            });
+        } else if (global.currentView === 'media') {
+            renderMediaTable();
+        }
     }
 })(window);

@@ -2,6 +2,17 @@
 (function (global) {
     'use strict';
 
+    // Instant Hydration: restore cached telemetry from sessionStorage
+    try {
+        const rawTelemetry = sessionStorage.getItem('stream_cached_telemetry');
+        if (rawTelemetry) {
+            const parsed = JSON.parse(rawTelemetry);
+            if (parsed && Array.isArray(parsed.nodes) && parsed.nodes.length > 0) {
+                global.cachedPoolData = parsed;
+            }
+        }
+    } catch (_) {}
+
     const pageTitles = {
         dashboard: { title: 'Dashboard', sub: '' },
         nodes: { title: 'Nodes', sub: '' },
@@ -239,6 +250,9 @@
 
     function renderAllViews(data) {
         if (!data) return;
+        try {
+            sessionStorage.setItem('stream_cached_telemetry', JSON.stringify(data));
+        } catch (_) {}
         const hdrBadge = document.getElementById('hdr-cluster-status');
         const hdrText = document.getElementById('hdr-cluster-text');
         if (hdrBadge && hdrText) {
@@ -434,7 +448,13 @@
         });
 
         const initialPage = detectInitialPage();
+        if (global.cachedPoolData) {
+            renderAllViews(global.cachedPoolData);
+        }
         navigateTo(initialPage, false);
+
+        // Fetch telemetry immediately for fresh data without waiting on auth sequential chain
+        fetchClusterTelemetry();
 
         // Check authentication state & setup requirement
         checkAuthStatus();

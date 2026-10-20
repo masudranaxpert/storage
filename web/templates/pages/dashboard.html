@@ -7,9 +7,9 @@
                 <span class="hero-status-dot healthy" id="dash-hero-dot"></span>
                 <div>
                     <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-                        <span class="hero-status-label" id="dash-hero-status">Cluster Healthy</span>
-                        <span data-slot="badge" class="ui-badge ui-badge-emerald ui-badge-pill tabular-num" id="dash-hero-nodes">1/1 Nodes</span>
-                        <span data-slot="badge" class="ui-badge ui-badge-neutral ui-badge-rect ui-badge-mono" id="dash-total-drives-badge">0 Drives Active</span>
+                        <span class="hero-status-label" id="dash-hero-status">Cluster Status</span>
+                        <span data-slot="badge" class="ui-badge ui-badge-emerald ui-badge-pill tabular-num" id="dash-hero-nodes">—</span>
+                        <span data-slot="badge" class="ui-badge ui-badge-neutral ui-badge-rect ui-badge-mono" id="dash-total-drives-badge">—</span>
                     </div>
                     <span class="hero-status-sub" id="dash-hero-sub">All nodes reporting real-time gRPC heartbeat telemetry</span>
                 </div>
@@ -39,11 +39,11 @@
             <div class="bui-tray-head">
                 <div class="bui-tray-titles">
                     <span class="bui-tray-eyebrow">Storage Pool</span>
-                    <span class="bui-tray-headline tabular-num" id="dash-stat-storage">0 GB</span>
+                    <span class="bui-tray-headline tabular-num" id="dash-stat-storage"><span class="skeleton-shimmer skeleton-text" style="width:54px;height:24px;"></span></span>
                 </div>
                 <div class="bui-head-chip" id="dash-stat-storage-free-badge">
                     <span class="ui-badge-dot" style="background:#10b981;"></span>
-                    <span id="dash-stat-storage-free-text" class="tabular-num">0 GB Free</span>
+                    <span id="dash-stat-storage-free-text" class="tabular-num">—</span>
                 </div>
             </div>
 
@@ -54,7 +54,7 @@
                         <circle class="ring-fill ring-storage" id="dash-ring-storage" cx="40" cy="40" r="33"></circle>
                     </svg>
                     <div class="ring-center">
-                        <span class="ring-pct tabular-num" id="dash-ring-storage-pct">0%</span>
+                        <span class="ring-pct tabular-num" id="dash-ring-storage-pct">—</span>
                         <span class="ring-cap" id="dash-stat-storage-sub">Used</span>
                     </div>
                 </div>
@@ -67,7 +67,7 @@
                         <span class="bui-metric-label">NVMe Tier 0</span>
                     </div>
                     <div class="bui-metric-right">
-                        <span class="bui-metric-val tabular-num" id="dash-score-nvme-val">0 B</span>
+                        <span class="bui-metric-val tabular-num" id="dash-score-nvme-val">—</span>
                     </div>
                 </div>
                 <div class="bui-metric-row">
@@ -76,7 +76,7 @@
                         <span class="bui-metric-label">SSD Tier 1</span>
                     </div>
                     <div class="bui-metric-right">
-                        <span class="bui-metric-val tabular-num" id="dash-score-ssd-val">0 B</span>
+                        <span class="bui-metric-val tabular-num" id="dash-score-ssd-val">—</span>
                     </div>
                 </div>
                 <div class="bui-metric-row">
@@ -85,7 +85,7 @@
                         <span class="bui-metric-label">HDD Tier 2</span>
                     </div>
                     <div class="bui-metric-right">
-                        <span class="bui-metric-val tabular-num" id="dash-score-hdd-val">0 B</span>
+                        <span class="bui-metric-val tabular-num" id="dash-score-hdd-val">—</span>
                     </div>
                 </div>
             </div>
@@ -96,11 +96,11 @@
             <div class="bui-tray-head">
                 <div class="bui-tray-titles">
                     <span class="bui-tray-eyebrow">Memory Buffer</span>
-                    <span class="bui-tray-headline tabular-num" id="dash-stat-ram">0 GB</span>
+                    <span class="bui-tray-headline tabular-num" id="dash-stat-ram"><span class="skeleton-shimmer skeleton-text" style="width:54px;height:24px;"></span></span>
                 </div>
                 <div class="bui-head-chip" id="dash-stat-ram-free-badge">
                     <span class="ui-badge-dot" style="background:#3b82f6;"></span>
-                    <span id="dash-stat-ram-free-text" class="tabular-num">0 GB Free</span>
+                    <span id="dash-stat-ram-free-text" class="tabular-num">—</span>
                 </div>
             </div>
 
@@ -111,7 +111,7 @@
                         <circle class="ring-fill ring-ram" id="dash-ring-ram" cx="40" cy="40" r="33"></circle>
                     </svg>
                     <div class="ring-center">
-                        <span class="ring-pct tabular-num" id="dash-ring-ram-pct">0%</span>
+                        <span class="ring-pct tabular-num" id="dash-ring-ram-pct">—</span>
                         <span class="ring-cap">Buffer</span>
                     </div>
                 </div>
@@ -124,7 +124,7 @@
                         <span class="bui-metric-label">Available RAM</span>
                     </div>
                     <div class="bui-metric-right">
-                        <span class="bui-metric-val tabular-num" id="dash-score-ram-avail">0 B</span>
+                        <span class="bui-metric-val tabular-num" id="dash-score-ram-avail">—</span>
                     </div>
                 </div>
                 <div class="bui-metric-row">
@@ -133,7 +133,7 @@
                         <span class="bui-metric-label">Active Use</span>
                     </div>
                     <div class="bui-metric-right">
-                        <span class="bui-metric-val tabular-num" id="dash-score-ram-used">0 B</span>
+                        <span class="bui-metric-val tabular-num" id="dash-score-ram-used">—</span>
                     </div>
                 </div>
                 <div class="bui-metric-row">

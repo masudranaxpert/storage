@@ -283,13 +283,26 @@
     transform: translateY(0);
 }
 
-/* Page Visibility */
+/* Page Visibility & Smooth View Transitions */
 .page-view {
     display: none;
+    opacity: 0;
 }
 
 .page-view.active {
     display: block;
+    animation: page-fade-in 0.16s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes page-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(2px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* ==========================================================================
