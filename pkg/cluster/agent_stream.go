@@ -1,6 +1,7 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/hex"
@@ -970,6 +971,29 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	isPlay := (len(parts) == 1 || hasMP4Suffix) &&
+		!strings.Contains(cleanSubPath, "audio_") &&
+		!strings.Contains(cleanSubPath, "sub_") &&
+		!strings.HasSuffix(cleanSubPath, ".vtt") &&
+		!strings.HasSuffix(cleanSubPath, ".m4a")
+
+	if isPlay && mediaID != "" {
+		clientIP := r.Header.Get("CF-Connecting-IP")
+		if clientIP == "" {
+			clientIP = r.Header.Get("X-Forwarded-For")
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+		if idx := strings.Index(clientIP, ","); idx != -1 {
+			clientIP = strings.TrimSpace(clientIP[:idx])
+		}
+		if host, _, err := net.SplitHostPort(clientIP); err == nil {
+			clientIP = host
+		}
+		a.recordPlayHit(mediaID, clientIP)
+	}
+
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 
 	if strings.HasSuffix(targetFilePath, ".mp4") {
@@ -985,5 +1009,56 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, targetFilePath)
+}
 
+var (
+	agentDedupeMu sync.Mutex
+	agentDedupe   = make(map[string]time.Time)
+)
+
+func (a *Agent) recordPlayHit(key, clientIP string) {
+	if a.CoordinatorURL == "" || key == "" {
+		return
+	}
+	dedupeKey := clientIP + ":" + key
+	agentDedupeMu.Lock()
+	last, seen := agentDedupe[dedupeKey]
+	now := time.Now()
+	if seen && now.Sub(last) < 30*time.Minute {
+		agentDedupeMu.Unlock()
+		return
+	}
+	agentDedupe[dedupeKey] = now
+	if len(agentDedupe) > 10000 {
+		for k, t := range agentDedupe {
+			if now.Sub(t) > 30*time.Minute {
+				delete(agentDedupe, k)
+			}
+		}
+	}
+	agentDedupeMu.Unlock()
+
+	go func() {
+		payload, err := json.Marshal(map[string]string{
+			"key":       key,
+			"client_ip": clientIP,
+		})
+		if err != nil {
+			return
+		}
+		coord := strings.TrimRight(a.CoordinatorURL, "/")
+		req, err := http.NewRequest(http.MethodPost, coord+"/api/lifecycle/hit", bytes.NewReader(payload))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if a.Secret != "" {
+			req.Header.Set("Authorization", "Bearer "+a.Secret)
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
 }

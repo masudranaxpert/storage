@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -436,4 +437,36 @@ func (s *Server) handleLifecycleAudit(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"audits": audits,
 	})
+}
+
+func (s *Server) handleRecordHit(w http.ResponseWriter, r *http.Request) {
+	if !s.requireSecret(w, r) {
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		writeJSONErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var payload struct {
+		Key      string `json:"key"`
+		ClientIP string `json:"client_ip"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil || payload.Key == "" {
+		writeJSONErr(w, http.StatusBadRequest, "invalid hit payload")
+		return
+	}
+	clientIP := payload.ClientIP
+	if clientIP == "" {
+		clientIP = r.RemoteAddr
+	}
+	if host, _, err := net.SplitHostPort(clientIP); err == nil {
+		clientIP = host
+	}
+	if s.engine != nil && s.deduper != nil {
+		if s.deduper.ShouldCount(clientIP, payload.Key, time.Now()) {
+			s.engine.RecordHit(payload.Key)
+		}
+	}
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
