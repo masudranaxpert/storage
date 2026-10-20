@@ -176,7 +176,7 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		expStr = r.URL.Query().Get("expires")
 	}
 	secret := adminSecret(s)
-	if token != "" || expStr != "" {
+	if secret != "" && !s.isCallerAuthenticated(r) {
 		if !fileapi.ValidateStreamToken(mediaID, token, expStr, secret) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
@@ -234,6 +234,13 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				if targetURL != "" {
+					if r.URL.RawQuery != "" {
+						if strings.Contains(targetURL, "?") {
+							targetURL += "&" + r.URL.RawQuery
+						} else {
+							targetURL += "?" + r.URL.RawQuery
+						}
+					}
 					isPlay := len(parts) == 1 || strings.HasSuffix(cleanSubPath, ".m3u8") || strings.HasSuffix(cleanSubPath, ".mpd") || strings.HasSuffix(cleanSubPath, ".mp4")
 					if isPlay && s.engine != nil && s.deduper != nil {
 						clientIP := r.RemoteAddr
@@ -348,12 +355,16 @@ func (s *Server) proxyStream(w http.ResponseWriter, r *http.Request, targetURL s
 		Host:   parsedURL.Host,
 	})
 
+	sec := adminSecret(s)
 	proxy.Director = func(req *http.Request) {
 		req.URL.Scheme = parsedURL.Scheme
 		req.URL.Host = parsedURL.Host
 		req.URL.Path = parsedURL.Path
 		req.URL.RawQuery = parsedURL.RawQuery
 		req.Host = parsedURL.Host
+		if sec != "" {
+			req.Header.Set("X-Cluster-Secret", sec)
+		}
 		if r.Header.Get("Range") != "" {
 			req.Header.Set("Range", r.Header.Get("Range"))
 		}

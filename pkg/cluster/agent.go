@@ -1278,6 +1278,23 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			return
 		}
 
+		parts := strings.Split(cleanSubPath, string(filepath.Separator))
+		mediaID := parts[0]
+
+		if a.Secret != "" && !a.verifySecret(r) {
+			token := r.URL.Query().Get("token")
+			expStr := r.URL.Query().Get("exp")
+			if expStr == "" {
+				expStr = r.URL.Query().Get("expires")
+			}
+			if !ValidateStreamToken(mediaID, token, expStr, a.Secret) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
+				return
+			}
+		}
+
 		http.ServeFile(w, r, targetFilePath)
 	}
 

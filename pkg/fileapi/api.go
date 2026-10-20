@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"stream/pkg/media"
 )
 
 // Register mounts the v1 file API on the mux:
@@ -228,7 +230,7 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		s.demandHandler(w, r, key)
 		return
 	}
-	if action == "token" && r.Method == http.MethodGet {
+	if (action == "token" || action == "streams") && r.Method == http.MethodGet {
 		s.handleToken(w, r, key)
 		return
 	}
@@ -595,7 +597,42 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
-// handleToken generates an HMAC-SHA256 signed playback token and URL for anti-leech protection.
+// StreamURLResponse holds the complete multi-track signed playback URLs for modern players.
+type StreamURLResponse struct {
+	Key          string                `json:"key"`
+	Filename     string                `json:"filename,omitempty"`
+	Token        string                `json:"token"`
+	ExpiresAt    int64                 `json:"expires_at"`
+	ExpiresInSec int64                 `json:"expires_in_sec"`
+	VideoURL     string                `json:"video_url"`
+	PlayURL      string                `json:"play_url"`
+	AudioTracks  []StreamAudioTrack    `json:"audio_tracks"`
+	Subtitles    []StreamSubtitleTrack `json:"subtitles"`
+}
+
+type StreamAudioTrack struct {
+	Index         int    `json:"index"`
+	Language      string `json:"language,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Codec         string `json:"codec,omitempty"`
+	Channels      int    `json:"channels,omitempty"`
+	ChannelLayout string `json:"channel_layout,omitempty"`
+	BitrateBps    int64  `json:"bitrate_bps,omitempty"`
+	URL           string `json:"url"`
+	PlayURL       string `json:"play_url"`
+	Embedded      bool   `json:"embedded"`
+}
+
+type StreamSubtitleTrack struct {
+	Index    int    `json:"index"`
+	Language string `json:"language,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Codec    string `json:"codec,omitempty"`
+	URL      string `json:"url"`
+	PlayURL  string `json:"play_url"`
+}
+
+// handleToken generates an HMAC-SHA256 signed playback token and multi-track URLs for anti-leech protection.
 func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string) {
 	duration := 4 * time.Hour
 	if d := r.URL.Query().Get("hours"); d != "" {
@@ -607,10 +644,101 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 	token := GenerateStreamToken(key, exp, s.secret)
 	playURL := fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"key":        key,
-		"token":      token,
-		"expires_at": exp,
-		"play_url":   playURL,
-	})
+	resp := StreamURLResponse{
+		Key:          key,
+		Token:        token,
+		ExpiresAt:    exp,
+		ExpiresInSec: int64(duration.Seconds()),
+		PlayURL:      playURL,
+		VideoURL:     playURL,
+		AudioTracks:  make([]StreamAudioTrack, 0),
+		Subtitles:    make([]StreamSubtitleTrack, 0),
+	}
+
+	if s.store != nil {
+		job, err := s.store.GetFileJob(key)
+		if err == nil && job != nil {
+			directBase := s.StreamURL(job)
+			if directBase != "" {
+				resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
+			}
+
+			if len(job.MetadataJSON) > 0 {
+				var meta media.MediaMetadata
+				if json.Unmarshal(job.MetadataJSON, &meta) == nil {
+					if meta.Filename != "" {
+						resp.Filename = meta.Filename
+					} else if meta.OriginalFilename != "" {
+						resp.Filename = meta.OriginalFilename
+					}
+
+					numAudios := len(meta.AudioTracks)
+					for i, aTrack := range meta.AudioTracks {
+						trackURL := playURL
+						trackPlayURL := playURL
+						embedded := true
+
+						if numAudios > 1 || aTrack.File != "" {
+							file := aTrack.File
+							if file == "" {
+								lang := aTrack.Language
+								if lang == "" {
+									lang = fmt.Sprintf("track_%d", i+1)
+								}
+								file = fmt.Sprintf("audio_%d_%s.m4a", i+1, lang)
+							}
+							trackPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
+							if directBase != "" {
+								trackURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+							} else {
+								trackURL = trackPlayURL
+							}
+							embedded = false
+						} else if directBase != "" {
+							trackURL = resp.VideoURL
+						}
+
+						resp.AudioTracks = append(resp.AudioTracks, StreamAudioTrack{
+							Index:         aTrack.Index,
+							Language:      aTrack.Language,
+							Title:         aTrack.Title,
+							Codec:         aTrack.Codec,
+							Channels:      aTrack.Channels,
+							ChannelLayout: aTrack.ChannelLayout,
+							BitrateBps:    aTrack.BitrateBps,
+							URL:           trackURL,
+							PlayURL:       trackPlayURL,
+							Embedded:      embedded,
+						})
+					}
+
+					for i, sTrack := range meta.Subtitles {
+						file := sTrack.File
+						if file == "" {
+							lang := sTrack.Language
+							if lang == "" {
+								lang = fmt.Sprintf("sub_%d", i+1)
+							}
+							file = fmt.Sprintf("subtitle_%d_%s.vtt", i+1, lang)
+						}
+						subPlayURL := fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
+						subURL := subPlayURL
+						if directBase != "" {
+							subURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+						}
+						resp.Subtitles = append(resp.Subtitles, StreamSubtitleTrack{
+							Index:    sTrack.Index,
+							Language: sTrack.Language,
+							Title:    sTrack.Title,
+							Codec:    sTrack.Codec,
+							URL:      subURL,
+							PlayURL:  subPlayURL,
+						})
+					}
+				}
+			}
+		}
+	}
+
+	json.NewEncoder(w).Encode(resp)
 }

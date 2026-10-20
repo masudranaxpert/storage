@@ -3,6 +3,7 @@ package web
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -393,8 +394,21 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 		t.Fatalf("expected pinned_tier cleared, got %+v", normalResp.PinnedTier)
 	}
 
-	// 6. Streaming redirect play counting & deduplication
-	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8", nil)
+	// 6. Streaming redirect: unauthenticated request without token must return 403 Forbidden
+	unauthReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8", nil)
+	unauthReq.RemoteAddr = "203.0.113.50:54321"
+	unauthRec := httptest.NewRecorder()
+	handler.ServeHTTP(unauthRec, unauthReq)
+	if unauthRec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 forbidden without stream token, got %d", unauthRec.Code)
+	}
+
+	// Signed stream playback with valid 4h HMAC token -> 307 redirect + hit counting
+	exp := time.Now().Add(4 * time.Hour).Unix()
+	tok := fileapi.GenerateStreamToken(testKey, exp, "test-secret")
+	tokenQuery := fmt.Sprintf("?token=%s&exp=%d", tok, exp)
+
+	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
 	playReq1.RemoteAddr = "203.0.113.50:54321"
 	playRec1 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec1, playReq1)
@@ -406,7 +420,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// Second play from same client IP within 30m -> deduped, pending hits stays 1
-	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8", nil)
+	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
 	playReq2.RemoteAddr = "203.0.113.50:54322" // same IP host
 	playRec2 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec2, playReq2)
@@ -418,7 +432,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// Subsegment request (.m4s) -> must NOT count as a play
-	segReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/chunk_01.m4s", nil)
+	segReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/chunk_01.m4s"+tokenQuery, nil)
 	segReq.RemoteAddr = "203.0.113.99:12345" // new IP
 	segRec := httptest.NewRecorder()
 	handler.ServeHTTP(segRec, segReq)
