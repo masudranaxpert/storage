@@ -22,6 +22,9 @@ func (s *Server) UsageCacheStats() cache.Snapshot {
 
 // handleSystemCache reports the in-memory cache budget and live per-cache usage.
 func (s *Server) handleSystemCache(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	caches, total := cache.Default.Snapshot()
 	pct := 0.0

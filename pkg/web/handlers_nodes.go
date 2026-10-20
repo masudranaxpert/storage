@@ -94,20 +94,24 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.coord.GetNodes())
 }
 
 func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s.coord.GetPoolSummary())
 }
 
 func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		if !s.requireAdmin(w, r) {
-			return
-		}
+	if !s.requireAdmin(w, r) {
+		return
 	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/nodes/")
 	w.Header().Set("Content-Type", "application/json")
@@ -241,6 +245,201 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 	nodeID := parts[0]
 	action := parts[1]
+
+	if action == "restart" && r.Method == http.MethodPost {
+		var payload struct {
+			SSHPassword string `json:"ssh_password,omitempty"`
+			SSHUser     string `json:"ssh_user,omitempty"`
+			SSHHost     string `json:"ssh_host,omitempty"`
+			SSHPort     int    `json:"ssh_port,omitempty"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+
+		var cfg *db.NodeConfig
+		if s.store != nil {
+			cfg, _ = s.store.GetNodeConfig(nodeID)
+		}
+		if cfg == nil {
+			cfg = &db.NodeConfig{NodeID: nodeID}
+		}
+
+		if payload.SSHPassword != "" {
+			cfg.SSHPassword = payload.SSHPassword
+		}
+		if payload.SSHUser != "" {
+			cfg.SSHUser = payload.SSHUser
+		}
+		if payload.SSHHost != "" {
+			cfg.SSHHost = payload.SSHHost
+		}
+		if payload.SSHPort > 0 {
+			cfg.SSHPort = payload.SSHPort
+		}
+		if cfg.SSHHost == "" {
+			for _, n := range s.coord.GetNodes() {
+				if n.Metrics.NodeID == nodeID {
+					for _, ip := range n.Metrics.IPs {
+						if ip != "" && ip != "127.0.0.1" && !strings.HasPrefix(ip, "172.") {
+							cfg.SSHHost = ip
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+		if cfg.SSHUser == "" {
+			cfg.SSHUser = "root"
+		}
+		if cfg.SSHPort == 0 {
+			cfg.SSHPort = 22
+		}
+
+		if cfg.SSHHost == "" || cfg.SSHPassword == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":     "SSH Host and Password are required to restart the remote agent.",
+				"needs_ssh": true,
+			})
+			return
+		}
+
+		req := provision.Request{
+			Host:     cfg.SSHHost,
+			Port:     cfg.SSHPort,
+			User:     cfg.SSHUser,
+			Password: cfg.SSHPassword,
+			UseSudo:  cfg.SSHUseSudo,
+			NodeName: cfg.NodeID,
+		}
+
+		if err := provision.RestartServiceOverSSH(r.Context(), req); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": fmt.Sprintf("Failed to restart remote agent over SSH: %v", err),
+			})
+			return
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ok",
+			"message": fmt.Sprintf("Remote agent '%s' on %s restarted successfully", nodeID, cfg.SSHHost),
+		})
+		return
+	}
+
+	if action == "redeploy" && r.Method == http.MethodPost {
+		var payload struct {
+			SSHPassword    string `json:"ssh_password,omitempty"`
+			SSHUser        string `json:"ssh_user,omitempty"`
+			SSHHost        string `json:"ssh_host,omitempty"`
+			SSHPort        int    `json:"ssh_port,omitempty"`
+			CoordinatorURL string `json:"coordinator_url,omitempty"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+
+		var cfg *db.NodeConfig
+		if s.store != nil {
+			cfg, _ = s.store.GetNodeConfig(nodeID)
+		}
+		if cfg == nil {
+			cfg = &db.NodeConfig{NodeID: nodeID}
+		}
+
+		if payload.SSHPassword != "" {
+			cfg.SSHPassword = payload.SSHPassword
+		}
+		if payload.SSHUser != "" {
+			cfg.SSHUser = payload.SSHUser
+		}
+		if payload.SSHHost != "" {
+			cfg.SSHHost = payload.SSHHost
+		}
+		if payload.SSHPort > 0 {
+			cfg.SSHPort = payload.SSHPort
+		}
+		if payload.CoordinatorURL != "" {
+			cfg.CoordinatorURL = payload.CoordinatorURL
+		}
+		if cfg.CoordinatorURL == "" {
+			scheme := "http"
+			if r.TLS != nil {
+				scheme = "https"
+			}
+			cfg.CoordinatorURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+		}
+		if cfg.SSHHost == "" {
+			for _, n := range s.coord.GetNodes() {
+				if n.Metrics.NodeID == nodeID {
+					for _, ip := range n.Metrics.IPs {
+						if ip != "" && ip != "127.0.0.1" && !strings.HasPrefix(ip, "172.") {
+							cfg.SSHHost = ip
+							break
+						}
+					}
+					break
+				}
+			}
+		}
+		if cfg.SSHUser == "" {
+			cfg.SSHUser = "root"
+		}
+		if cfg.SSHPort == 0 {
+			cfg.SSHPort = 22
+		}
+
+		if cfg.SSHHost == "" || cfg.SSHPassword == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":     "SSH Host and Password are required to redeploy the remote agent.",
+				"needs_ssh": true,
+			})
+			return
+		}
+
+		secret := ""
+		if s.hub != nil {
+			secret = s.hub.Secret()
+		}
+
+		grpcTarget := ""
+		if s.hub != nil && s.hub.Port() > 0 {
+			if u, err := url.Parse(cfg.CoordinatorURL); err == nil && u.Hostname() != "" {
+				grpcTarget = fmt.Sprintf("%s:%d", u.Hostname(), s.hub.Port())
+			}
+		}
+
+		req := provision.Request{
+			Host:           cfg.SSHHost,
+			Port:           cfg.SSHPort,
+			User:           cfg.SSHUser,
+			Password:       cfg.SSHPassword,
+			UseSudo:        cfg.SSHUseSudo,
+			NodeName:       cfg.NodeID,
+			CoordinatorURL: cfg.CoordinatorURL,
+			GRPCTarget:     grpcTarget,
+			QuotaBytes:     cfg.AllocatedMaxBytes,
+			Secret:         secret,
+		}
+
+		if err := provision.UpdateServiceOverSSH(r.Context(), req); err != nil {
+			w.WriteHeader(http.StatusBadGateway)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error": fmt.Sprintf("Failed to redeploy remote agent over SSH: %v", err),
+			})
+			return
+		}
+
+		if s.store != nil {
+			_ = s.store.SaveNodeConfig(cfg)
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":  "ok",
+			"message": fmt.Sprintf("Remote agent '%s' on %s reconfigured and reconnected successfully", nodeID, cfg.SSHHost),
+		})
+		return
+	}
 
 	if action == "config" && r.Method == http.MethodGet {
 		if s.store != nil {
@@ -706,6 +905,10 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !s.requireAdmin(w, r) {
 		return
 	}
 

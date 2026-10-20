@@ -18,6 +18,9 @@ import (
 )
 
 func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	nodes := s.coord.GetNodes()
 
@@ -393,6 +396,9 @@ func (s *Server) handleProcessing(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDriveEligibility(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -455,6 +461,9 @@ func (s *Server) handleDriveEligibility(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) handleTiers(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	path := strings.TrimPrefix(r.URL.Path, "/api/tiers")
 	path = strings.Trim(path, "/")
 	w.Header().Set("Content-Type", "application/json")

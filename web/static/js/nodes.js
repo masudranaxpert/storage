@@ -140,6 +140,13 @@
                         </button>
 
                         ${!m.node_id.includes('(master)') ? `
+                        <button class="node-btn-action node-btn-icon btn-restart" id="btn-restart-${global.escapeHtml(m.node_id)}" onclick="event.stopPropagation(); restartNodeAgent('${global.escapeHtml(m.node_id)}', this)" title="Restart stream-agent daemon via SSH" aria-label="Restart stream-agent">
+                            <svg class="restart-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                            </svg>
+                        </button>` : ''}
+
+                        ${!m.node_id.includes('(master)') ? `
                         <button class="node-btn-action node-btn-icon danger" onclick="event.stopPropagation(); openDeleteNodeModal('${global.escapeHtml(m.node_id)}')" title="Remove node from cluster" aria-label="Remove node from cluster">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -154,6 +161,22 @@
                         </button>
                     </div>
                 </div>
+
+                ${status === 'offline' && !m.node_id.includes('(master)') ? `
+                <div class="node-offline-recovery-bar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px;background:rgba(239,68,68,0.08);border-bottom:1px solid rgba(239,68,68,0.18);font-size:12px;">
+                    <span style="color:var(--status-offline);font-weight:600;display:inline-flex;align-items:center;gap:6px;">
+                        <span style="width:7px;height:7px;border-radius:50%;background:var(--status-offline);display:inline-block;"></span>
+                        Node is currently offline
+                    </span>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                        <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); restartNodeAgent('${global.escapeHtml(m.node_id)}', this)" style="height:26px;font-size:11.5px;padding:0 10px;border-radius:var(--radius-sm);cursor:pointer;">
+                            Restart Agent
+                        </button>
+                        <button class="btn btn-xs btn-primary" onclick="event.stopPropagation(); redeployNodeAgent('${global.escapeHtml(m.node_id)}', this)" style="height:26px;font-size:11.5px;padding:0 10px;border-radius:var(--radius-sm);cursor:pointer;">
+                            Redeploy / Reconnect
+                        </button>
+                    </div>
+                </div>` : ''}
 
                 <div class="node-metrics-bar">
                     <div class="node-metric-cell">
@@ -367,6 +390,182 @@
                 btnElement.disabled = false;
                 btnElement.classList.remove('scanning');
             }
+        }
+    }
+
+    async function restartNodeAgent(nodeId, btnElement) {
+        if (!btnElement) btnElement = document.getElementById(`btn-restart-${nodeId}`);
+        const origHtml = btnElement ? btnElement.innerHTML : '';
+        if (btnElement) {
+            btnElement.disabled = true;
+            btnElement.innerHTML = `
+                <svg class="spin-fast" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+            `;
+        }
+
+        try {
+            const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/restart`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            });
+            const data = await res.json().catch(() => ({}));
+
+            if (res.ok) {
+                global.showToast(data.message || 'Remote agent restarted successfully', 'success');
+                setTimeout(() => global.fetchClusterTelemetry(), 1500);
+            } else if (data.needs_ssh) {
+                global.showToast('Please provide SSH credentials in Node Settings to manage this VPS', 'warning');
+                openNodeDetail(nodeId);
+            } else {
+                global.showToast(data.error || 'Failed to restart agent over SSH', 'error');
+            }
+        } catch (e) {
+            global.showToast('Network error while restarting agent: ' + e.message, 'error');
+        } finally {
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = origHtml;
+            }
+        }
+    }
+
+    async function redeployNodeAgent(nodeId, btnElement) {
+        const origHtml = btnElement ? btnElement.innerHTML : '';
+        if (btnElement) {
+            btnElement.disabled = true;
+            btnElement.innerHTML = `
+                <svg class="spin-fast" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                </svg>
+            `;
+        }
+
+        try {
+            const coordUrl = `${window.location.protocol}//${window.location.host}`;
+            const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/redeploy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ coordinator_url: coordUrl })
+            });
+            const data = await res.json().catch(() => ({}));
+
+            if (res.ok) {
+                global.showToast(data.message || 'Remote agent reconfigured & reconnected successfully', 'success');
+                setTimeout(() => global.fetchClusterTelemetry(), 1500);
+            } else if (data.needs_ssh) {
+                global.showToast('Please provide SSH credentials in Node Settings to redeploy this VPS', 'warning');
+                openNodeDetail(nodeId);
+            } else {
+                global.showToast(data.error || 'Failed to redeploy agent over SSH', 'error');
+            }
+        } catch (e) {
+            global.showToast('Network error while redeploying agent: ' + e.message, 'error');
+        } finally {
+            if (btnElement) {
+                btnElement.disabled = false;
+                btnElement.innerHTML = origHtml;
+            }
+        }
+    }
+
+    async function handleModalRestartAgent() {
+        if (!activeSelectedNode) return;
+        const nodeId = activeSelectedNode.metrics.node_id;
+        const btn = document.getElementById('btn-modal-restart-agent');
+        const textSpan = document.getElementById('btn-modal-restart-text');
+        const sshHost = document.getElementById('modal-edit-ssh-host')?.value?.trim();
+        const sshPort = parseInt(document.getElementById('modal-edit-ssh-port')?.value, 10) || 22;
+        const sshUser = document.getElementById('modal-edit-ssh-user')?.value?.trim() || 'root';
+        const sshPassword = document.getElementById('modal-edit-ssh-password')?.value;
+
+        if (btn) btn.disabled = true;
+        if (textSpan) textSpan.innerText = 'Restarting...';
+
+        try {
+            const payload = {
+                ssh_host: sshHost,
+                ssh_port: sshPort,
+                ssh_user: sshUser
+            };
+            if (sshPassword) payload.ssh_password = sshPassword;
+
+            const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/restart`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+
+            if (res.ok) {
+                if (textSpan) textSpan.innerText = 'Restarted ✓';
+                global.showToast(data.message || 'Remote agent restarted successfully', 'success');
+                setTimeout(() => global.fetchClusterTelemetry(), 1500);
+                setTimeout(() => {
+                    if (textSpan) textSpan.innerText = 'Restart Agent';
+                    if (btn) btn.disabled = false;
+                }, 2500);
+            } else {
+                if (textSpan) textSpan.innerText = 'Restart Failed';
+                global.showToast(data.error || 'Failed to restart agent', 'error');
+                if (btn) btn.disabled = false;
+            }
+        } catch (e) {
+            if (textSpan) textSpan.innerText = 'Error';
+            global.showToast('Network error: ' + e.message, 'error');
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function handleModalRedeployAgent() {
+        if (!activeSelectedNode) return;
+        const nodeId = activeSelectedNode.metrics.node_id;
+        const btn = document.getElementById('btn-modal-redeploy-agent');
+        const textSpan = document.getElementById('btn-modal-redeploy-text');
+        const coordUrl = document.getElementById('modal-edit-coord-url')?.value?.trim() || `${window.location.protocol}//${window.location.host}`;
+        const sshHost = document.getElementById('modal-edit-ssh-host')?.value?.trim();
+        const sshPort = parseInt(document.getElementById('modal-edit-ssh-port')?.value, 10) || 22;
+        const sshUser = document.getElementById('modal-edit-ssh-user')?.value?.trim() || 'root';
+        const sshPassword = document.getElementById('modal-edit-ssh-password')?.value;
+
+        if (btn) btn.disabled = true;
+        if (textSpan) textSpan.innerText = 'Redeploying...';
+
+        try {
+            const payload = {
+                coordinator_url: coordUrl,
+                ssh_host: sshHost,
+                ssh_port: sshPort,
+                ssh_user: sshUser
+            };
+            if (sshPassword) payload.ssh_password = sshPassword;
+
+            const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/redeploy`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json().catch(() => ({}));
+
+            if (res.ok) {
+                if (textSpan) textSpan.innerText = 'Reconnected ✓';
+                global.showToast(data.message || 'Remote agent reconfigured & reconnected successfully', 'success');
+                setTimeout(() => global.fetchClusterTelemetry(), 1500);
+                setTimeout(() => {
+                    if (textSpan) textSpan.innerText = 'Redeploy / Reconnect';
+                    if (btn) btn.disabled = false;
+                }, 2500);
+            } else {
+                if (textSpan) textSpan.innerText = 'Redeploy Failed';
+                global.showToast(data.error || 'Failed to redeploy agent', 'error');
+                if (btn) btn.disabled = false;
+            }
+        } catch (e) {
+            if (textSpan) textSpan.innerText = 'Error';
+            global.showToast('Network error: ' + e.message, 'error');
+            if (btn) btn.disabled = false;
         }
     }
 
@@ -1231,6 +1430,10 @@
     global.closeDeleteNodeModal = closeDeleteNodeModal;
     global.executeDecommissionNode = executeDecommissionNode;
     global.toggleDeleteNodeMode = toggleDeleteNodeMode;
+    global.restartNodeAgent = restartNodeAgent;
+    global.redeployNodeAgent = redeployNodeAgent;
+    global.handleModalRestartAgent = handleModalRestartAgent;
+    global.handleModalRedeployAgent = handleModalRedeployAgent;
 
     if (global.App && global.App.pages) {
         global.App.pages.nodes = { init, destroy, render: renderNodes };

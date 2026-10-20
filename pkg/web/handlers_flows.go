@@ -15,6 +15,9 @@ import (
 )
 
 func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 
 	if r.Method == http.MethodGet {
@@ -88,6 +91,9 @@ func (s *Server) handleFlows(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFlowsSimulate(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -171,6 +177,9 @@ func (s *Server) computeTierFlowStats(policy lifecycle.FlowPolicy, tiers []stora
 }
 
 func (s *Server) handleLifecycleTasks(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
@@ -291,6 +300,9 @@ func (s *Server) handleFileMove(w http.ResponseWriter, r *http.Request, key stri
 }
 
 func (s *Server) handleFlowsPreview(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method == http.MethodGet {
 		res := s.engine.Preview()
@@ -311,6 +323,9 @@ func (s *Server) handleFlowsPreview(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLifecycleHot(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		writeJSONErr(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -333,6 +348,9 @@ func (s *Server) handleLifecycleHot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleFilePlacement(w http.ResponseWriter, r *http.Request, key string) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	if r.Method != http.MethodGet {
 		writeJSONErr(w, http.StatusMethodNotAllowed, "method not allowed")

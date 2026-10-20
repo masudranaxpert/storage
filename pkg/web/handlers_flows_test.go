@@ -39,6 +39,7 @@ func TestFlowAndTierLifecycleEndpoints(t *testing.T) {
 
 	// 1. GET /api/flows returns default policy and tiers with lifecycle
 	reqGet := httptest.NewRequest(http.MethodGet, "/api/flows", nil)
+	reqGet.Header.Set("X-Cluster-Secret", "test-secret")
 	recGet := httptest.NewRecorder()
 	handler.ServeHTTP(recGet, reqGet)
 	if recGet.Code != http.StatusOK {
@@ -130,6 +131,7 @@ func TestFlowAndTierLifecycleEndpoints(t *testing.T) {
 
 	// 7. GET /api/flows/simulate fits (200) and exceeds capacity (507)
 	reqSimOK := httptest.NewRequest(http.MethodGet, "/api/flows/simulate?size_bytes=1073741824", nil)
+	reqSimOK.Header.Set("X-Cluster-Secret", "test-secret")
 	recSimOK := httptest.NewRecorder()
 	handler.ServeHTTP(recSimOK, reqSimOK)
 	if recSimOK.Code != http.StatusOK {
@@ -137,6 +139,7 @@ func TestFlowAndTierLifecycleEndpoints(t *testing.T) {
 	}
 
 	reqSimFull := httptest.NewRequest(http.MethodGet, "/api/flows/simulate?size_bytes=107374182400", nil)
+	reqSimFull.Header.Set("X-Cluster-Secret", "test-secret")
 	recSimFull := httptest.NewRecorder()
 	handler.ServeHTTP(recSimFull, reqSimFull)
 	if recSimFull.Code != http.StatusInsufficientStorage {
@@ -219,6 +222,7 @@ func TestLifecycleTasksAndFileMoveEndpoints(t *testing.T) {
 
 	// 3. GET /api/lifecycle/tasks?state=active returns the queued task
 	listReq := httptest.NewRequest(http.MethodGet, "/api/lifecycle/tasks?state=active", nil)
+	listReq.Header.Set("X-Cluster-Secret", "test-secret")
 	listRec := httptest.NewRecorder()
 	handler.ServeHTTP(listRec, listReq)
 	if listRec.Code != http.StatusOK {
@@ -316,6 +320,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 
 	// 1. GET /api/flows/preview returns 200 OK
 	previewReq := httptest.NewRequest(http.MethodGet, "/api/flows/preview", nil)
+	previewReq.Header.Set("X-Cluster-Secret", "test-secret")
 	previewRec := httptest.NewRecorder()
 	handler.ServeHTTP(previewRec, previewReq)
 	if previewRec.Code != http.StatusOK {
@@ -331,6 +336,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 
 	// 2. GET /api/v1/files/{key}/placement returns placement view
 	placeReq := httptest.NewRequest(http.MethodGet, "/api/v1/files/"+testKey+"/placement", nil)
+	placeReq.Header.Set("X-Cluster-Secret", "test-secret")
 	placeRec := httptest.NewRecorder()
 	handler.ServeHTTP(placeRec, placeReq)
 	if placeRec.Code != http.StatusOK {

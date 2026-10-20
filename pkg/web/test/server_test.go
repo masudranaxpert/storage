@@ -339,3 +339,66 @@ func TestRequireAdmin(t *testing.T) {
 		t.Fatalf("tampered stream_admin cookie must return 401, got %d", recBadCookie.Code)
 	}
 }
+
+func TestNodeSecurityAndRemoteActions(t *testing.T) {
+	testDir := filepath.Join(os.TempDir(), "stream_node_sec_test_db")
+	os.RemoveAll(testDir)
+	defer os.RemoveAll(testDir)
+
+	store, err := db.Open(testDir)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	defer store.Close()
+
+	// 1. Create an admin user so the system is locked down
+	_, err = store.CreateUser("admin", "AdminPass123!")
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	session, err := store.CreateSession("admin", 24*time.Hour)
+	if err != nil {
+		t.Fatalf("failed to create session: %v", err)
+	}
+
+	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, store)
+	hub := cluster.NewGRPCHub(coord, store, "")
+	tiers := storage.NewManager(store)
+	srv := web.NewServer(":0", coord, hub, store, tiers, "../../../web/static", "../../../web/templates")
+	handler := srv.Handler()
+
+	// 2. Unauthenticated GET /api/nodes from external IP must return 401
+	reqUnauth := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	reqUnauth.RemoteAddr = "203.0.113.88:12345"
+	recUnauth := httptest.NewRecorder()
+	handler.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated GET /api/nodes must return 401, got %d", recUnauth.Code)
+	}
+
+	// 3. Authenticated GET /api/nodes with session cookie must return 200
+	reqAuth := httptest.NewRequest(http.MethodGet, "/api/nodes", nil)
+	reqAuth.RemoteAddr = "203.0.113.88:12345"
+	reqAuth.AddCookie(&http.Cookie{Name: "stream_session", Value: session.Token})
+	recAuth := httptest.NewRecorder()
+	handler.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Fatalf("authenticated GET /api/nodes must return 200, got %d", recAuth.Code)
+	}
+
+	// 4. Authenticated POST /api/nodes/vps-test/restart without SSH info returns 400 with needs_ssh
+	reqRestart := httptest.NewRequest(http.MethodPost, "/api/nodes/vps-test/restart", bytes.NewReader([]byte(`{}`)))
+	reqRestart.RemoteAddr = "203.0.113.88:12345"
+	reqRestart.AddCookie(&http.Cookie{Name: "stream_session", Value: session.Token})
+	recRestart := httptest.NewRecorder()
+	handler.ServeHTTP(recRestart, reqRestart)
+	if recRestart.Code != http.StatusBadRequest {
+		t.Fatalf("restart without SSH credentials must return 400, got %d", recRestart.Code)
+	}
+	var restartResp map[string]interface{}
+	if err := json.Unmarshal(recRestart.Body.Bytes(), &restartResp); err != nil || restartResp["needs_ssh"] != true {
+		t.Fatalf("expected needs_ssh: true in restart response, got %s", recRestart.Body.String())
+	}
+}
+

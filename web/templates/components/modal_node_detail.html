@@ -97,6 +97,22 @@
                             <span>Use Sudo Elevation (for non-root SSH user)</span>
                         </label>
                     </div>
+                    <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;align-items:center;">
+                        <button type="button" id="btn-modal-restart-agent" class="btn btn-secondary" onclick="handleModalRestartAgent()" style="font-size:12px;height:34px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                            </svg>
+                            <span id="btn-modal-restart-text">Restart Agent</span>
+                        </button>
+                        <button type="button" id="btn-modal-redeploy-agent" class="btn btn-secondary" onclick="handleModalRedeployAgent()" style="font-size:12px;height:34px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+                                <path d="M12 12v9"/>
+                                <path d="m16 16-4-4-4 4"/>
+                            </svg>
+                            <span id="btn-modal-redeploy-text">Redeploy / Reconnect</span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- Group 4: Hardware Specs (Read-Only Reference) -->

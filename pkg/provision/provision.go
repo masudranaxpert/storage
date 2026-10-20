@@ -496,11 +496,52 @@ WantedBy=multi-user.target
 		return fmt.Errorf("failed to update systemd unit: %w", err)
 	}
 
-	startCmd := "systemctl daemon-reload && systemctl restart stream-agent"
+	startCmd := "ln -sf /opt/stream/bin/stream /usr/local/bin/stream 2>/dev/null || true; systemctl daemon-reload && (systemctl enable stream-agent 2>/dev/null || true) && systemctl restart stream-agent"
 	if out, err := runRemote(client, startCmd, req.User, req.Password, req.UseSudo); err != nil {
 		return fmt.Errorf("failed to restart stream-agent: %w (%s)", err, out)
 	}
 
+	return nil
+}
+
+// RestartServiceOverSSH connects via SSH and restarts the stream-agent daemon.
+func RestartServiceOverSSH(ctx context.Context, req Request) error {
+	port := req.Port
+	if port <= 0 {
+		port = 22
+	}
+	addr := req.Host
+	if !strings.Contains(addr, ":") {
+		addr = fmt.Sprintf("%s:%d", addr, port)
+	}
+
+	var authMethods []ssh.AuthMethod
+	if req.Password != "" {
+		authMethods = append(authMethods, ssh.Password(req.Password))
+	}
+	if req.PrivateKey != "" {
+		if signer, err := ssh.ParsePrivateKey([]byte(req.PrivateKey)); err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+		}
+	}
+
+	config := &ssh.ClientConfig{
+		User:            req.User,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         15 * time.Second,
+	}
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return fmt.Errorf("ssh dial failed: %w", err)
+	}
+	defer client.Close()
+
+	startCmd := "systemctl restart stream-agent"
+	if out, err := runRemote(client, startCmd, req.User, req.Password, req.UseSudo); err != nil {
+		return fmt.Errorf("failed to restart stream-agent: %w (%s)", err, out)
+	}
 	return nil
 }
 
