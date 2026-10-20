@@ -573,7 +573,7 @@
             `</div>` +
             `<div class="fl-insp-foot">` +
             `<button type="button" class="fl-btn is-danger-ghost" data-action="delete-edge">${ICON.trash}<span>Delete rule</span></button>` +
-            `<button type="button" class="fl-btn is-ghost is-small" data-action="open-docs" title="বাংলা নির্দেশিকা দেখুন">গাইড (Docs)</button>` +
+            `<button type="button" class="fl-btn is-ghost is-small" data-action="open-docs" title="Documentation">Docs</button>` +
             `<span class="fl-foot-note">Changes stay in the draft until you save.</span></div>`;
     }
 

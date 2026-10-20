@@ -432,8 +432,11 @@ function renderTiers(force = false) {
                                 placeholder="e.g. cdn1.streammesh.com or https://cdn1.streammesh.com:2053"
                                 value="${escapeHtml(liveHost)}"
                                 oninput="onInputChange('${hostInputId}', this.value)"
+                                onkeydown="if(event.key==='Enter') saveTier(${t.id}, this.nextElementSibling)"
                                 autocomplete="off" spellcheck="false">
-                            <button class="btn btn-secondary btn-sm" onclick="saveTier(${t.id})" style="padding:2px 8px;font-size:11px;">Save</button>
+                            <button type="button" class="btn btn-primary btn-sm block-cdn-save-btn" onclick="saveTier(${t.id}, this)">
+                                <span>Save</span>
+                            </button>
                         </div>
                     </div>
                 </div>`;
@@ -628,9 +631,16 @@ function renderTiers(force = false) {
     }
 }
 
-async function saveTier(id) {
+async function saveTier(id, triggerBtn) {
     const t = currentTierById(id);
     if (!t) return;
+
+    let originalBtnHtml = '';
+    if (triggerBtn) {
+        triggerBtn.disabled = true;
+        originalBtnHtml = triggerBtn.innerHTML;
+        triggerBtn.innerHTML = '<span>Saving...</span>';
+    }
 
     const payload = tierPayloadFromStatus(t);
     document.querySelectorAll(`[id^="tier-${id}-block-"][id$="-quota"]`).forEach(input => {
@@ -660,6 +670,18 @@ async function saveTier(id) {
         });
         const btn = document.getElementById(`btn-save-tier-${id}`);
         if (btn) btn.classList.remove('has-changes');
+        if (triggerBtn) {
+            triggerBtn.innerHTML = '<span>Saved ✓</span>';
+            setTimeout(() => {
+                triggerBtn.disabled = false;
+                triggerBtn.innerHTML = originalBtnHtml;
+            }, 1200);
+        }
+    } else {
+        if (triggerBtn) {
+            triggerBtn.disabled = false;
+            triggerBtn.innerHTML = originalBtnHtml;
+        }
     }
 }
 

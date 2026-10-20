@@ -1297,19 +1297,48 @@
 .cdn-drawer-input {
     flex: 1;
     min-width: 0;
-    padding: 6px 10px;
+    height: 32px;
+    padding: 0 10px;
     border-radius: var(--radius-sm);
     border: 1px solid var(--border-light);
     background: var(--bg-body);
     color: var(--text-primary);
     font-size: 12px;
     font-family: 'JetBrains Mono', monospace;
+    box-sizing: border-box;
 }
 
 .cdn-drawer-input:focus {
     outline: none;
     border-color: var(--orange-primary);
     box-shadow: 0 0 0 3px var(--orange-glow);
+}
+
+.block-cdn-save-btn {
+    height: 32px;
+    padding: 0 14px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    flex-shrink: 0;
+    box-sizing: border-box;
+    cursor: pointer;
+    background: var(--orange-primary);
+    color: #ffffff;
+    border: 1px solid transparent;
+    transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.block-cdn-save-btn:hover {
+    background: var(--orange-dark, #ea580c);
+}
+
+.block-cdn-save-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
 }
 
 .tier-attach-drawer {
