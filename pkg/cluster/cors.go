@@ -16,12 +16,40 @@ func MatchCORSOrigin(allowedOrigins, requestOrigin string) string {
 		return "*"
 	}
 	reqNorm := strings.ToLower(strings.TrimRight(requestOrigin, "/"))
+	reqHost := reqNorm
+	if idx := strings.Index(reqHost, "://"); idx != -1 {
+		reqHost = reqHost[idx+3:]
+	}
+	if idx := strings.Index(reqHost, "/"); idx != -1 {
+		reqHost = reqHost[:idx]
+	}
+	if idx := strings.Index(reqHost, ":"); idx != -1 {
+		reqHost = reqHost[:idx]
+	}
+
 	for _, raw := range strings.Split(allowedOrigins, ",") {
 		o := strings.TrimSpace(raw)
 		if o == "*" {
 			return requestOrigin
 		}
-		if o != "" && strings.ToLower(strings.TrimRight(o, "/")) == reqNorm {
+		if o == "" {
+			continue
+		}
+		oNorm := strings.ToLower(strings.TrimRight(o, "/"))
+		if oNorm == reqNorm {
+			return requestOrigin
+		}
+		oHost := oNorm
+		if idx := strings.Index(oHost, "://"); idx != -1 {
+			oHost = oHost[idx+3:]
+		}
+		if idx := strings.Index(oHost, "/"); idx != -1 {
+			oHost = oHost[:idx]
+		}
+		if idx := strings.Index(oHost, ":"); idx != -1 {
+			oHost = oHost[:idx]
+		}
+		if oHost == reqHost || reqHost == "www."+oHost || oHost == "www."+reqHost {
 			return requestOrigin
 		}
 	}

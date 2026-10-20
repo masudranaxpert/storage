@@ -497,9 +497,14 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 		var coordChanged bool
 		var quotaChanged bool
+		var corsChanged bool
 
 		if payload.CORSAllowedOrigins != nil {
-			cfg.CORSAllowedOrigins = strings.TrimSpace(*payload.CORSAllowedOrigins)
+			trimmed := strings.TrimSpace(*payload.CORSAllowedOrigins)
+			if trimmed != cfg.CORSAllowedOrigins {
+				corsChanged = true
+			}
+			cfg.CORSAllowedOrigins = trimmed
 		}
 
 		if payload.CustomLabel != nil {
@@ -547,7 +552,7 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		if (coordChanged || quotaChanged) && cfg.SSHHost != "" && cfg.SSHPassword != "" {
+		if (coordChanged || quotaChanged || corsChanged) && cfg.SSHHost != "" && cfg.SSHPassword != "" {
 			go func(c db.NodeConfig) {
 				secret := ""
 				if s.hub != nil {
@@ -562,13 +567,14 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 					NodeName:       c.NodeID,
 					CoordinatorURL: c.CoordinatorURL,
 					QuotaBytes:     c.AllocatedMaxBytes,
+					CORSOrigins:    c.CORSAllowedOrigins,
 					Secret:         secret,
 				}
 				if err := provision.UpdateServiceOverSSH(context.Background(), req); err != nil {
 					fmt.Printf("[Config Update] Remote agent reconfiguration on '%s' (%s) failed: %v\n", c.NodeID, c.SSHHost, err)
 					return
 				}
-				fmt.Printf("[Config Update] Remote agent on '%s' reconfigured (join=%s, quota=%d)\n", c.NodeID, c.CoordinatorURL, c.AllocatedMaxBytes)
+				fmt.Printf("[Config Update] Remote agent on '%s' reconfigured (join=%s, quota=%d, cors=%s)\n", c.NodeID, c.CoordinatorURL, c.AllocatedMaxBytes, c.CORSAllowedOrigins)
 			}(*cfg)
 		}
 

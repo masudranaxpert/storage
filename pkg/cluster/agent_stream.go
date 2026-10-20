@@ -885,6 +885,22 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	allowedOrigin := MatchCORSOrigin(a.GetCORSOrigins(), r.Header.Get("Origin"))
+	if allowedOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Vary", "Origin")
+	}
+	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
+	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	mediaID := parts[0]
 	hasMP4Suffix := strings.HasSuffix(mediaID, ".mp4")
@@ -954,16 +970,6 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowedOrigin := MatchCORSOrigin(a.GetCORSOrigins(), r.Header.Get("Origin"))
-	if allowedOrigin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Vary", "Origin")
-	}
-	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
-	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
-	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 
 	if strings.HasSuffix(targetFilePath, ".mp4") {
@@ -976,11 +982,6 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "audio/mp4")
 	} else if strings.HasSuffix(targetFilePath, ".m4s") {
 		w.Header().Set("Content-Type", "video/iso.segment")
-	}
-
-	if r.Method == http.MethodOptions {
-		w.WriteHeader(http.StatusOK)
-		return
 	}
 
 	http.ServeFile(w, r, targetFilePath)

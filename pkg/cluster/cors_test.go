@@ -15,6 +15,9 @@ func TestMatchCORSOrigin(t *testing.T) {
 		{"https://foo.com, https://bar.com", "https://baz.com", ""},
 		{"https://foo.com", "https://foo.com/", "https://foo.com/"},
 		{"https://foo.com, *", "https://any.com", "https://any.com"},
+		{"example.com", "https://example.com", "https://example.com"},
+		{"example.com", "https://www.example.com", "https://www.example.com"},
+		{"example.com", "https://badsite.com", ""},
 	}
 
 	for _, tc := range tests {

@@ -264,6 +264,7 @@ func runAgent(args []string) {
 	scratchDir := fs.String("scratch-dir", "", "Scratch workspace for process-then-transfer jobs (defaults to <media-dir>/../processing)")
 	advertise := fs.String("advertise-addr", "", "Reachable host/IP other nodes dial (SeaweedFS-style; e.g. public VPS IP or docker service name)")
 	quotaBytes := fs.Uint64("quota-bytes", 0, "Hard storage quota ceiling in bytes (0 = unlimited)")
+	corsOrigins := fs.String("cors", "*", "Allowed CORS origins for streaming player (comma-separated, e.g. domain.com,app.example.com)")
 	fs.Parse(args)
 
 	if *nodeName == "" {
@@ -280,6 +281,9 @@ func runAgent(args []string) {
 	fmt.Printf("Direct Streaming Port: :%d\n", *port)
 
 	agent := cluster.NewAgent(*nodeName, *joinURL, *interval, *port, *mediaDir, *grpcTarget, *secret)
+	if *corsOrigins != "" {
+		agent.SetCORSOrigins(*corsOrigins)
+	}
 	if *scratchDir != "" {
 		agent.ScratchDir = *scratchDir
 	}

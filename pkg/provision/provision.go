@@ -113,6 +113,7 @@ type Request struct {
 	AdvertiseAddr  string `json:"advertise_addr,omitempty"` // override; defaults to Host when Host is an IP
 	Secret         string `json:"secret,omitempty"`
 	QuotaBytes     uint64 `json:"quota_bytes,omitempty"`
+	CORSOrigins    string `json:"cors_origins,omitempty"`
 	Retrust        bool   `json:"retrust,omitempty"` // Reset/retrust SSH host key on mismatch
 }
 
@@ -276,6 +277,10 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	if req.GRPCTarget != "" {
 		grpcFlag = fmt.Sprintf(" --grpc=%s", req.GRPCTarget)
 	}
+	corsFlag := ""
+	if req.CORSOrigins != "" && req.CORSOrigins != "*" {
+		corsFlag = fmt.Sprintf(" --cors=%s", req.CORSOrigins)
+	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Stream Distributed Storage Mesh Agent
@@ -286,13 +291,13 @@ Wants=network-online.target
 Type=simple
 User=stream
 Environment="PATH=/opt/stream/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s%s
+ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s%s%s
 Restart=always
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag, grpcFlag)
+`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag, grpcFlag, corsFlag)
 
 	if err := uploadData(client, []byte(serviceContent), "/etc/systemd/system/stream-agent.service", req.User, req.Password, req.UseSudo); err != nil {
 		errFormatted := fmt.Sprintf("failed to write systemd unit: %v", err)
@@ -561,6 +566,10 @@ func UpdateServiceOverSSH(ctx context.Context, req Request) error {
 	if req.GRPCTarget != "" {
 		grpcFlag = fmt.Sprintf(" --grpc=%s", req.GRPCTarget)
 	}
+	corsFlag := ""
+	if req.CORSOrigins != "" && req.CORSOrigins != "*" {
+		corsFlag = fmt.Sprintf(" --cors=%s", req.CORSOrigins)
+	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
 Description=Stream Distributed Storage Mesh Agent
@@ -571,13 +580,13 @@ Wants=network-online.target
 Type=simple
 User=stream
 Environment="PATH=/opt/stream/bin:/usr/local/bin:/usr/bin:/bin"
-ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s%s
+ExecStart=/opt/stream/bin/stream agent --join=%s --name=%s --interval=%ds --port=2052 --media-dir=/opt/stream/data/media%s%s%s%s%s
 Restart=always
 RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag, grpcFlag)
+`, resolvedCoordinator, req.NodeName, interval, advertiseFlag, secretFlag, quotaFlag, grpcFlag, corsFlag)
 
 	if err := uploadData(client, []byte(serviceContent), "/etc/systemd/system/stream-agent.service", req.User, req.Password, req.UseSudo); err != nil {
 		return fmt.Errorf("failed to update systemd unit: %w", err)
