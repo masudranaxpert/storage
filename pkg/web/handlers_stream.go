@@ -808,13 +808,25 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 displayTitle: '100%'
             },
             {
-                default: savedBoost === 1.5,
+                default: Math.abs(savedBoost - 1.2) < 0.01,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🔉 120% <span style="font-size:10px;opacity:0.6;">(Light Boost)</span></span>',
+                value: 1.2,
+                displayTitle: '120%'
+            },
+            {
+                default: Math.abs(savedBoost - 1.5) < 0.01,
                 html: '<span style="display:inline-flex;align-items:center;gap:6px;">⚡ 150% <span style="font-size:10px;opacity:0.6;">(Boosted)</span></span>',
                 value: 1.5,
                 displayTitle: '150%'
             },
             {
-                default: savedBoost === 2.0,
+                default: Math.abs(savedBoost - 1.7) < 0.01,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🔥 170% <span style="font-size:10px;opacity:0.6;">(High Boost)</span></span>',
+                value: 1.7,
+                displayTitle: '170%'
+            },
+            {
+                default: Math.abs(savedBoost - 2.0) < 0.01,
                 html: '<span style="display:inline-flex;align-items:center;gap:6px;">🚀 200% <span style="font-size:10px;opacity:0.6;">(Max Boost)</span></span>',
                 value: 2.0,
                 displayTitle: '200%'
