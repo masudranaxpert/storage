@@ -661,4 +661,3 @@ func TestDelete_BucketAndWorkerPhysicalDeletes(t *testing.T) {
 		t.Errorf("expected k-vps to be deleted from store")
 	}
 }
-

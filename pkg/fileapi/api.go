@@ -600,6 +600,7 @@ func writeErr(w http.ResponseWriter, code int, err error) {
 // StreamURLResponse holds the complete multi-track signed playback URLs for modern players.
 type StreamURLResponse struct {
 	Key          string                `json:"key"`
+	Ticket       string                `json:"ticket,omitempty"`
 	Filename     string                `json:"filename,omitempty"`
 	Token        string                `json:"token"`
 	ExpiresAt    int64                 `json:"expires_at"`
@@ -642,10 +643,21 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 	}
 	exp := time.Now().Add(duration).Unix()
 	token := GenerateStreamToken(key, exp, s.secret)
-	playURL := fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
+	ticket, _ := GeneratePlaybackTicket(key, exp, s.secret)
+
+	identifier := key
+	if ticket != "" {
+		identifier = ticket
+	}
+
+	playURL := fmt.Sprintf("/stream/%s", identifier)
+	if identifier == key {
+		playURL = fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
+	}
 
 	resp := StreamURLResponse{
 		Key:          key,
+		Ticket:       ticket,
 		Token:        token,
 		ExpiresAt:    exp,
 		ExpiresInSec: int64(duration.Seconds()),
@@ -660,7 +672,12 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		if err == nil && job != nil {
 			directBase := s.StreamURL(job)
 			if directBase != "" {
-				resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
+				if identifier != key {
+					directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
+					resp.VideoURL = directBase
+				} else {
+					resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
+				}
 			}
 
 			if len(job.MetadataJSON) > 0 {
@@ -687,11 +704,20 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 								}
 								file = fmt.Sprintf("audio_%d_%s.m4a", i+1, lang)
 							}
-							trackPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
-							if directBase != "" {
-								trackURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+							if identifier != key {
+								trackPlayURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
+								if directBase != "" {
+									trackURL = fmt.Sprintf("%s/%s", directBase, file)
+								} else {
+									trackURL = trackPlayURL
+								}
 							} else {
-								trackURL = trackPlayURL
+								trackPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
+								if directBase != "" {
+									trackURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+								} else {
+									trackURL = trackPlayURL
+								}
 							}
 							embedded = false
 						} else if directBase != "" {
@@ -721,10 +747,20 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 							}
 							file = fmt.Sprintf("subtitle_%d_%s.vtt", i+1, lang)
 						}
-						subPlayURL := fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
-						subURL := subPlayURL
-						if directBase != "" {
-							subURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+						var subPlayURL, subURL string
+						if identifier != key {
+							subPlayURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
+							if directBase != "" {
+								subURL = fmt.Sprintf("%s/%s", directBase, file)
+							} else {
+								subURL = subPlayURL
+							}
+						} else {
+							subPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
+							subURL = subPlayURL
+							if directBase != "" {
+								subURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
+							}
 						}
 						resp.Subtitles = append(resp.Subtitles, StreamSubtitleTrack{
 							Index:    sTrack.Index,

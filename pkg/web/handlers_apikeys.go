@@ -1,7 +1,6 @@
 package web
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -139,36 +138,8 @@ func (s *Server) handleAPIKeySub(w http.ResponseWriter, r *http.Request) {
 
 // validateFileAPIAuth authorizes incoming v1 file operations via API key, admin session, or cluster secret.
 func (s *Server) validateFileAPIAuth(r *http.Request) bool {
-	// 1. Direct local CLI or local processes (not forwarded through reverse proxy / Cloudflare tunnel)
-	if isDirectLoopback(r) {
+	if s.isCallerAuthenticated(r) {
 		return true
-	}
-
-	// 2. User session cookie
-	if sess, err := s.getSessionFromRequest(r); err == nil && sess != nil {
-		return true
-	}
-
-	// 3. Browser admin session cookie (legacy/fallback)
-	sec := adminSecret(s)
-	if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" {
-		expected := adminCookieToken(sec)
-		if subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1 {
-			return true
-		}
-	}
-
-	// 3. Cluster secret header/bearer
-	if s.hub != nil && s.hub.Secret() != "" {
-		provided := r.Header.Get("X-Cluster-Secret")
-		if provided == "" {
-			if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-				provided = strings.TrimPrefix(auth, "Bearer ")
-			}
-		}
-		if provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(s.hub.Secret())) == 1 {
-			return true
-		}
 	}
 
 	// 4. API Key verification via X-API-Key or Authorization: Bearer sm_live_...

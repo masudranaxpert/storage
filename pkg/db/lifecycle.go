@@ -549,4 +549,3 @@ func (s *Store) PruneLifecycleAudits(maxEntries int, maxAge time.Duration) (int,
 	})
 	return len(toDelete), err
 }
-

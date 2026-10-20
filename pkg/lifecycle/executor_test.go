@@ -1524,4 +1524,3 @@ func TestLifecycleRelocateToAndFromS3Bucket(t *testing.T) {
 		t.Fatalf("expected S3 objects deleted after promotion, but %d remain", leftoverS3)
 	}
 }
-

@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -16,6 +17,16 @@ import (
 	"sync"
 	"time"
 )
+
+// tlsConfig returns outbound TLS configuration with certificate verification enabled by default.
+// Set STREAM_INSECURE_TLS=true for development with self-signed certificates.
+func tlsConfig() *tls.Config {
+	insecure := strings.EqualFold(os.Getenv("STREAM_INSECURE_TLS"), "true")
+	if insecure {
+		log.Printf("[SECURITY WARNING] STREAM_INSECURE_TLS=true: TLS certificate verification is disabled")
+	}
+	return &tls.Config{InsecureSkipVerify: insecure}
+}
 
 var downloadBufferPool = sync.Pool{
 	New: func() interface{} {
@@ -144,7 +155,7 @@ func downloadWithNativeGo(ctx context.Context, srcURL, dstPath string, onProgres
 	req.Header.Set("Connection", "keep-alive")
 
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: tlsConfig(),
 	}
 
 	client := &http.Client{

@@ -169,19 +169,45 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	mediaID := parts[0]
 
-	// Signed stream token verification (Hotlink / Anti-Leech Protection)
-	token := r.URL.Query().Get("token")
-	expStr := r.URL.Query().Get("exp")
-	if expStr == "" {
-		expStr = r.URL.Query().Get("expires")
-	}
 	secret := adminSecret(s)
-	if secret != "" && !s.isCallerAuthenticated(r) {
-		if !fileapi.ValidateStreamToken(mediaID, token, expStr, secret) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
-			return
+
+	// Ticket or Token verification (Fail Closed)
+	if !s.isCallerAuthenticated(r) {
+		if strings.HasPrefix(mediaID, "t_") {
+			resolvedKey, _, err := cluster.ResolvePlaybackTicket(mediaID, secret)
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream ticket"})
+				return
+			}
+			parts[0] = resolvedKey
+			cleanSubPath = filepath.Join(parts...)
+			mediaID = resolvedKey
+		} else {
+			if secret == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: stream authentication required"})
+				return
+			}
+			token := r.URL.Query().Get("token")
+			expStr := r.URL.Query().Get("exp")
+			if expStr == "" {
+				expStr = r.URL.Query().Get("expires")
+			}
+			if !fileapi.ValidateStreamToken(mediaID, token, expStr, secret) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusForbidden)
+				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
+				return
+			}
+		}
+	} else if strings.HasPrefix(mediaID, "t_") {
+		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(mediaID, secret); err == nil {
+			parts[0] = resolvedKey
+			cleanSubPath = filepath.Join(parts...)
+			mediaID = resolvedKey
 		}
 	}
 

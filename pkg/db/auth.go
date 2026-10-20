@@ -387,4 +387,3 @@ func (s *Store) GetOrSetClusterSecret(explicitSecret string) (string, error) {
 	}
 	return generated, nil
 }
-

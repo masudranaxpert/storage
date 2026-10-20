@@ -37,7 +37,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			// No users created yet: initial setup screen is required
 			needsAuth = true
 			if r.Method == http.MethodGet {
-				s.setAdminCookie(w)
+				s.setAdminCookie(w, r)
 			}
 		} else {
 			// Users exist: valid user session is required
@@ -47,10 +47,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-
-
-
-
 
 	currentPage := "dashboard"
 	switch r.URL.Path {
@@ -99,7 +95,6 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
 
 	http.Error(w, fmt.Sprintf("Templates not found in %s", s.templateDir), http.StatusInternalServerError)
 }

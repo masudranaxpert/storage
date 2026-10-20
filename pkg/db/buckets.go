@@ -18,11 +18,11 @@ func bucketKey(id string) []byte {
 
 // BucketRecord stores configuration and credentials for an S3/R2 remote object store.
 type BucketRecord struct {
-	ID         string    `json:"id"`
-	Name       string    `json:"name"`                  // e.g. "stream-media-archive"
-	Provider   string    `json:"provider"`              // "r2", "s3", "minio", "b2", "wasabi", "custom"
-	Endpoint   string    `json:"endpoint"`              // e.g. "https://<account>.r2.cloudflarestorage.com"
-	Region     string    `json:"region"`                // e.g. "auto", "us-east-1"
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`                  // e.g. "stream-media-archive"
+	Provider     string    `json:"provider"`              // "r2", "s3", "minio", "b2", "wasabi", "custom"
+	Endpoint     string    `json:"endpoint"`              // e.g. "https://<account>.r2.cloudflarestorage.com"
+	Region       string    `json:"region"`                // e.g. "auto", "us-east-1"
 	AccessKey    string    `json:"access_key"`            // Access Key ID
 	SecretKey    string    `json:"secret_key,omitempty"`  // Secret Access Key
 	PublicHost   string    `json:"public_host,omitempty"` // Public CDN URL (e.g. "https://cdn.example.com")

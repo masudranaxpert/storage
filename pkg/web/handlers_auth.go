@@ -141,7 +141,7 @@ func (s *Server) handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 
 	sess, err := s.store.CreateSession(user.Username, 7*24*time.Hour)
 	if err == nil && sess != nil {
-		s.setSessionCookie(w, sess.Token)
+		s.setSessionCookie(w, r, sess.Token)
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -193,7 +193,7 @@ func (s *Server) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.setSessionCookie(w, sess.Token)
+	s.setSessionCookie(w, r, sess.Token)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"status":   "authenticated",
@@ -368,4 +368,3 @@ func (s *Server) handleAuthUserDelete(w http.ResponseWriter, r *http.Request) {
 		"message": "User deleted successfully",
 	})
 }
-

@@ -19,21 +19,23 @@ import (
 
 // Server encapsulates the HTTP API and modular template dashboard.
 type Server struct {
-	addr          string
-	coord         *cluster.Coordinator
-	hub           *cluster.GRPCHub
-	store         *db.Store
-	tiers         *storage.Manager
-	staticDir     string
-	templateDir   string
-	tmpl          *template.Template
-	httpServer    *http.Server
-	files         *fileapi.Service
-	engine        *lifecycle.Engine
-	deduper       *lifecycle.PlayDeduper
-	usageMu       sync.Mutex
-	usageCache    map[string]uint64
-	usageCachedAt time.Time
+	addr            string
+	coord           *cluster.Coordinator
+	hub             *cluster.GRPCHub
+	store           *db.Store
+	tiers           *storage.Manager
+	staticDir       string
+	templateDir     string
+	tmpl            *template.Template
+	httpServer      *http.Server
+	files           *fileapi.Service
+	engine          *lifecycle.Engine
+	deduper         *lifecycle.PlayDeduper
+	usageMu         sync.Mutex
+	usageCache      map[string]uint64
+	usageCachedAt   time.Time
+	bootstrapMu     sync.RWMutex
+	bootstrapTokens map[string]time.Time
 }
 
 // Files returns the underlying file orchestration service.
@@ -50,13 +52,14 @@ func (s *Server) Engine() *lifecycle.Engine {
 // manager may be nil, in which case tier APIs respond with defaults only.
 func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, store *db.Store, tiers *storage.Manager, staticDir, templateDir string) *Server {
 	s := &Server{
-		addr:        addr,
-		coord:       coord,
-		hub:         hub,
-		store:       store,
-		tiers:       tiers,
-		staticDir:   staticDir,
-		templateDir: templateDir,
+		addr:            addr,
+		coord:           coord,
+		hub:             hub,
+		store:           store,
+		tiers:           tiers,
+		staticDir:       staticDir,
+		templateDir:     templateDir,
+		bootstrapTokens: make(map[string]time.Time),
 	}
 
 	s.loadTemplates()

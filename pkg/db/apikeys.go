@@ -12,9 +12,9 @@ import (
 
 // APIKeyRecord represents a programmatic API access token stored in BadgerDB.
 type APIKeyRecord struct {
-	Key       string    `json:"key"`        // The raw secret API key, e.g. "sm_live_9f82..."
-	Name      string    `json:"name"`       // User label, e.g. "Production Ingestion"
-	Prefix    string    `json:"prefix"`     // Display preview, e.g. "sm_live_9f82...abcd"
+	Key       string    `json:"key"`    // The raw secret API key, e.g. "sm_live_9f82..."
+	Name      string    `json:"name"`   // User label, e.g. "Production Ingestion"
+	Prefix    string    `json:"prefix"` // Display preview, e.g. "sm_live_9f82...abcd"
 	CreatedAt time.Time `json:"created_at"`
 	LastUsed  time.Time `json:"last_used,omitempty"`
 }

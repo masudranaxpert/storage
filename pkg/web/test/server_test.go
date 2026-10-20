@@ -415,4 +415,3 @@ func TestNodeSecurityAndRemoteActions(t *testing.T) {
 		t.Fatalf("expected needs_ssh: true in restart response, got %s", recRestart.Body.String())
 	}
 }
-

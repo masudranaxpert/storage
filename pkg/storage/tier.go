@@ -49,14 +49,14 @@ type TierLifecycle struct {
 // Tier groups storage blocks under one placement class. Exactly one tier may
 // be the default target for new media.
 type Tier struct {
-	ID        int           `json:"id"`
-	Name      string        `json:"name"`
-	Mediums   []string      `json:"mediums"`   // preferred disk types for auto-assignment
-	Default   bool          `json:"default"`   // new media lands here when no tier is chosen
-	System     bool          `json:"system"`               // system tier: cannot be deleted
+	ID         int           `json:"id"`
+	Name       string        `json:"name"`
+	Mediums    []string      `json:"mediums"`               // preferred disk types for auto-assignment
+	Default    bool          `json:"default"`               // new media lands here when no tier is chosen
+	System     bool          `json:"system"`                // system tier: cannot be deleted
 	PublicHost string        `json:"public_host,omitempty"` // tier-wide custom streaming domain/CDN (e.g. "cdn-hot.example.com")
-	Blocks     []Block       `json:"blocks"`               // explicitly assigned storage blocks
-	Lifecycle  TierLifecycle `json:"lifecycle"`            // speed rank and capacity watermarks
+	Blocks     []Block       `json:"blocks"`                // explicitly assigned storage blocks
+	Lifecycle  TierLifecycle `json:"lifecycle"`             // speed rank and capacity watermarks
 	CreatedAt  time.Time     `json:"created_at"`
 }
 

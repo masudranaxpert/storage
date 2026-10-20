@@ -1,24 +1,34 @@
 package web
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
+	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"stream/pkg/db"
 )
 
 const (
-	adminCookieName    = "stream_admin"
-	adminCookieMessage = "admin-ui"
-
-	// sessionCookieName stores the stateful DB session token for logged-in accounts.
+	adminCookieName   = "stream_admin"
 	sessionCookieName = "stream_session"
 )
+
+func isHTTPS(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	if r.TLS != nil {
+		return true
+	}
+	if strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	return false
+}
 
 func adminSecret(s *Server) string {
 	if s != nil && s.hub != nil && s.hub.Secret() != "" {
@@ -27,33 +37,45 @@ func adminSecret(s *Server) string {
 	return ""
 }
 
-func adminCookieToken(secret string) string {
-	if secret == "" {
-		return ""
+func (s *Server) setAdminCookie(w http.ResponseWriter, r *http.Request) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return
 	}
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(adminCookieMessage))
-	return hex.EncodeToString(mac.Sum(nil))
-}
+	token := hex.EncodeToString(b)
 
-func (s *Server) setAdminCookie(w http.ResponseWriter) {
-	sec := adminSecret(s)
+	s.bootstrapMu.Lock()
+	if s.bootstrapTokens == nil {
+		s.bootstrapTokens = make(map[string]time.Time)
+	}
+	now := time.Now()
+	for k, exp := range s.bootstrapTokens {
+		if now.After(exp) {
+			delete(s.bootstrapTokens, k)
+		}
+	}
+	s.bootstrapTokens[token] = now.Add(24 * time.Hour)
+	s.bootstrapMu.Unlock()
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     adminCookieName,
-		Value:    adminCookieToken(sec),
+		Value:    token,
 		Path:     "/",
+		MaxAge:   24 * 3600,
 		HttpOnly: true,
+		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 	})
 }
 
-func (s *Server) setSessionCookie(w http.ResponseWriter, token string) {
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    token,
 		Path:     "/",
 		MaxAge:   7 * 24 * 3600,
 		HttpOnly: true,
+		Secure:   isHTTPS(r),
 		SameSite: http.SameSiteStrictMode,
 	})
 }
@@ -91,6 +113,8 @@ func isLoopbackAddr(remoteAddr string) bool {
 
 // isDirectLoopback verifies the request originates directly on localhost without
 // reverse-proxy or tunnel headers (such as Cloudflare or nginx).
+// If reverse-proxy headers are present, the request traversed an untrusted forwarder or
+// proxy, meaning an external attacker could hit a local proxy listening on loopback to bypass auth.
 func isDirectLoopback(r *http.Request) bool {
 	if r == nil {
 		return false
@@ -143,14 +167,22 @@ func (s *Server) isCallerAuthenticated(r *http.Request) bool {
 		return true
 	}
 	// 3. Fallback: if no users are created yet in the database, allow bootstrap with admin cookie
-	if s.store != nil {
+	allowBootstrap := false
+	if s.store == nil {
+		allowBootstrap = true
+	} else {
 		hasUsers, err := s.store.HasAnyUsers()
 		if err == nil && !hasUsers {
-			if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" && sec != "" {
-				expected := adminCookieToken(sec)
-				if subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1 {
-					return true
-				}
+			allowBootstrap = true
+		}
+	}
+	if allowBootstrap {
+		if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" {
+			s.bootstrapMu.RLock()
+			exp, ok := s.bootstrapTokens[c.Value]
+			s.bootstrapMu.RUnlock()
+			if ok && time.Now().Before(exp) {
+				return true
 			}
 		}
 	}

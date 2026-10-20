@@ -2,7 +2,6 @@ package download
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,7 +30,7 @@ func DownloadFileParallel(ctx context.Context, srcURL, dstPath string, concurren
 
 	client := &http.Client{
 		Timeout:   2 * time.Hour,
-		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+		Transport: &http.Transport{TLSClientConfig: tlsConfig()},
 	}
 
 	size, acceptRanges, err := probeSize(ctx, client, srcURL)

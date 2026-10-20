@@ -3,6 +3,7 @@ package provision
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -11,12 +12,91 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 
 	"stream/pkg/tools"
 )
+
+var (
+	KnownHostsFile = filepath.Join("data", "known_hosts")
+	knownHostsMu   sync.Mutex
+)
+
+// TOFUHostKeyCallback returns an SSH HostKeyCallback implementing Trust-On-First-Use.
+// If the host is unknown, its public key is stored to KnownHostsFile.
+// If the key changed, connection is rejected unless retrust is true.
+func TOFUHostKeyCallback(retrust bool) ssh.HostKeyCallback {
+	return func(hostname string, remote net.Addr, key ssh.PublicKey) error {
+		knownHostsMu.Lock()
+		defer knownHostsMu.Unlock()
+
+		khPath := KnownHostsFile
+		if err := os.MkdirAll(filepath.Dir(khPath), 0700); err != nil {
+			return fmt.Errorf("failed to create known_hosts directory: %w", err)
+		}
+
+		if _, err := os.Stat(khPath); os.IsNotExist(err) {
+			if err := os.WriteFile(khPath, nil, 0600); err != nil {
+				return fmt.Errorf("failed to initialize known_hosts: %w", err)
+			}
+		}
+
+		normHost := knownhosts.Normalize(hostname)
+		khCallback, err := knownhosts.New(khPath)
+		if err == nil {
+			checkErr := khCallback(hostname, remote, key)
+			if checkErr == nil {
+				return nil
+			}
+
+			var keyErr *knownhosts.KeyError
+			if errors.As(checkErr, &keyErr) {
+				if len(keyErr.Want) > 0 {
+					if !retrust {
+						return fmt.Errorf("ssh: host key mismatch for %s (possible MITM attack; pass retrust=true to update)", hostname)
+					}
+				}
+			}
+		}
+
+		if retrust {
+			data, _ := os.ReadFile(khPath)
+			lines := strings.Split(string(data), "\n")
+			var filtered []string
+			for _, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+					continue
+				}
+				parts := strings.Fields(trimmed)
+				if len(parts) > 0 && (parts[0] == normHost || parts[0] == hostname) {
+					continue
+				}
+				filtered = append(filtered, line)
+			}
+			newLine := knownhosts.Line([]string{normHost}, key)
+			filtered = append(filtered, newLine)
+			return os.WriteFile(khPath, []byte(strings.Join(filtered, "\n")+"\n"), 0600)
+		}
+
+		// TOFU: record new trusted key
+		f, err := os.OpenFile(khPath, os.O_WRONLY|os.O_APPEND, 0600)
+		if err != nil {
+			return fmt.Errorf("failed to open known_hosts: %w", err)
+		}
+		defer f.Close()
+
+		newLine := knownhosts.Line([]string{normHost}, key)
+		if _, err := f.WriteString(newLine + "\n"); err != nil {
+			return fmt.Errorf("failed to write known_hosts: %w", err)
+		}
+		return nil
+	}
+}
 
 // Request contains connection and setup parameters for remote VPS provisioning
 type Request struct {
@@ -33,6 +113,7 @@ type Request struct {
 	AdvertiseAddr  string `json:"advertise_addr,omitempty"` // override; defaults to Host when Host is an IP
 	Secret         string `json:"secret,omitempty"`
 	QuotaBytes     uint64 `json:"quota_bytes,omitempty"`
+	Retrust        bool   `json:"retrust,omitempty"` // Reset/retrust SSH host key on mismatch
 }
 
 // Result holds the provisioning output and status
@@ -85,7 +166,7 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         20 * time.Second,
 	}
 
@@ -261,7 +342,7 @@ func InstallToolsOverSSH(ctx context.Context, req Request, toolList ...string) e
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         30 * time.Second,
 	}
 
@@ -276,6 +357,9 @@ func InstallToolsOverSSH(ctx context.Context, req Request, toolList ...string) e
 	tool := "all"
 	if len(toolList) > 0 && toolList[0] != "" {
 		tool = toolList[0]
+	}
+	if err := tools.ValidateToolName(tool); err != nil {
+		return err
 	}
 	installCmd := tools.InstallShell(tool)
 
@@ -324,7 +408,7 @@ func UninstallToolsOverSSH(ctx context.Context, req Request, tool string) error 
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         30 * time.Second,
 	}
 
@@ -337,6 +421,9 @@ func UninstallToolsOverSSH(ctx context.Context, req Request, tool string) error 
 	defer client.Close()
 
 	fmt.Printf("[SSH-Uninstall %s] 🗑 Uninstalling tools (%s)...\n", req.NodeName, tool)
+	if err := tools.ValidateToolName(tool); err != nil {
+		return err
+	}
 	uninstallCmd := tools.UninstallShell(tool)
 	if out, err := runRemote(client, uninstallCmd, req.User, req.Password, req.UseSudo); err != nil {
 		fmt.Printf("[SSH-Uninstall %s] ⚠️ Tool uninstall note: %v (%s)\n", req.NodeName, err, out)
@@ -383,7 +470,7 @@ func StopServiceOverSSH(ctx context.Context, req Request) error {
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         15 * time.Second,
 	}
 
@@ -434,7 +521,7 @@ func UpdateServiceOverSSH(ctx context.Context, req Request) error {
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         15 * time.Second,
 	}
 
@@ -528,7 +615,7 @@ func RestartServiceOverSSH(ctx context.Context, req Request) error {
 	config := &ssh.ClientConfig{
 		User:            req.User,
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: TOFUHostKeyCallback(req.Retrust),
 		Timeout:         15 * time.Second,
 	}
 
