@@ -53,6 +53,7 @@ type HotFile struct {
 	Key        string     `json:"key"`
 	Filename   string     `json:"filename"`
 	Score      float64    `json:"score"`
+	TotalHits  int64      `json:"total_hits"`
 	TierID     int        `json:"tier_id"`
 	NodeID     string     `json:"node_id"`
 	Path       string     `json:"path"`
@@ -360,6 +361,7 @@ func (e *Engine) ListHotFiles(limit int) ([]HotFile, error) {
 		hf := HotFile{
 			Key:        st.Key,
 			Score:      score,
+			TotalHits:  st.TotalHits,
 			TierID:     job.Placement.TierID,
 			NodeID:     job.Placement.NodeID,
 			Path:       job.Placement.Path,

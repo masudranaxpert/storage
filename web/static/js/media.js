@@ -9,6 +9,7 @@
     let mediaFilterStatus = 'all';
     let mediaFilterNode = '';
     let mediaFilterTier = '';
+    let mediaSortMode = 'newest';
     let selectedMediaKeys = new Set();
     let mediaPollInterval = null;
     let selectedUploadFile = null;
@@ -529,6 +530,38 @@
             return true;
         });
 
+        filtered.sort((a, b) => {
+            if (mediaSortMode === 'heat_desc') {
+                const scoreA = mediaHotMap[a.key] ? (Number(mediaHotMap[a.key].score) || 0) : 0;
+                const scoreB = mediaHotMap[b.key] ? (Number(mediaHotMap[b.key].score) || 0) : 0;
+                if (scoreB !== scoreA) return scoreB - scoreA;
+            } else if (mediaSortMode === 'heat_asc') {
+                const scoreA = mediaHotMap[a.key] ? (Number(mediaHotMap[a.key].score) || 0) : 0;
+                const scoreB = mediaHotMap[b.key] ? (Number(mediaHotMap[b.key].score) || 0) : 0;
+                if (scoreA !== scoreB) return scoreA - scoreB;
+            } else if (mediaSortMode === 'views_desc') {
+                const hitsA = mediaHotMap[a.key] ? (Number(mediaHotMap[a.key].total_hits) || 0) : 0;
+                const hitsB = mediaHotMap[b.key] ? (Number(mediaHotMap[b.key].total_hits) || 0) : 0;
+                if (hitsB !== hitsA) return hitsB - hitsA;
+            } else if (mediaSortMode === 'size_desc') {
+                const szA = a.size_bytes || 0;
+                const szB = b.size_bytes || 0;
+                if (szB !== szA) return szB - szA;
+            } else if (mediaSortMode === 'size_asc') {
+                const szA = a.size_bytes || 0;
+                const szB = b.size_bytes || 0;
+                if (szA !== szB) return szA - szB;
+            } else if (mediaSortMode === 'oldest') {
+                const timeA = new Date(a.created_at).getTime() || 0;
+                const timeB = new Date(b.created_at).getTime() || 0;
+                if (timeA !== timeB) return timeA - timeB;
+            }
+            const timeA = new Date(a.created_at).getTime() || 0;
+            const timeB = new Date(b.created_at).getTime() || 0;
+            if (timeA !== timeB) return timeB - timeA;
+            return (b.key || '').localeCompare(a.key || '');
+        });
+
         let paginatedItems = [];
         if (global.UI && typeof global.UI.tablePagination === 'function') {
             const pg = global.UI.tablePagination({
@@ -623,6 +656,7 @@
             // Lifecycle heat & demand state
             const hotInfo = mediaHotMap[item.key];
             const heatScoreVal = hotInfo ? (Number(hotInfo.score) || 0).toFixed(1) : (isReady ? '0.0' : '—');
+            const totalHitsVal = hotInfo && hotInfo.total_hits ? Number(hotInfo.total_hits) : 0;
             const isPinned = hotInfo && hotInfo.pinned_tier !== undefined && hotInfo.pinned_tier !== null;
             const lastHitRel = hotInfo && hotInfo.last_hit_at ? formatRelativeTime(hotInfo.last_hit_at) : '—';
 
@@ -632,7 +666,10 @@
                         <span class="fl-score-pill tabular-num" style="font-size:12.5px;padding:2px 8px;" title="Real-time decayed heat score">${heatScoreVal}</span>
                         ${isPinned ? `<span class="badge-tier orange" style="font-size:9.5px;padding:1px 5px;" title="Pinned to Tier ${hotInfo.pinned_tier}">PINNED</span>` : ''}
                     </div>
-                    ${lastHitRel !== '—' ? `<span style="font-size:10.5px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;" title="Last playback hit">${lastHitRel}</span>` : ''}
+                    <div style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
+                        <span title="Total unique viewers (30m window)">👁 ${totalHitsVal} ${totalHitsVal === 1 ? 'view' : 'views'}</span>
+                        ${lastHitRel !== '—' ? `<span style="opacity:0.4;">•</span><span title="Last playback">${lastHitRel}</span>` : ''}
+                    </div>
                 </div>
             `;
 
@@ -824,6 +861,45 @@
         mediaFilterTier = sel ? sel.value : '';
         mediaCurrentPage = 1;
         renderMediaTable();
+    }
+
+    function onMediaSortChange() {
+        const sel = document.getElementById('media-sort-filter');
+        mediaSortMode = sel ? sel.value : 'newest';
+        updateHeatSortIndicator();
+        mediaCurrentPage = 1;
+        renderMediaTable();
+    }
+
+    function toggleHeatSort() {
+        if (mediaSortMode === 'heat_desc') {
+            mediaSortMode = 'heat_asc';
+        } else {
+            mediaSortMode = 'heat_desc';
+        }
+        const sel = document.getElementById('media-sort-filter');
+        if (sel) sel.value = mediaSortMode;
+        updateHeatSortIndicator();
+        mediaCurrentPage = 1;
+        renderMediaTable();
+    }
+
+    function updateHeatSortIndicator() {
+        const ind = document.getElementById('heat-sort-indicator');
+        if (!ind) return;
+        if (mediaSortMode === 'heat_desc') {
+            ind.textContent = '▼';
+            ind.style.opacity = '1';
+            ind.style.color = 'var(--orange-primary)';
+        } else if (mediaSortMode === 'heat_asc') {
+            ind.textContent = '▲';
+            ind.style.opacity = '1';
+            ind.style.color = 'var(--orange-primary)';
+        } else {
+            ind.textContent = '⇅';
+            ind.style.opacity = '0.7';
+            ind.style.color = '';
+        }
     }
 
     function updateBatchDeleteUI() {
@@ -2431,6 +2507,8 @@
     global.setMediaFilter = setMediaFilter;
     global.onMediaNodeFilterChange = onMediaNodeFilterChange;
     global.onMediaTierFilterChange = onMediaTierFilterChange;
+    global.onMediaSortChange = onMediaSortChange;
+    global.toggleHeatSort = toggleHeatSort;
     global.toggleSelectAllMedia = toggleSelectAllMedia;
     global.onMediaRowCheckChange = onMediaRowCheckChange;
     global.deleteSelectedMedia = deleteSelectedMedia;

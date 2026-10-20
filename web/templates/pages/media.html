@@ -125,6 +125,15 @@
                 <option value="tier0">Tier 0 (Hot)</option>
                 <option value="tier1">Tier 1 (SSD)</option>
                 <option value="tier2">Tier 2 (HDD)</option>
+            <!-- Sort Order Dropdown -->
+            <select id="media-sort-filter" class="media-filter-select" onchange="onMediaSortChange()" title="Sort media files">
+                <option value="newest">Newest First</option>
+                <option value="heat_desc">Heat Score (High to Low)</option>
+                <option value="heat_asc">Heat Score (Low to High)</option>
+                <option value="views_desc">Most Views (High to Low)</option>
+                <option value="size_desc">Size (Largest First)</option>
+                <option value="size_asc">Size (Smallest First)</option>
+                <option value="oldest">Oldest First</option>
             </select>
 
             <!-- Batch Action Button (Hidden by default, shown when items are selected) -->
@@ -147,7 +156,9 @@
                         <th style="width:12%;">SPECS &amp; TRACKS</th>
                         <th style="width:14%;">STORAGE LOCATION</th>
                         <th style="width:8%;">SIZE</th>
-                        <th style="width:9%;">HEAT SCORE</th>
+                        <th style="width:10%; cursor:pointer; user-select:none;" onclick="toggleHeatSort()" title="Click to sort by Heat Score">
+                            HEAT SCORE <span id="heat-sort-indicator" style="font-size:11px;opacity:0.7;">⇅</span>
+                        </th>
                         <th style="width:11%;">STATUS &amp; PIPELINE</th>
                         <th style="text-align: right; width:9%;">ACTIONS</th>
                     </tr>
