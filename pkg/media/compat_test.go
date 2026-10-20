@@ -1,4 +1,4 @@
-package media
+package media_test
 
 import (
 	"bytes"
