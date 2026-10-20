@@ -1,11 +1,8 @@
 # Stream Mesh — Distributed Media Cluster & Coordinator
 #
-# Quickstart (Coordinator only):
+# Quickstart (Coordinator):
 #   docker compose up -d --build
 #   Dashboard: http://localhost:1212
-#
-# Optional: Launch with a local worker agent alongside coordinator:
-#   docker compose --profile with-agent up -d --build
 
 services:
   coordinator:
@@ -29,31 +26,9 @@ services:
       retries: 3
       start_period: 5s
 
-  # Optional local worker agent for standalone/testing setups
-  agent:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: stream-agent-local
-    command: ["agent", "--join=http://coordinator:1212", "--port=2052"]
-    ports:
-      - "2052:2052"
-    volumes:
-      - agent-media:/stream/media
-      - agent-scratch:/stream/processing
-    depends_on:
-      coordinator:
-        condition: service_healthy
-    networks:
-      - stream-mesh
-    restart: unless-stopped
-    profiles: ["with-agent"]
-
 networks:
   stream-mesh:
     driver: bridge
 
 volumes:
   coord-data:
-  agent-media:
-  agent-scratch:
