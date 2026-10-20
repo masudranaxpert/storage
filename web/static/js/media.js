@@ -1803,10 +1803,7 @@
             const seq = this.switchSeq;
             this.isSwitchingTrack = true;
 
-            if (!v.paused) {
-                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
-                v.pause();
-            }
+            // Stop previous audio immediately; keep video playing smoothly without pausing
             a.pause();
 
             let switchTimeout = setTimeout(() => {
@@ -1848,8 +1845,17 @@
                 if (this.switchSeq !== seq || !this.active || !this.audio) return;
                 cleanup();
                 this.isSwitchingTrack = false;
-                if (!this.userPaused) {
-                    v.play().catch(() => {});
+
+                // Live alignment to exact video frame as video kept playing
+                const liveTime = v.currentTime;
+                if (Math.abs(liveTime - a.currentTime) > 0.03) {
+                    a.currentTime = liveTime;
+                }
+                a.playbackRate = v.playbackRate;
+
+                // Play audio seamlessly if video is active
+                if (!this.userPaused && !v.paused) {
+                    a.play().catch(() => {});
                 }
             };
 

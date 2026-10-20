@@ -1037,13 +1037,10 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
             var v = this.video;
 
-            if (!v.paused) {
-                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
-                v.pause();
-            }
-
+            // Stop previous audio immediately; keep video playing smoothly without pausing
             v.muted = true;
             var a = this.audio;
+            a.pause();
             a.volume = v.volume;
             a.muted = v.muted;
 
@@ -1088,8 +1085,17 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 if (self.switchSeq !== seq || !self.audio) return;
                 cleanup();
                 self.isSwitchingTrack = false;
-                if (!self.userPaused) {
-                    v.play().catch(function () {});
+
+                // Live alignment to exact video frame as video kept playing
+                var liveTime = v.currentTime;
+                if (Math.abs(liveTime - a.currentTime) > 0.03) {
+                    a.currentTime = liveTime;
+                }
+                a.playbackRate = v.playbackRate;
+
+                // Play audio seamlessly if video is active
+                if (!self.userPaused && !v.paused) {
+                    a.play().catch(function () {});
                 }
             };
 
