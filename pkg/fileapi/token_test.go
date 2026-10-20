@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,5 +141,17 @@ func TestHandleTokenMultiTrack(t *testing.T) {
 	mux.ServeHTTP(recAlias, reqAlias)
 	if recAlias.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK for streams alias, got %d", recAlias.Code)
+	}
+
+	// 3. Test Status(): PlayURL and StreamURL must also be masked with ticket
+	st, err := svc.Status("test-vid-multi")
+	if err != nil {
+		t.Fatalf("Status error: %v", err)
+	}
+	if !strings.HasPrefix(st.PlayURL, "/stream/t_") {
+		t.Fatalf("expected PlayURL to use masked ticket /stream/t_..., got %s", st.PlayURL)
+	}
+	if !strings.Contains(st.StreamURL, "/stream/t_") {
+		t.Fatalf("expected StreamURL to use masked ticket, got %s", st.StreamURL)
 	}
 }

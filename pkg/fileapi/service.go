@@ -921,6 +921,18 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		createdBy = "Dashboard"
 	}
 
+	playPath := "/stream/" + key
+	streamURL := s.StreamURL(job)
+	if s.secret != "" {
+		exp := time.Now().Add(4 * time.Hour).Unix()
+		if ticket, err := GeneratePlaybackTicket(key, exp, s.secret); err == nil && ticket != "" {
+			playPath = "/stream/" + ticket
+			if streamURL != "" && strings.Contains(streamURL, "/stream/"+key) {
+				streamURL = strings.Replace(streamURL, "/stream/"+key, "/stream/"+ticket, 1)
+			}
+		}
+	}
+
 	resp := &StatusResponse{
 		Key:              key,
 		State:            job.State,
@@ -942,8 +954,8 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 		NodeID:           job.NodeID,
 		WorkerNodeID:     job.NodeID,
 		Placement:        job.Placement,
-		StreamURL:        s.StreamURL(job),
-		PlayURL:          "/stream/" + key,
+		StreamURL:        streamURL,
+		PlayURL:          playPath,
 		CreatedAt:        rec.CreatedAt,
 		UpdatedAt:        job.UpdatedAt,
 	}
