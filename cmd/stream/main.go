@@ -221,7 +221,7 @@ func runCoordinator(args []string) {
 	fmt.Printf("📡 API Endpoints: /api/heartbeat, /api/nodes, /api/pool\n")
 	fmt.Printf("🎯 gRPC Control Plane: :%d (agent mesh streams%s)\n",
 		*grpcPort, func() string {
-			if *secret == "" {
+			if clusterSecret == "" {
 				return ", WARNING: no secret set"
 			}
 			return ", secret protected"

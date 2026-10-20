@@ -75,6 +75,15 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/auth/users", s.handleAuthUsers)
 	mux.HandleFunc("/api/auth/users/", s.handleAuthUserDelete)
 
+	// Cluster Secret
+	mux.HandleFunc("/api/cluster/secret", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !s.requireAdmin(w, r) {
+			return
+		}
+		w.Write([]byte(fmt.Sprintf(`{"cluster_secret":%q}`, adminSecret(s))))
+	})
+
 	// API Keys Management
 	mux.HandleFunc("/api/keys", s.handleAPIKeys)
 	mux.HandleFunc("/api/keys/", s.handleAPIKeySub)
