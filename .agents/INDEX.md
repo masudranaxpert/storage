@@ -11,6 +11,7 @@
 - [Open-Source Alternatives & Modern System Redesign](research/open-source-alternatives-and-redesign.md): Comparative analysis of Garage S3, SeaweedFS, JuiceFS, PeerTube Runner, and Temporal.
 
 ## Sessions
+- [Large God-Files Decomposition](sessions/2026-10-21-large-files-decomposition/HANDOFF.md): Deconstructed the 4 largest files (>1,000 lines each) into single-responsibility, cohesive Go modules with 100% test pass rate.
 - [Standard Go Layout Migration (`internal/` Architecture)](sessions/2026-10-20-internal-layout-migration/HANDOFF.md): Reorganized codebase into clean standard Go project structure with `internal/` packages, acyclic dependency DAG, and 100% test pass rate.
 - [Node CORS Allowed Origins Configuration](sessions/2026-10-20-node-cors-origins/HANDOFF.md): Per-node configurable CORS (`*` or whitelisted domains) for stream delivery, proxy streaming, agent heartbeat sync, and `/nodes` UI.
 - [Review Fixes, Opaque Playback Tickets & God File Deconstruction](sessions/2026-10-20-review-fixes-and-opaque-tickets/HANDOFF.md): Stateless AES-GCM playback tickets (`t_...`) masking DB keys, fail-closed auth, dynamic crypto/rand admin cookies, SSH TOFU & TLS defaults, and breaking up God files (`agent.go`, `executor.go`, `engine.go`).
