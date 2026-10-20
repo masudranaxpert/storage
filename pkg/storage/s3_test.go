@@ -102,12 +102,12 @@ func TestS3Operations(t *testing.T) {
 
 	// 2. Upload Object
 	testData := []byte("hello world video manifest")
-	if err := UploadObjectS3(ctx, cfg, "media1/master.m3u8", testData, ""); err != nil {
+	if err := UploadObjectS3(ctx, cfg, "media1/video.mp4", testData, ""); err != nil {
 		t.Fatalf("UploadObjectS3 failed: %v", err)
 	}
 
 	// 3. Head Object
-	size, err := HeadObjectS3(ctx, cfg, "media1/master.m3u8")
+	size, err := HeadObjectS3(ctx, cfg, "media1/video.mp4")
 	if err != nil {
 		t.Fatalf("HeadObjectS3 failed: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestS3Operations(t *testing.T) {
 	}
 
 	// 4. Download Object
-	gotData, err := DownloadObjectS3(ctx, cfg, "media1/master.m3u8")
+	gotData, err := DownloadObjectS3(ctx, cfg, "media1/video.mp4")
 	if err != nil {
 		t.Fatalf("DownloadObjectS3 failed: %v", err)
 	}
@@ -129,13 +129,13 @@ func TestS3Operations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListObjectsS3 failed: %v", err)
 	}
-	if len(items) != 1 || items[0].Key != "media1/master.m3u8" {
+	if len(items) != 1 || items[0].Key != "media1/video.mp4" {
 		t.Fatalf("ListObjectsS3 expected 1 item, got %+v", items)
 	}
 
 	// 6. Upload Folder
 	tmpDir := t.TempDir()
-	_ = os.WriteFile(filepath.Join(tmpDir, "master.m3u8"), []byte("manifest"), 0644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "video.mp4"), []byte("manifest"), 0644)
 	_ = os.WriteFile(filepath.Join(tmpDir, "index.m3u8"), []byte("sub-manifest"), 0644)
 
 	var uploadProgress int64
@@ -160,8 +160,8 @@ func TestS3Operations(t *testing.T) {
 		t.Fatalf("DownloadFolderS3 progress was not reported")
 	}
 
-	if _, err := os.Stat(filepath.Join(destDir, "master.m3u8")); err != nil {
-		t.Fatalf("DownloadFolderS3 master.m3u8 missing: %v", err)
+	if _, err := os.Stat(filepath.Join(destDir, "video.mp4")); err != nil {
+		t.Fatalf("DownloadFolderS3 video.mp4 missing: %v", err)
 	}
 
 	// 8. Delete Folder

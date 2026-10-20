@@ -395,7 +395,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// 6. Streaming redirect: unauthenticated request without token must return 403 Forbidden
-	unauthReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8", nil)
+	unauthReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey, nil)
 	unauthReq.RemoteAddr = "203.0.113.50:54321"
 	unauthRec := httptest.NewRecorder()
 	handler.ServeHTTP(unauthRec, unauthReq)
@@ -408,7 +408,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	tok := fileapi.GenerateStreamToken(testKey, exp, "test-secret")
 	tokenQuery := fmt.Sprintf("?token=%s&exp=%d", tok, exp)
 
-	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
+	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+tokenQuery, nil)
 	playReq1.RemoteAddr = "203.0.113.50:54321"
 	playRec1 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec1, playReq1)
@@ -420,7 +420,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// Second play from same client IP within 30m -> deduped, pending hits stays 1
-	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
+	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+tokenQuery, nil)
 	playReq2.RemoteAddr = "203.0.113.50:54322" // same IP host
 	playRec2 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec2, playReq2)
@@ -431,16 +431,16 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 		t.Fatalf("expected hits to remain 1 due to 30m IP deduplication, got %d", hits)
 	}
 
-	// Subsegment request (.m4s) -> must NOT count as a play
-	segReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/chunk_01.m4s"+tokenQuery, nil)
-	segReq.RemoteAddr = "203.0.113.99:12345" // new IP
-	segRec := httptest.NewRecorder()
-	handler.ServeHTTP(segRec, segReq)
-	if segRec.Code != http.StatusTemporaryRedirect {
-		t.Fatalf("expected 307 on segment redirect, got %d", segRec.Code)
+	// Sub-track request (.vtt) -> must NOT count as a primary play
+	subReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/subtitle_1_eng.vtt"+tokenQuery, nil)
+	subReq.RemoteAddr = "203.0.113.99:12345" // new IP
+	subRec := httptest.NewRecorder()
+	handler.ServeHTTP(subRec, subReq)
+	if subRec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 on subtitle redirect, got %d", subRec.Code)
 	}
 	if hits := srv.Engine().Hits().Pending(testKey); hits != 1 {
-		t.Fatalf("subsegment .m4s should not be counted as a hit, got pending %d", hits)
+		t.Fatalf("sub-track .vtt should not be counted as a hit, got pending %d", hits)
 	}
 }
 

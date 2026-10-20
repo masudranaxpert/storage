@@ -939,9 +939,14 @@ func (ex *Executor) doVerify(ctx context.Context, t *Task) error {
 		}
 		size, err := storage.HeadObjectS3(ctx, *cfg, prefix+"/metadata.json")
 		if err != nil || size <= 0 {
-			size, err = storage.HeadObjectS3(ctx, *cfg, prefix+"/master.m3u8")
-			if err != nil || size <= 0 {
-				return fmt.Errorf("verify in bucket failed: media playlist not found on S3: %w", err)
+			objs, listErr := cluster.ListObjectsS3(ctx, cluster.S3Config{
+				Endpoint: cfg.Endpoint, Region: cfg.Region, Name: cfg.Name, AccessKey: cfg.AccessKey, SecretKey: cfg.SecretKey,
+			}, prefix)
+			if listErr == nil && len(objs) > 0 {
+				size = int64(objs[0].Size)
+				err = nil
+			} else {
+				return fmt.Errorf("verify in bucket failed: media object not found on S3: %w", err)
 			}
 		}
 		t.Bytes = size

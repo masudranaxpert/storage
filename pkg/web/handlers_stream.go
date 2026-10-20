@@ -241,7 +241,7 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 							targetURL += "?" + r.URL.RawQuery
 						}
 					}
-					isPlay := len(parts) == 1 || strings.HasSuffix(cleanSubPath, ".m3u8") || strings.HasSuffix(cleanSubPath, ".mpd") || strings.HasSuffix(cleanSubPath, ".mp4")
+					isPlay := len(parts) == 1 || strings.HasSuffix(cleanSubPath, ".mp4") || strings.HasSuffix(cleanSubPath, ".mkv")
 					if isPlay && s.engine != nil && s.deduper != nil {
 						clientIP := r.RemoteAddr
 						if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
@@ -284,19 +284,10 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		}
 		found := false
 		for _, e := range entries {
-			if !e.IsDir() && e.Name() == "master.m3u8" {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
 				filePath = filepath.Join(filePath, e.Name())
 				found = true
 				break
-			}
-		}
-		if !found {
-			for _, e := range entries {
-				if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-					filePath = filepath.Join(filePath, e.Name())
-					found = true
-					break
-				}
 			}
 		}
 		if !found {

@@ -195,11 +195,6 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			entries, err := os.ReadDir(candidate)
 			if err == nil {
 				for _, e := range entries {
-					if !e.IsDir() && e.Name() == "master.m3u8" {
-						return filepath.Join(candidate, e.Name())
-					}
-				}
-				for _, e := range entries {
 					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
 						return filepath.Join(candidate, e.Name())
 					}
