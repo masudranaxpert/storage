@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"sync"
 	"testing"
@@ -553,6 +554,98 @@ func TestBatchDelete(t *testing.T) {
 	}
 	if len(deletedViaHook) != 1 || deletedViaHook[0] != "k3" {
 		t.Errorf("expected hook to receive ['k3'], got %v", deletedViaHook)
+	}
+}
+
+func TestDelete_BucketAndWorkerPhysicalDeletes(t *testing.T) {
+	store := newMemJobStore()
+	store.SaveFileRecord(&FileRecord{Key: "k-bkt", Filename: "bkt-vid.mp4"})
+	store.SaveFileJob(&FileJob{
+		Key:   "k-bkt",
+		State: StateCompleted,
+		Placement: Placement{
+			NodeID:    "bucket:test-bkt-01",
+			Path:      "gc-bucket",
+			TierID:    0,
+			TierLabel: "tier0",
+		},
+	})
+
+	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, nil)
+	svc := NewService(store, nil, coord, nil, nil)
+
+	bucketResolved := false
+	svc.SetBucketResolver(func(id string) (*storage.S3Config, error) {
+		if id == "test-bkt-01" {
+			bucketResolved = true
+			return &storage.S3Config{
+				Name:      "gc-bucket",
+				Endpoint:  "https://test.r2.cloudflarestorage.com",
+				AccessKey: "test-acc",
+				SecretKey: "test-sec",
+			}, nil
+		}
+		return nil, fmt.Errorf("unknown bucket")
+	})
+
+	// 1. Delete bucket-placed file
+	if err := svc.Delete("k-bkt"); err != nil {
+		t.Fatalf("Delete on bucket-placed file failed: %v", err)
+	}
+	if !bucketResolved {
+		t.Errorf("expected bucketResolver to be invoked for cloud deletion")
+	}
+	if exists, _ := store.FileRecordExists("k-bkt"); exists {
+		t.Errorf("expected k-bkt to be deleted from store")
+	}
+
+	// 2. Delete worker-placed file with live agent
+	var receivedKey, receivedDir string
+	mockAgent := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/ingest-delete" && r.Method == http.MethodPost {
+			receivedKey = r.URL.Query().Get("key")
+			receivedDir = r.URL.Query().Get("dir")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"deleted"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer mockAgent.Close()
+
+	u, _ := url.Parse(mockAgent.URL)
+	port, _ := strconv.Atoi(u.Port())
+	coord.RegisterHeartbeat(telemetry.NodeMetrics{
+		NodeID: "vps-test-01",
+		IPs:    []string{u.Hostname()},
+		Capabilities: telemetry.NodeCapabilities{
+			AgentPort: port,
+		},
+	})
+
+	store.SaveFileRecord(&FileRecord{Key: "k-vps", Filename: "vps-vid.mp4"})
+	store.SaveFileJob(&FileJob{
+		Key:   "k-vps",
+		State: StateCompleted,
+		Placement: Placement{
+			NodeID:    "vps-test-01",
+			Path:      "/mnt/storage",
+			TierID:    1,
+			TierLabel: "tier1",
+		},
+	})
+
+	if err := svc.Delete("k-vps"); err != nil {
+		t.Fatalf("Delete on worker-placed file failed: %v", err)
+	}
+	if receivedKey != "k-vps" {
+		t.Errorf("expected agent to receive key 'k-vps', got '%s'", receivedKey)
+	}
+	if receivedDir != "/mnt/storage" {
+		t.Errorf("expected agent to receive dir '/mnt/storage', got '%s'", receivedDir)
+	}
+	if exists, _ := store.FileRecordExists("k-vps"); exists {
+		t.Errorf("expected k-vps to be deleted from store")
 	}
 }
 

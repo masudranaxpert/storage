@@ -427,16 +427,8 @@ func (s *Service) placementOf(tier *storage.TierStatus, bs *storage.BlockStatus)
 	}
 }
 
-// deleteFromWorker removes a file's folder from its worker and drops the DB rows.
-func (s *Service) deleteFromWorker(rec *FileRecord, hdd *storage.TierStatus) error {
-	job, err := s.store.GetFileJob(rec.Key)
-	if err != nil || job == nil {
-		return fmt.Errorf("job row missing for %s", rec.Key)
-	}
-	node := s.nodeByID(job.Placement.NodeID)
-	if node == nil {
-		return fmt.Errorf("node %s offline", job.Placement.NodeID)
-	}
+// callIngestDelete issues an HTTP delete to a worker agent to remove files and scratch.
+func (s *Service) callIngestDelete(node *cluster.NodeRecord, key, dir string) error {
 	agentURL := AgentBaseURL(node)
 	req, err := http.NewRequest(http.MethodPost, agentURL+"/api/v1/ingest-delete", nil)
 	if err != nil {
@@ -446,8 +438,10 @@ func (s *Service) deleteFromWorker(rec *FileRecord, hdd *storage.TierStatus) err
 		req.Header.Set("X-Cluster-Secret", s.secret)
 	}
 	q := req.URL.Query()
-	q.Set("key", rec.Key)
-	q.Set("dir", CleanPlacementPath(job.Placement.Path))
+	q.Set("key", key)
+	if dir != "" {
+		q.Set("dir", dir)
+	}
 	req.URL.RawQuery = q.Encode()
 
 	resp, err := s.client.Do(req)
@@ -458,6 +452,65 @@ func (s *Service) deleteFromWorker(rec *FileRecord, hdd *storage.TierStatus) err
 	io.Copy(io.Discard, resp.Body)
 	if resp.StatusCode >= 300 {
 		return fmt.Errorf("worker responded %s", resp.Status)
+	}
+	return nil
+}
+
+// deleteFromWorker removes a file's folder from its worker or S3 bucket and drops the DB rows.
+func (s *Service) deleteFromWorker(rec *FileRecord) error {
+	job, err := s.store.GetFileJob(rec.Key)
+	if err != nil || job == nil {
+		return fmt.Errorf("job row missing for %s", rec.Key)
+	}
+
+	// 1. Remote S3 / Cloudflare R2 bucket placement
+	if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+		bucketID := strings.TrimPrefix(job.Placement.NodeID, "bucket:")
+		if s.bucketResolver != nil {
+			cfg, err := s.bucketResolver(bucketID)
+			if err == nil && cfg != nil {
+				cCfg := cluster.S3Config{
+					Name:      cfg.Name,
+					Endpoint:  cfg.Endpoint,
+					Region:    cfg.Region,
+					AccessKey: cfg.AccessKey,
+					SecretKey: cfg.SecretKey,
+				}
+				prefix := rec.Key
+				if job.Placement.Path != "" && job.Placement.Path != "." && job.Placement.Path != "/" && job.Placement.Path != cfg.Name {
+					prefix = strings.Trim(job.Placement.Path, "/") + "/" + rec.Key
+				}
+				if delErr := cluster.DeleteFolderS3(context.Background(), cCfg, prefix); delErr != nil {
+					log.Printf("[Service Delete] ⚠️ S3 DeleteFolder '%s' error: %v", prefix, delErr)
+				}
+			}
+		}
+		// Also clean scratch if processing worker node is known
+		if job.NodeID != "" {
+			if wNode := s.nodeByID(job.NodeID); wNode != nil {
+				_ = s.callIngestDelete(wNode, rec.Key, "")
+			}
+		}
+		_ = s.store.DeleteFileJob(rec.Key)
+		_ = s.store.DeleteFileRecord(rec.Key)
+		return nil
+	}
+
+	// 2. Local VPS placement
+	node := s.nodeByID(job.Placement.NodeID)
+	if node != nil {
+		if err := s.callIngestDelete(node, rec.Key, CleanPlacementPath(job.Placement.Path)); err != nil {
+			return err
+		}
+	} else if job.Placement.NodeID != "" {
+		log.Printf("[Service Delete] ⚠️ Storage node '%s' is offline; purging record from DB", job.Placement.NodeID)
+	}
+
+	// Clean scratch on transcoding worker if decoupled
+	if job.NodeID != "" && job.NodeID != job.Placement.NodeID {
+		if wNode := s.nodeByID(job.NodeID); wNode != nil {
+			_ = s.callIngestDelete(wNode, rec.Key, "")
+		}
 	}
 
 	_ = s.store.DeleteFileJob(rec.Key)

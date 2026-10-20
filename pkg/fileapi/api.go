@@ -537,10 +537,8 @@ func (s *Service) Delete(key string) error {
 	if err != nil || job == nil {
 		return fmt.Errorf("file '%s' not found", key)
 	}
-	if (job.State == StateCompleted || job.Placement.NodeID != "") && s.tiers != nil && s.coord != nil {
-		statuses := s.tiers.Resolve(s.coord.GetNodes(), s.resolveUsage())
-		hdd := s.tierByID(statuses, DefaultPolicy.HDDTierID)
-		if err := s.deleteFromWorker(rec, hdd); err != nil {
+	if (job.State == StateCompleted || job.Placement.NodeID != "" || job.NodeID != "") && s.coord != nil {
+		if err := s.deleteFromWorker(rec); err != nil {
 			return err
 		}
 	}
