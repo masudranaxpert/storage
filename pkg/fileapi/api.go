@@ -234,6 +234,14 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		s.handleToken(w, r, key)
 		return
 	}
+	if (action == "info" || action == "status" || action == "details") && r.Method == http.MethodGet {
+		s.handleFileInfo(w, r, key)
+		return
+	}
+	if (action == "metadata" || action == "meta") && r.Method == http.MethodGet {
+		s.handleFileMetadata(w, r, key)
+		return
+	}
 	if action != "" {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("not found"))
 		return
@@ -241,12 +249,8 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
-		st, err := s.Status(key)
-		if err != nil {
-			writeErr(w, http.StatusNotFound, err)
-			return
-		}
-		json.NewEncoder(w).Encode(st)
+		// Default GET /api/v1/files/{key}: returns the direct player stream payload
+		s.handleToken(w, r, key)
 	case http.MethodDelete:
 		keys := strings.Split(key, ",")
 		if len(keys) > 1 {
@@ -669,16 +673,22 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 
 	if s.store != nil {
 		job, err := s.store.GetFileJob(key)
-		if err == nil && job != nil {
-			directBase := s.StreamURL(job)
-			if directBase != "" {
-				if identifier != key {
-					directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-					resp.VideoURL = directBase
-				} else {
-					resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
-				}
+		if err != nil || job == nil {
+			writeErr(w, http.StatusNotFound, fmt.Errorf("file '%s' not found", key))
+			return
+		}
+		if rec, err := s.store.GetFileRecord(key); err == nil && rec != nil {
+			resp.Filename = rec.Filename
+		}
+		directBase := s.StreamURL(job)
+		if directBase != "" {
+			if identifier != key {
+				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
+				resp.VideoURL = directBase
+			} else {
+				resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
 			}
+		}
 
 			if len(job.MetadataJSON) > 0 {
 				var meta media.MediaMetadata
@@ -774,7 +784,36 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 				}
 			}
 		}
-	}
 
 	json.NewEncoder(w).Encode(resp)
 }
+
+// handleFileInfo returns the full operational lifecycle, stage, and node placement details of a file.
+func (s *Service) handleFileInfo(w http.ResponseWriter, r *http.Request, key string) {
+	st, err := s.Status(key)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	json.NewEncoder(w).Encode(st)
+}
+
+// handleFileMetadata returns the media tracks and audio/video codec metadata of a file.
+func (s *Service) handleFileMetadata(w http.ResponseWriter, r *http.Request, key string) {
+	st, err := s.Status(key)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err)
+		return
+	}
+	if st.Metadata != nil {
+		json.NewEncoder(w).Encode(st.Metadata)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"key":      key,
+		"filename": st.Filename,
+		"state":    st.State,
+		"metadata": nil,
+	})
+}
+

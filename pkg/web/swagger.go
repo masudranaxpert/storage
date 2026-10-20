@@ -301,8 +301,8 @@ func GetOpenAPISpec() map[string]interface{} {
 			},
 			"/api/v1/files/{key}": map[string]interface{}{
 				"get": map[string]interface{}{
-					"summary":     "File status, play URL & stream URL",
-					"description": "Live lifecycle status for one file: downloading → processing → transferring → completed. worker_node_id = the node running download/remux; placement.node_id = storage node holding the file. stream_url points to worker media, while play_url (/stream/{key}) routes through the coordinator to count hits for auto-tiering.",
+					"summary":     "Player streaming URLs & anti-leech token",
+					"description": "Returns direct multi-track playback URLs for video players (video_url, audio_tracks, subtitles) masked with an opaque playback ticket (t_...) and a 4-hour anti-leech expiry token.",
 					"tags":        []string{"Files v1"},
 					"parameters": []map[string]interface{}{
 						{
@@ -311,11 +311,11 @@ func GetOpenAPISpec() map[string]interface{} {
 							"required":    true,
 							"description": "16-character file key",
 							"schema":      map[string]interface{}{"type": "string"},
-							"example":     "3hjMG311oM4LVqYm",
+							"example":     "HELH5QjXyETgEwUW",
 						},
 					},
 					"responses": map[string]interface{}{
-						"200": jsonResponse("File status"),
+						"200": jsonResponse("Player streaming payload"),
 						"404": jsonResponse("Unknown key"),
 					},
 				},
@@ -328,15 +328,57 @@ func GetOpenAPISpec() map[string]interface{} {
 							"name":        "key",
 							"in":          "path",
 							"required":    true,
-							"description": "Single key (e.g. 3hjMG311oM4LVqYm) or multiple comma-separated keys (e.g. key1,key2,key3)",
+							"description": "Single key (e.g. HELH5QjXyETgEwUW) or multiple comma-separated keys (e.g. key1,key2,key3)",
 							"schema":      map[string]interface{}{"type": "string"},
-							"example":     "3hjMG311oM4LVqYm",
+							"example":     "HELH5QjXyETgEwUW",
 						},
 					},
 					"responses": map[string]interface{}{
 						"200": jsonResponse("Deleted successfully"),
 						"404": jsonResponse("Unknown key"),
 						"502": jsonResponse("Worker unreachable"),
+					},
+				},
+			},
+			"/api/v1/files/{key}/info": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "Full file lifecycle, progress & placement info",
+					"description": "Live lifecycle status for one file: downloading → processing → transferring → completed. Details node placement, byte progress, transfer speeds, and storage tier.",
+					"tags":        []string{"Files v1"},
+					"parameters": []map[string]interface{}{
+						{
+							"name":        "key",
+							"in":          "path",
+							"required":    true,
+							"description": "16-character file key",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "HELH5QjXyETgEwUW",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonResponse("Full file status and placement info"),
+						"404": jsonResponse("Unknown key"),
+					},
+				},
+			},
+			"/api/v1/files/{key}/metadata": map[string]interface{}{
+				"get": map[string]interface{}{
+					"summary":     "File audio, video & subtitle metadata",
+					"description": "Returns probed technical metadata: video codec/bitrate/resolution, multi-language audio streams, and extracted subtitle tracks.",
+					"tags":        []string{"Files v1"},
+					"parameters": []map[string]interface{}{
+						{
+							"name":        "key",
+							"in":          "path",
+							"required":    true,
+							"description": "16-character file key",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "HELH5QjXyETgEwUW",
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonResponse("Probed media metadata"),
+						"404": jsonResponse("Unknown key"),
 					},
 				},
 			},

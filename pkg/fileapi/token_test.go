@@ -154,4 +154,49 @@ func TestHandleTokenMultiTrack(t *testing.T) {
 	if !strings.Contains(st.StreamURL, "/stream/t_") {
 		t.Fatalf("expected StreamURL to use masked ticket, got %s", st.StreamURL)
 	}
+
+	// 4. Test default GET /api/v1/files/test-vid-multi: must return the clean player StreamURLResponse
+	reqDirect := httptest.NewRequest(http.MethodGet, "/api/v1/files/test-vid-multi", nil)
+	recDirect := httptest.NewRecorder()
+	mux.ServeHTTP(recDirect, reqDirect)
+	if recDirect.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for direct GET, got %d", recDirect.Code)
+	}
+	var directResp StreamURLResponse
+	if err := json.Unmarshal(recDirect.Body.Bytes(), &directResp); err != nil {
+		t.Fatalf("failed to decode direct GET response: %v", err)
+	}
+	if directResp.Key != "test-vid-multi" || directResp.VideoURL == "" || len(directResp.AudioTracks) != 2 {
+		t.Fatalf("unexpected direct player response: %+v", directResp)
+	}
+
+	// 5. Test GET /api/v1/files/test-vid-multi/info: returns full StatusResponse
+	reqInfo := httptest.NewRequest(http.MethodGet, "/api/v1/files/test-vid-multi/info", nil)
+	recInfo := httptest.NewRecorder()
+	mux.ServeHTTP(recInfo, reqInfo)
+	if recInfo.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /info, got %d", recInfo.Code)
+	}
+	var infoResp StatusResponse
+	if err := json.Unmarshal(recInfo.Body.Bytes(), &infoResp); err != nil {
+		t.Fatalf("failed to decode /info response: %v", err)
+	}
+	if infoResp.Key != "test-vid-multi" || infoResp.State != StateCompleted {
+		t.Fatalf("unexpected info response: %+v", infoResp)
+	}
+
+	// 6. Test GET /api/v1/files/test-vid-multi/metadata: returns media metadata
+	reqMeta := httptest.NewRequest(http.MethodGet, "/api/v1/files/test-vid-multi/metadata", nil)
+	recMeta := httptest.NewRecorder()
+	mux.ServeHTTP(recMeta, reqMeta)
+	if recMeta.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /metadata, got %d", recMeta.Code)
+	}
+	var metaMap map[string]interface{}
+	if err := json.Unmarshal(recMeta.Body.Bytes(), &metaMap); err != nil {
+		t.Fatalf("failed to decode /metadata response: %v", err)
+	}
+	if _, hasAudio := metaMap["audio_tracks"]; !hasAudio {
+		t.Fatalf("expected audio_tracks in /metadata response, got %+v", metaMap)
+	}
 }
