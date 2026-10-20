@@ -734,6 +734,114 @@ const embedPlayerHTML = `<!DOCTYPE html>
             });
         }
 
+        function AudioBooster() {
+            this.ctx = null;
+            this.gainNode = null;
+            this.compressor = null;
+            this.boostLevel = 1.0;
+            this.connectedElements = [];
+        }
+        AudioBooster.prototype.init = function (element) {
+            if (!element) return;
+            try {
+                var AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+                if (!this.ctx || this.ctx.state === 'closed') {
+                    this.ctx = new AudioCtx();
+                    this.compressor = this.ctx.createDynamicsCompressor();
+                    this.compressor.threshold.setValueAtTime(-6, this.ctx.currentTime);
+                    this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
+                    this.compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
+                    this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+                    this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
+
+                    this.gainNode = this.ctx.createGain();
+                    this.gainNode.gain.setValueAtTime(this.boostLevel, this.ctx.currentTime);
+
+                    this.compressor.connect(this.gainNode);
+                    this.gainNode.connect(this.ctx.destination);
+                }
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(function () {});
+                }
+                if (this.connectedElements.indexOf(element) === -1) {
+                    var source = this.ctx.createMediaElementSource(element);
+                    source.connect(this.compressor);
+                    this.connectedElements.push(element);
+                }
+            } catch (e) {
+                console.warn('AudioBooster init warning:', e);
+            }
+        };
+        AudioBooster.prototype.setBoost = function (level, element) {
+            this.boostLevel = level;
+            if (element) {
+                this.init(element);
+            }
+            if (this.gainNode && this.ctx) {
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(function () {});
+                }
+                this.gainNode.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05);
+            }
+        };
+
+        var globalAudioBooster = new AudioBooster();
+        function applyAudioBoost(level) {
+            var targetElement = (window.artAudioCtrl && window.artAudioCtrl.audio && window.artAudioCtrl.audio.src)
+                ? window.artAudioCtrl.audio
+                : (window.art ? window.art.video : null);
+            globalAudioBooster.setBoost(level, targetElement);
+        }
+
+        var savedBoost = 1.0;
+        try {
+            savedBoost = parseFloat(localStorage.getItem('stream_audio_boost') || '1.0');
+            if (isNaN(savedBoost) || savedBoost < 1.0 || savedBoost > 2.0) savedBoost = 1.0;
+        } catch (_) {}
+
+        var boostItems = [
+            {
+                default: savedBoost === 1.0,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🔊 100% <span style="font-size:10px;opacity:0.6;">(Normal)</span></span>',
+                value: 1.0,
+                displayTitle: '100%'
+            },
+            {
+                default: savedBoost === 1.5,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">⚡ 150% <span style="font-size:10px;opacity:0.6;">(Boosted)</span></span>',
+                value: 1.5,
+                displayTitle: '150%'
+            },
+            {
+                default: savedBoost === 2.0,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🚀 200% <span style="font-size:10px;opacity:0.6;">(Max Boost)</span></span>',
+                value: 2.0,
+                displayTitle: '200%'
+            }
+        ];
+
+        var activeBoostItem = boostItems.find(function (b) { return b.default; }) || boostItems[0];
+
+        customSettings.push({
+            icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+            width: 220,
+            html: 'Audio Boost',
+            name: 'audio_boost',
+            tooltip: activeBoostItem.displayTitle,
+            selector: boostItems,
+            onSelect: function (item) {
+                try {
+                    localStorage.setItem('stream_audio_boost', String(item.value));
+                } catch (_) {}
+                applyAudioBoost(item.value);
+                if (window.art && window.art.notice) {
+                    window.art.notice.show = 'Audio Boost: ' + item.displayTitle;
+                }
+                return item.displayTitle;
+            }
+        });
+
         var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
         var artOptions = {
             container: '#artplayer',
@@ -766,7 +874,8 @@ const embedPlayerHTML = `<!DOCTYPE html>
             lock: true,
             moreVideoAttr: {
                 'playsinline': 'true',
-                'webkit-playsinline': 'true'
+                'webkit-playsinline': 'true',
+                'crossorigin': 'anonymous'
             },
             settings: customSettings,
             customType: {
@@ -830,7 +939,9 @@ const embedPlayerHTML = `<!DOCTYPE html>
         function LockstepAudio(artInstance) {
             this.art = artInstance;
             this.video = artInstance.video;
-            this.audio = null;
+            this.audio = new Audio();
+            this.audio.crossOrigin = 'anonymous';
+            this.audio.preload = 'auto';
             this.syncTimer = null;
             this.userPaused = this.video.paused;
             this.internalPauseExpected = 0;
@@ -910,16 +1021,17 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 this.syncTimer = null;
             }
 
-            if (this.audio) {
-                this.audio.pause();
-                this.audio.removeAttribute('src');
-                this.audio.load();
-                this.audio = null;
+            if (!this.audio) {
+                this.audio = new Audio();
+                this.audio.crossOrigin = 'anonymous';
+                this.audio.preload = 'auto';
             }
+            this.audio.pause();
 
             if (!audioUrl) {
                 this.isSwitchingTrack = false;
                 this.video.muted = false;
+                this.audio.removeAttribute('src');
                 return;
             }
 
@@ -931,10 +1043,7 @@ const embedPlayerHTML = `<!DOCTYPE html>
             }
 
             v.muted = true;
-            var a = new Audio();
-            this.audio = a;
-            a.crossOrigin = 'anonymous';
-            a.preload = 'auto';
+            var a = this.audio;
             a.volume = v.volume;
             a.muted = v.muted;
 
@@ -1056,6 +1165,11 @@ const embedPlayerHTML = `<!DOCTYPE html>
         window.artAudioCtrl = new LockstepAudio(art);
         if (AUDIO_TRACKS && AUDIO_TRACKS.length > 0) {
             window.artAudioCtrl.switchAudio(AUDIO_TRACKS[0].url);
+        }
+        if (savedBoost > 1.0) {
+            art.on('video:play', function () {
+                applyAudioBoost(savedBoost);
+            }, { once: true });
         }
     })();
     </script>

@@ -1325,6 +1325,78 @@
         container.appendChild(video);
     }
 
+    class AudioBooster {
+        constructor() {
+            this.ctx = null;
+            this.gainNode = null;
+            this.compressor = null;
+            this.boostLevel = 1.0;
+            this.connectedElements = new WeakSet();
+        }
+
+        init(element) {
+            if (!element) return;
+            try {
+                const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                if (!AudioCtx) return;
+
+                if (!this.ctx || this.ctx.state === 'closed') {
+                    this.ctx = new AudioCtx();
+
+                    this.compressor = this.ctx.createDynamicsCompressor();
+                    this.compressor.threshold.setValueAtTime(-6, this.ctx.currentTime);
+                    this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
+                    this.compressor.ratio.setValueAtTime(4, this.ctx.currentTime);
+                    this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+                    this.compressor.release.setValueAtTime(0.25, this.ctx.currentTime);
+
+                    this.gainNode = this.ctx.createGain();
+                    this.gainNode.gain.setValueAtTime(this.boostLevel, this.ctx.currentTime);
+
+                    this.compressor.connect(this.gainNode);
+                    this.gainNode.connect(this.ctx.destination);
+                }
+
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(() => {});
+                }
+
+                if (!this.connectedElements.has(element)) {
+                    const source = this.ctx.createMediaElementSource(element);
+                    source.connect(this.compressor);
+                    this.connectedElements.add(element);
+                }
+            } catch (err) {
+                console.warn('AudioBooster init warning:', err);
+            }
+        }
+
+        setBoost(level, element) {
+            this.boostLevel = level;
+            if (element) {
+                this.init(element);
+            }
+            if (this.gainNode && this.ctx) {
+                if (this.ctx.state === 'suspended') {
+                    this.ctx.resume().catch(() => {});
+                }
+                this.gainNode.gain.setTargetAtTime(level, this.ctx.currentTime, 0.05);
+            }
+        }
+    }
+
+    let globalAudioBooster = null;
+
+    function applyAudioBoost(level) {
+        if (!globalAudioBooster) {
+            globalAudioBooster = new AudioBooster();
+        }
+        const targetElement = (lockstepController && lockstepController.active && lockstepController.audio)
+            ? lockstepController.audio
+            : (currentArtPlayer ? currentArtPlayer.video : null);
+        globalAudioBooster.setBoost(level, targetElement);
+    }
+
     function initArtPlayer(streamUrl, job, meta) {
         closeArtPlayer();
         const container = document.getElementById('artplayer-container');
@@ -1436,6 +1508,54 @@
             });
         }
 
+        let savedBoost = 1.0;
+        try {
+            savedBoost = parseFloat(localStorage.getItem('stream_audio_boost') || '1.0');
+            if (isNaN(savedBoost) || savedBoost < 1.0 || savedBoost > 2.0) savedBoost = 1.0;
+        } catch (_) {}
+
+        const boostItems = [
+            {
+                default: savedBoost === 1.0,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🔊 100% <span style="font-size:10px;opacity:0.6;">(Normal)</span></span>',
+                value: 1.0,
+                displayTitle: '100%'
+            },
+            {
+                default: savedBoost === 1.5,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">⚡ 150% <span style="font-size:10px;opacity:0.6;">(Boosted)</span></span>',
+                value: 1.5,
+                displayTitle: '150%'
+            },
+            {
+                default: savedBoost === 2.0,
+                html: '<span style="display:inline-flex;align-items:center;gap:6px;">🚀 200% <span style="font-size:10px;opacity:0.6;">(Max Boost)</span></span>',
+                value: 2.0,
+                displayTitle: '200%'
+            }
+        ];
+
+        const activeBoostItem = boostItems.find(b => b.default) || boostItems[0];
+
+        customSettings.push({
+            icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>',
+            width: 220,
+            html: 'Audio Boost',
+            name: 'audio_boost',
+            tooltip: activeBoostItem.displayTitle,
+            selector: boostItems,
+            onSelect: function (item) {
+                try {
+                    localStorage.setItem('stream_audio_boost', String(item.value));
+                } catch (_) {}
+                applyAudioBoost(item.value);
+                if (currentArtPlayer && currentArtPlayer.notice) {
+                    currentArtPlayer.notice.show = `Audio Boost: ${item.displayTitle}`;
+                }
+                return item.displayTitle;
+            }
+        });
+
         const ArtClass = window.Artplayer || window.ArtPlayer;
         if (!ArtClass) {
             console.warn('Artplayer library not loaded, using HTML5 fallback');
@@ -1447,7 +1567,8 @@
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
             const videoAttrs = {
                 playsInline: 'true',
-                'webkit-playsinline': 'true'
+                'webkit-playsinline': 'true',
+                crossOrigin: 'anonymous'
             };
 
             const artOptions = {
@@ -1525,6 +1646,11 @@
             currentArtPlayer.on('ready', cinemaReady);
             currentArtPlayer.on('video:canplay', cinemaReady);
             currentArtPlayer.on('error', () => cinemaFail(job));
+            if (savedBoost > 1.0) {
+                currentArtPlayer.on('video:play', () => {
+                    applyAudioBoost(savedBoost);
+                }, { once: true });
+            }
             clearTimeout(cinemaLoadTimer);
             cinemaLoadTimer = setTimeout(() => cinemaFail(job, 'Timed out while connecting to the storage node.'), 25000);
 
@@ -1791,6 +1917,12 @@
         const firstTrack = audioTracks[0];
         const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
         lockstepController = new LockstepAudioController(art, firstUrl);
+
+        if (globalAudioBooster && globalAudioBooster.boostLevel > 1.0) {
+            art.on('video:play', () => {
+                applyAudioBoost(globalAudioBooster.boostLevel);
+            }, { once: true });
+        }
     }
 
     function switchArtPlayerAudio(trackIndex, url) {
