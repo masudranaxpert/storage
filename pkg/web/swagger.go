@@ -237,7 +237,8 @@ func GetOpenAPISpec() map[string]interface{} {
 				"3. **GET /api/v1/files/{key}/info** — Live lifecycle progress (`downloading` → `processing` → `transferring` → `completed`), node placement, and transfer speed.\n" +
 				"4. **GET /api/v1/files/{key}/metadata** — Technical media metadata (codecs, bitrates, audio channels, subtitle tracks).\n" +
 				"5. **DELETE /api/v1/files/{key}** — Delete a file or batch delete multiple files (single key or comma-separated `key1,key2,key3`).\n" +
-				"6. **DELETE /api/v1/files** — Batch delete multiple files with JSON body `{\"keys\": [\"key1\", \"key2\"]}` or `?keys=key1,key2`.",
+				"6. **DELETE /api/v1/files** — Batch delete multiple files with JSON body `{\"keys\": [\"key1\", \"key2\"]}` or `?keys=key1,key2`.\n" +
+				"7. **POST /api/v1/files/{key}/heartbeat** — Live playback heartbeat to track real-time concurrent viewers (`active_viewers`).",
 		},
 		"servers": []map[string]interface{}{
 			{
@@ -381,6 +382,39 @@ func GetOpenAPISpec() map[string]interface{} {
 					"responses": map[string]interface{}{
 						"200": jsonResponse("Probed media metadata"),
 						"404": jsonResponse("Unknown key"),
+					},
+				},
+			},
+			"/api/v1/files/{key}/heartbeat": map[string]interface{}{
+				"post": map[string]interface{}{
+					"summary":     "Live playback heartbeat & active viewer ping",
+					"description": "Sends a lightweight periodic heartbeat (every 20–30s) while a user is actively playing a video. The coordinator maintains this session in memory for 60 seconds to accurately report real-time concurrent active viewers on the dashboard.",
+					"tags":        []string{"Files v1"},
+					"parameters": []map[string]interface{}{
+						{
+							"name":        "key",
+							"in":          "path",
+							"required":    true,
+							"description": "16-character file key",
+							"schema":      map[string]interface{}{"type": "string"},
+							"example":     "HELH5QjXyETgEwUW",
+						},
+					},
+					"requestBody": map[string]interface{}{
+						"description": "Optional session identifier for deduplication (falls back to client IP)",
+						"content": map[string]interface{}{
+							"application/json": map[string]interface{}{
+								"schema": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"session_id": map[string]interface{}{"type": "string", "example": "viewer_x9a8b7"},
+									},
+								},
+							},
+						},
+					},
+					"responses": map[string]interface{}{
+						"200": jsonResponse("Heartbeat recorded, returns current active viewers"),
 					},
 				},
 			},

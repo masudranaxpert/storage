@@ -205,6 +205,11 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if action == "heartbeat" && s.heartbeatHandler != nil {
+		s.heartbeatHandler(w, r, key)
+		return
+	}
+
 	if r.Method != http.MethodOptions && !s.isAuthorized(r) {
 		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
 		return

@@ -47,6 +47,7 @@ type Service struct {
 	moveHandler      func(w http.ResponseWriter, r *http.Request, key string)
 	placementHandler func(w http.ResponseWriter, r *http.Request, key string)
 	demandHandler    func(w http.ResponseWriter, r *http.Request, key string)
+	heartbeatHandler func(w http.ResponseWriter, r *http.Request, key string)
 	client           *http.Client
 	secret           string
 	authValidator    func(r *http.Request) bool
@@ -95,6 +96,11 @@ func (s *Service) SetPlacementHandler(fn func(w http.ResponseWriter, r *http.Req
 // SetDemandHandler registers the HTTP handler for POST /api/v1/files/{key}/demand without importing lifecycle.
 func (s *Service) SetDemandHandler(fn func(w http.ResponseWriter, r *http.Request, key string)) {
 	s.demandHandler = fn
+}
+
+// SetHeartbeatHandler registers the HTTP handler for POST /api/v1/files/{key}/heartbeat.
+func (s *Service) SetHeartbeatHandler(fn func(w http.ResponseWriter, r *http.Request, key string)) {
+	s.heartbeatHandler = fn
 }
 
 // SetDeleteHandler registers a callback invoked whenever a file is deleted from the cluster.

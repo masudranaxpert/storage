@@ -110,6 +110,7 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 	s.files.SetMoveHandler(s.handleFileMove)
 	s.files.SetPlacementHandler(s.handleFilePlacement)
 	s.files.SetDemandHandler(s.handleFileDemand)
+	s.files.SetHeartbeatHandler(s.handleFileHeartbeat)
 	s.files.SetDeleteHandler(s.engine.OnFileDeleted)
 	s.files.SetAuthValidator(s.validateFileAPIAuth)
 	s.files.SetCreatorResolver(s.resolveFileAPICreator)

@@ -522,3 +522,52 @@ func (s *Server) handleStreamHeartbeat(w http.ResponseWriter, r *http.Request) {
 		"active_viewers": activeCount,
 	})
 }
+
+func (s *Server) handleFileHeartbeat(w http.ResponseWriter, r *http.Request, key string) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if r.Method != http.MethodPost {
+		writeJSONErr(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	var payload struct {
+		SessionID string `json:"session_id"`
+		ViewerID  string `json:"viewer_id"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&payload)
+
+	sid := payload.SessionID
+	if sid == "" {
+		sid = payload.ViewerID
+	}
+	if sid == "" {
+		clientIP := r.Header.Get("CF-Connecting-IP")
+		if clientIP == "" {
+			clientIP = r.Header.Get("X-Forwarded-For")
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+		if idx := strings.Index(clientIP, ","); idx != -1 {
+			clientIP = strings.TrimSpace(clientIP[:idx])
+		}
+		if host, _, err := net.SplitHostPort(clientIP); err == nil {
+			clientIP = host
+		}
+		sid = clientIP
+	}
+
+	activeCount := 0
+	if s.engine != nil {
+		activeCount = s.engine.RecordViewerHeartbeat(key, sid)
+	}
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"status":         "ok",
+		"key":            key,
+		"active_viewers": activeCount,
+	})
+}
