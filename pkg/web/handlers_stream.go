@@ -947,6 +947,15 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
         var art = new ArtClass(artOptions);
         window.art = art;
+        art.muted = false;
+        if (art.video) art.video.muted = false;
+        art.on('video:play', function () {
+            if (art.muted) art.muted = false;
+            if (art.video && art.video.muted) art.video.muted = false;
+            if (window.artAudioCtrl && window.artAudioCtrl.audio) {
+                window.artAudioCtrl.audio.muted = false;
+            }
+        }, { once: true });
 
         function LockstepAudio(artInstance) {
             this.art = artInstance;
@@ -954,6 +963,9 @@ const embedPlayerHTML = `<!DOCTYPE html>
             this.audio = new Audio();
             this.audio.crossOrigin = 'anonymous';
             this.audio.preload = 'auto';
+            this.video.muted = false;
+            this.audio.muted = false;
+            this.audio.volume = this.video.volume > 0 ? this.video.volume : 0.8;
             this.syncTimer = null;
             this.userPaused = this.video.paused;
             this.internalPauseExpected = 0;
@@ -1050,11 +1062,11 @@ const embedPlayerHTML = `<!DOCTYPE html>
             var v = this.video;
 
             // Stop previous audio immediately; keep video playing smoothly without pausing
-            v.muted = true;
+            v.muted = false;
             var a = this.audio;
             a.pause();
-            a.volume = v.volume;
-            a.muted = v.muted;
+            a.volume = v.volume > 0 ? v.volume : 0.8;
+            a.muted = false;
 
             var self = this;
 

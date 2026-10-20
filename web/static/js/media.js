@@ -1655,9 +1655,20 @@
             }
 
             currentArtPlayer = new ArtClass(artOptions);
+            currentArtPlayer.muted = false;
+            if (currentArtPlayer.video) {
+                currentArtPlayer.video.muted = false;
+            }
             currentArtPlayer.on('ready', cinemaReady);
             currentArtPlayer.on('video:canplay', cinemaReady);
             currentArtPlayer.on('error', () => cinemaFail(job));
+            currentArtPlayer.on('video:play', () => {
+                if (currentArtPlayer.muted) currentArtPlayer.muted = false;
+                if (currentArtPlayer.video && currentArtPlayer.video.muted) currentArtPlayer.video.muted = false;
+                if (lockstepController && lockstepController.audio) {
+                    lockstepController.audio.muted = false;
+                }
+            }, { once: true });
             if (savedBoost > 1.0) {
                 currentArtPlayer.on('video:play', () => {
                     applyAudioBoost(savedBoost);
@@ -1691,9 +1702,10 @@
             this.isSwitchingTrack = false;
             this.syncInterval = null;
 
+            this.video.muted = false;
+            this.audio.muted = false;
+            this.audio.volume = this.video.volume > 0 ? this.video.volume : 0.8;
             this.audio.src = initialAudioUrl;
-            this.audio.volume = this.video.volume;
-            this.audio.muted = this.video.muted;
             this.audio.load();
 
             this.bindEvents();
@@ -1905,8 +1917,9 @@
             a.addEventListener('error', onAudioError, { once: true });
 
             a.src = newUrl;
-            a.volume = v.volume;
-            a.muted = v.muted;
+            a.volume = v.volume > 0 ? v.volume : 0.8;
+            a.muted = false;
+            v.muted = false;
             a.load();
         }
 
