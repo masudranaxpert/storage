@@ -360,7 +360,8 @@
 
     .fl-panel .fl-pane {
         overflow-y: auto;
-        overscroll-behavior: contain;
+        overscroll-behavior: auto;
+        -webkit-overflow-scrolling: touch;
     }
 }
 

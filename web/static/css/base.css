@@ -410,6 +410,8 @@ body {
     max-height: 100vh;
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior-y: auto;
+    -webkit-overflow-scrolling: touch;
 }
 
 .app-topbar {

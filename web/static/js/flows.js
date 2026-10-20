@@ -224,10 +224,15 @@
         switchTab('details');
         renderBoard();
         renderDetails();
-        // Single-column layouts: bring the editor into view.
+        // Single-column layouts: bring the editor into view only if out of viewport.
         if (state.selection.type !== 'none' && global.innerWidth < WIDE_LAYOUT) {
             const panel = $('#fl-panel');
-            if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (panel) {
+                const rect = panel.getBoundingClientRect();
+                if (rect.top > global.innerHeight || rect.bottom < 0) {
+                    panel.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+                }
+            }
         }
     }
 
