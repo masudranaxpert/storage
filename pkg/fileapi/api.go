@@ -623,7 +623,7 @@ type StreamAudioTrack struct {
 	Channels      int    `json:"channels,omitempty"`
 	ChannelLayout string `json:"channel_layout,omitempty"`
 	BitrateBps    int64  `json:"bitrate_bps,omitempty"`
-	URL           string `json:"url"`
+	URL           string `json:"url,omitempty"`
 	Embedded      bool   `json:"embedded"`
 }
 
@@ -709,7 +709,7 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 
 					numAudios := len(meta.AudioTracks)
 					for i, aTrack := range meta.AudioTracks {
-						trackURL := playURL
+						trackURL := ""
 						embedded := true
 
 						if numAudios > 1 || aTrack.File != "" {
@@ -735,8 +735,6 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 								}
 							}
 							embedded = false
-						} else if directBase != "" {
-							trackURL = resp.VideoURL
 						}
 
 						resp.AudioTracks = append(resp.AudioTracks, StreamAudioTrack{
