@@ -437,7 +437,72 @@ type embedTrackInfo struct {
 	Index    int    `json:"index"`
 	Language string `json:"language"`
 	Title    string `json:"title"`
+	Codec    string `json:"codec,omitempty"`
+	Channels int    `json:"channels,omitempty"`
 	URL      string `json:"url"`
+}
+
+var isoLangNames = map[string]string{
+	"hin": "Hindi", "hi": "Hindi",
+	"ben": "Bengali", "bn": "Bengali",
+	"eng": "English", "en": "English",
+	"spa": "Spanish", "es": "Spanish",
+	"fra": "French", "fre": "French", "fr": "French",
+	"ger": "German", "deu": "German", "de": "German",
+	"ita": "Italian", "it": "Italian",
+	"jpn": "Japanese", "ja": "Japanese",
+	"kor": "Korean", "ko": "Korean",
+	"chi": "Chinese", "zho": "Chinese", "zh": "Chinese",
+	"rus": "Russian", "ru": "Russian",
+	"ara": "Arabic", "ar": "Arabic",
+	"tam": "Tamil", "ta": "Tamil",
+	"tel": "Telugu", "te": "Telugu",
+	"mal": "Malayalam", "ml": "Malayalam",
+	"kan": "Kannada", "kn": "Kannada",
+	"mar": "Marathi", "mr": "Marathi",
+	"pan": "Punjabi", "pa": "Punjabi",
+	"guj": "Gujarati", "gu": "Gujarati",
+	"urd": "Urdu", "ur": "Urdu",
+	"por": "Portuguese", "pt": "Portuguese",
+	"tur": "Turkish", "tr": "Turkish",
+	"pol": "Polish", "pl": "Polish",
+	"nld": "Dutch", "nl": "Dutch",
+	"swe": "Swedish", "sv": "Swedish",
+	"tha": "Thai", "th": "Thai",
+	"vie": "Vietnamese", "vi": "Vietnamese",
+	"ind": "Indonesian", "id": "Indonesian",
+}
+
+func formatCleanTrackTitle(rawTitle, lang, fallback string) string {
+	raw := strings.TrimSpace(rawTitle)
+	langCode := strings.ToLower(strings.TrimSpace(lang))
+	langName := isoLangNames[langCode]
+	if langName == "" && len(langCode) > 0 {
+		langName = strings.ToUpper(langCode)
+	}
+
+	isSpammy := raw == ""
+	if !isSpammy {
+		lower := strings.ToLower(raw)
+		spamWords := []string{"visit", "download", "fmxbd", "fmovies", "1337x", "yts", "psa", "galaxytv"}
+		for _, w := range spamWords {
+			if strings.Contains(lower, w) {
+				isSpammy = true
+				break
+			}
+		}
+		if !isSpammy && (strings.HasPrefix(lower, "sub") || strings.Contains(lower, "subrip")) {
+			isSpammy = true
+		}
+	}
+
+	if !isSpammy {
+		return raw
+	}
+	if langName != "" {
+		return langName
+	}
+	return fallback
 }
 
 var embedPlayerTmpl = template.Must(template.New("embedPlayer").Parse(embedPlayerHTML))
@@ -471,12 +536,15 @@ func (s *Server) renderStreamEmbed(w http.ResponseWriter, r *http.Request, job *
 				Index    int    `json:"index"`
 				Language string `json:"language"`
 				Title    string `json:"title"`
+				Codec    string `json:"codec"`
+				Channels int    `json:"channels"`
 				File     string `json:"file"`
 			} `json:"audio_tracks"`
 			Subtitles []struct {
 				Index    int    `json:"index"`
 				Language string `json:"language"`
 				Title    string `json:"title"`
+				Codec    string `json:"codec"`
 				File     string `json:"file"`
 			} `json:"subtitles"`
 		}
@@ -486,18 +554,12 @@ func (s *Server) renderStreamEmbed(w http.ResponseWriter, r *http.Request, job *
 				if file == "" {
 					file = fmt.Sprintf("subtitle_%d_%s.vtt", sub.Index, sub.Language)
 				}
-				subTitle := sub.Title
-				if subTitle == "" {
-					if sub.Language != "" {
-						subTitle = strings.ToUpper(sub.Language)
-					} else {
-						subTitle = fmt.Sprintf("Subtitle %d", sub.Index)
-					}
-				}
+				subTitle := formatCleanTrackTitle(sub.Title, sub.Language, fmt.Sprintf("Subtitle %d", sub.Index))
 				subs = append(subs, embedTrackInfo{
 					Index:    sub.Index,
 					Language: sub.Language,
 					Title:    subTitle,
+					Codec:    sub.Codec,
 					URL:      fmt.Sprintf("%s/%s?raw=1", streamBase, file),
 				})
 			}
@@ -507,18 +569,13 @@ func (s *Server) renderStreamEmbed(w http.ResponseWriter, r *http.Request, job *
 				if file == "" {
 					file = fmt.Sprintf("audio_%d_%s.m4a", a.Index, a.Language)
 				}
-				audioTitle := a.Title
-				if audioTitle == "" {
-					if a.Language != "" {
-						audioTitle = strings.ToUpper(a.Language)
-					} else {
-						audioTitle = fmt.Sprintf("Track %d", a.Index)
-					}
-				}
+				audioTitle := formatCleanTrackTitle(a.Title, a.Language, fmt.Sprintf("Track %d", a.Index))
 				audios = append(audios, embedTrackInfo{
 					Index:    a.Index,
 					Language: a.Language,
 					Title:    audioTitle,
+					Codec:    a.Codec,
+					Channels: a.Channels,
 					URL:      fmt.Sprintf("%s/%s?raw=1", streamBase, file),
 				})
 			}
@@ -586,13 +643,20 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
         // 1. Multi-Audio Selector
         if (AUDIO_TRACKS && AUDIO_TRACKS.length > 1) {
-            const audioItems = AUDIO_TRACKS.map(function (t, idx) {
+            var seenAudioCount = {};
+            var audioItems = AUDIO_TRACKS.map(function (t, idx) {
+                var title = t.title || ('Track ' + (idx + 1));
+                seenAudioCount[title] = (seenAudioCount[title] || 0) + 1;
+                if (seenAudioCount[title] > 1) {
+                    title = title + ' #' + seenAudioCount[title];
+                }
+                var metaDetail = (t.codec || 'aac') + (t.channels ? (', ' + t.channels + 'ch') : '');
                 return {
                     default: idx === 0,
-                    html: '🎵 ' + (t.title || ('Audio Track ' + (idx + 1))) + (t.language ? ' (' + t.language.toUpperCase() + ')' : ''),
+                    html: '<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ' + title + ' <span style="font-size:10px;opacity:0.6;">(' + metaDetail + ')</span></span>',
                     url: t.url,
                     index: idx,
-                    displayTitle: t.title || ('Track ' + (idx + 1))
+                    displayTitle: title
                 };
             });
 
@@ -621,24 +685,30 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 type: 'vtt',
                 style: {
                     color: '#ffffff',
-                    fontSize: '22px',
-                    textShadow: '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)',
+                    fontSize: '20px',
+                    textShadow: '0 2px 4px rgba(0,0,0,0.85)',
                     fontWeight: '600'
                 },
                 encoding: 'utf-8'
             };
 
+            var seenSubCount = {};
             var subItems = SUBTITLES.map(function (s, idx) {
+                var title = s.title || ('Subtitle ' + (idx + 1));
+                seenSubCount[title] = (seenSubCount[title] || 0) + 1;
+                if (seenSubCount[title] > 1) {
+                    title = title + ' #' + seenSubCount[title];
+                }
                 return {
                     default: idx === 0,
-                    html: '💬 ' + (s.title || ('Subtitle ' + (idx + 1))) + (s.language ? ' [' + s.language.toUpperCase() + ']' : ''),
+                    html: '<span style="display:inline-flex;align-items:center;gap:6px;">💬 ' + title + ' <span style="font-size:10px;opacity:0.6;">(VTT)</span></span>',
                     url: s.url,
-                    displayTitle: s.title || (s.language ? s.language.toUpperCase() : ('Sub ' + (idx + 1)))
+                    displayTitle: title
                 };
             });
             subItems.push({
                 default: false,
-                html: '❌ Off',
+                html: '<span>❌ Turn Off Subtitles</span>',
                 url: '',
                 displayTitle: 'Off'
             });
@@ -674,17 +744,17 @@ const embedPlayerHTML = `<!DOCTYPE html>
             isLive: false,
             muted: false,
             autoplay: !isMobile,
-            pip: true,
+            pip: false,
             autoSize: false,
             autoMini: false,
-            screenshot: true,
+            screenshot: false,
             setting: true,
             loop: false,
             flip: true,
             playbackRate: true,
             aspectRatio: true,
             fullscreen: true,
-            fullscreenWeb: true,
+            fullscreenWeb: false,
             subtitleOffset: true,
             miniProgressBar: true,
             theme: '#ff7a18',
