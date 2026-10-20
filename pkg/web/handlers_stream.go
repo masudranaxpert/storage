@@ -890,6 +890,10 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 'crossorigin': 'anonymous'
             },
             settings: customSettings,
+            controls: [],
+            plugins: [
+                artplayerPluginAutoThumbnail({ width: 160, number: 60 })
+            ],
             customType: {
                 m3u8: function (video, url, art) {
                     if (window.Hls && Hls.isSupported()) {
@@ -939,6 +943,105 @@ const embedPlayerHTML = `<!DOCTYPE html>
             artOptions.subtitle = defaultSubtitle;
         }
 
+        function artplayerPluginAutoThumbnail(option) {
+            return function (art) {
+                var destroyed = false;
+                var blobUrl = null;
+                var offscreenVideo = null;
+
+                art.on('destroy', function () {
+                    destroyed = true;
+                    if (blobUrl) {
+                        URL.revokeObjectURL(blobUrl);
+                        blobUrl = null;
+                    }
+                    if (offscreenVideo) {
+                        offscreenVideo.src = '';
+                        offscreenVideo = null;
+                    }
+                });
+
+                art.on('video:loadedmetadata', function () {
+                    var url = (option && option.url) || art.option.url;
+                    if (!url || url.indexOf('.m3u8') !== -1) return;
+                    var width = (option && option.width) || 160;
+                    var number = (option && option.number) || 60;
+                    var scale = (option && option.scale) || 1;
+                    var columns = 10;
+
+                    offscreenVideo = document.createElement('video');
+                    offscreenVideo.crossOrigin = 'anonymous';
+                    offscreenVideo.src = url;
+
+                    offscreenVideo.onloadedmetadata = function () {
+                        if (destroyed) return;
+                        var duration = offscreenVideo.duration;
+                        if (!duration || !isFinite(duration) || duration <= 0) return;
+
+                        var canvas = document.createElement('canvas');
+                        var ctx = canvas.getContext('2d');
+                        var height = Math.floor(width * offscreenVideo.videoHeight / offscreenVideo.videoWidth) || 90;
+                        canvas.width = width * columns;
+                        canvas.height = height * Math.ceil(number / columns);
+
+                        function updateThumbnails() {
+                            try {
+                                canvas.toBlob(function (blob) {
+                                    if (destroyed || !blob) return;
+                                    if (blobUrl) URL.revokeObjectURL(blobUrl);
+                                    blobUrl = URL.createObjectURL(blob);
+                                    art.thumbnails = {
+                                        url: blobUrl,
+                                        height: height,
+                                        width: width,
+                                        column: columns,
+                                        number: number,
+                                        scale: scale
+                                    };
+                                }, 'image/jpeg', 0.7);
+                            } catch (e) {}
+                        }
+
+                        function seekAndDraw(index) {
+                            if (destroyed) return;
+                            if (index >= number) {
+                                updateThumbnails();
+                                if (offscreenVideo) {
+                                    offscreenVideo.src = '';
+                                    offscreenVideo = null;
+                                }
+                                return;
+                            }
+
+                            if (index > 0 && index % 10 === 0) {
+                                updateThumbnails();
+                            }
+
+                            offscreenVideo.currentTime = (duration * index) / number;
+                            offscreenVideo.onseeked = function () {
+                                if (destroyed) return;
+                                var col = index % columns;
+                                var row = Math.floor(index / columns);
+                                try {
+                                    ctx.drawImage(offscreenVideo, col * width, row * height, width, height);
+                                } catch (e) {}
+                                seekAndDraw(index + 1);
+                            };
+                            offscreenVideo.onerror = function () {
+                                if (index > 0) updateThumbnails();
+                            };
+                        }
+
+                        seekAndDraw(0);
+                    };
+                });
+
+                return {
+                    name: 'artplayerPluginAutoThumbnail'
+                };
+            };
+        }
+
         var ArtClass = window.Artplayer || window.ArtPlayer;
         if (!ArtClass) {
             document.getElementById('artplayer').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#fff;"><video src="' + VIDEO_URL + '" controls style="max-width:100%;max-height:100%;"></video></div>';
@@ -949,13 +1052,35 @@ const embedPlayerHTML = `<!DOCTYPE html>
         window.art = art;
         art.muted = false;
         if (art.video) art.video.muted = false;
-        art.on('video:play', function () {
-            if (art.muted) art.muted = false;
-            if (art.video && art.video.muted) art.video.muted = false;
-            if (window.artAudioCtrl && window.artAudioCtrl.audio) {
-                window.artAudioCtrl.audio.muted = false;
+        art.on('ready', function () {
+            var playPromise = art.play();
+            if (playPromise !== undefined && typeof playPromise.catch === 'function') {
+                playPromise.catch(function () {
+                    art.muted = true;
+                    if (art.video) art.video.muted = true;
+                    art.play().catch(function () {});
+                    if (art.notice) {
+                        art.notice.show = '🔊 Click anywhere to unmute';
+                    }
+                    var unmute = function () {
+                        art.muted = false;
+                        if (art.video) art.video.muted = false;
+                        if (window.artAudioCtrl && window.artAudioCtrl.audio) {
+                            window.artAudioCtrl.audio.muted = false;
+                        }
+                        if (art.notice) {
+                            art.notice.show = '🔊 Sound Unmuted';
+                        }
+                        ['click', 'touchstart', 'keydown'].forEach(function (evt) {
+                            window.removeEventListener(evt, unmute, true);
+                        });
+                    };
+                    ['click', 'touchstart', 'keydown'].forEach(function (evt) {
+                        window.addEventListener(evt, unmute, { once: true, capture: true });
+                    });
+                });
             }
-        }, { once: true });
+        });
 
         function LockstepAudio(artInstance) {
             this.art = artInstance;

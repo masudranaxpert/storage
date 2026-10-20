@@ -1397,6 +1397,105 @@
         globalAudioBooster.setBoost(level, targetElement);
     }
 
+    function artplayerPluginAutoThumbnail(option) {
+        return function (art) {
+            let destroyed = false;
+            let blobUrl = null;
+            let offscreenVideo = null;
+
+            art.on('destroy', () => {
+                destroyed = true;
+                if (blobUrl) {
+                    URL.revokeObjectURL(blobUrl);
+                    blobUrl = null;
+                }
+                if (offscreenVideo) {
+                    offscreenVideo.src = '';
+                    offscreenVideo = null;
+                }
+            });
+
+            art.on('video:loadedmetadata', () => {
+                const url = (option && option.url) || art.option.url;
+                if (!url || url.includes('.m3u8')) return;
+                const width = (option && option.width) || 160;
+                const number = (option && option.number) || 60;
+                const scale = (option && option.scale) || 1;
+                const columns = 10;
+
+                offscreenVideo = document.createElement('video');
+                offscreenVideo.crossOrigin = 'anonymous';
+                offscreenVideo.src = url;
+
+                offscreenVideo.onloadedmetadata = () => {
+                    if (destroyed) return;
+                    const duration = offscreenVideo.duration;
+                    if (!duration || !isFinite(duration) || duration <= 0) return;
+
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    const height = Math.floor(width * offscreenVideo.videoHeight / offscreenVideo.videoWidth) || 90;
+                    canvas.width = width * columns;
+                    canvas.height = height * Math.ceil(number / columns);
+
+                    function updateThumbnails() {
+                        try {
+                            canvas.toBlob((blob) => {
+                                if (destroyed || !blob) return;
+                                if (blobUrl) URL.revokeObjectURL(blobUrl);
+                                blobUrl = URL.createObjectURL(blob);
+                                art.thumbnails = {
+                                    url: blobUrl,
+                                    height: height,
+                                    width: width,
+                                    column: columns,
+                                    number: number,
+                                    scale: scale
+                                };
+                            }, 'image/jpeg', 0.7);
+                        } catch (e) {}
+                    }
+
+                    function seekAndDraw(index) {
+                        if (destroyed) return;
+                        if (index >= number) {
+                            updateThumbnails();
+                            if (offscreenVideo) {
+                                offscreenVideo.src = '';
+                                offscreenVideo = null;
+                            }
+                            return;
+                        }
+
+                        if (index > 0 && index % 10 === 0) {
+                            updateThumbnails();
+                        }
+
+                        offscreenVideo.currentTime = (duration * index) / number;
+                        offscreenVideo.onseeked = () => {
+                            if (destroyed) return;
+                            const col = index % columns;
+                            const row = Math.floor(index / columns);
+                            try {
+                                ctx.drawImage(offscreenVideo, col * width, row * height, width, height);
+                            } catch (e) {}
+                            seekAndDraw(index + 1);
+                        };
+                        offscreenVideo.onerror = () => {
+                            if (index > 0) updateThumbnails();
+                        };
+                    }
+
+                    seekAndDraw(0);
+                };
+            });
+
+            return {
+                name: 'artplayerPluginAutoThumbnail'
+            };
+        };
+    }
+
     function initArtPlayer(streamUrl, job, meta) {
         closeArtPlayer();
         const container = document.getElementById('artplayer-container');
@@ -1609,6 +1708,9 @@
                 moreVideoAttr: videoAttrs,
                 settings: customSettings,
                 controls: [],
+                plugins: [
+                    artplayerPluginAutoThumbnail({ width: 160, number: 60 })
+                ],
                 customType: {
                     m3u8: function (video, url, art) {
                         if (window.Hls && Hls.isSupported()) {
@@ -1660,16 +1762,39 @@
             if (currentArtPlayer.video) {
                 currentArtPlayer.video.muted = false;
             }
-            currentArtPlayer.on('ready', cinemaReady);
+            currentArtPlayer.on('ready', () => {
+                cinemaReady();
+                const playPromise = currentArtPlayer.play();
+                if (playPromise !== undefined && typeof playPromise.catch === 'function') {
+                    playPromise.catch(() => {
+                        // Browser blocked unmuted autoplay, fallback to muted autoplay
+                        currentArtPlayer.muted = true;
+                        if (currentArtPlayer.video) currentArtPlayer.video.muted = true;
+                        currentArtPlayer.play().catch(() => {});
+                        if (currentArtPlayer.notice) {
+                            currentArtPlayer.notice.show = '🔊 Click anywhere to unmute';
+                        }
+                        const unmute = () => {
+                            currentArtPlayer.muted = false;
+                            if (currentArtPlayer.video) currentArtPlayer.video.muted = false;
+                            if (lockstepController && lockstepController.audio) {
+                                lockstepController.audio.muted = false;
+                            }
+                            if (currentArtPlayer.notice) {
+                                currentArtPlayer.notice.show = '🔊 Sound Unmuted';
+                            }
+                            ['click', 'touchstart', 'keydown'].forEach(evt => {
+                                window.removeEventListener(evt, unmute, true);
+                            });
+                        };
+                        ['click', 'touchstart', 'keydown'].forEach(evt => {
+                            window.addEventListener(evt, unmute, { once: true, capture: true });
+                        });
+                    });
+                }
+            });
             currentArtPlayer.on('video:canplay', cinemaReady);
             currentArtPlayer.on('error', () => cinemaFail(job));
-            currentArtPlayer.on('video:play', () => {
-                if (currentArtPlayer.muted) currentArtPlayer.muted = false;
-                if (currentArtPlayer.video && currentArtPlayer.video.muted) currentArtPlayer.video.muted = false;
-                if (lockstepController && lockstepController.audio) {
-                    lockstepController.audio.muted = false;
-                }
-            }, { once: true });
             if (savedBoost > 1.0) {
                 currentArtPlayer.on('video:play', () => {
                     applyAudioBoost(savedBoost);
