@@ -93,7 +93,12 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		create := r.Method == http.MethodPost
-		if err := s.store.AdminSetEntry(req.Table, req.Key, req.Value, create); err != nil {
+		rawVal := req.Value
+		var strVal string
+		if err := json.Unmarshal(req.Value, &strVal); err == nil && json.Valid([]byte(strVal)) {
+			rawVal = json.RawMessage(strVal)
+		}
+		if err := s.store.AdminSetEntry(req.Table, req.Key, rawVal, create); err != nil {
 			code := http.StatusBadRequest
 			if strings.Contains(err.Error(), "already exists") {
 				code = http.StatusConflict

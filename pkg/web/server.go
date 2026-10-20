@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"html/template"
 	"net/http"
 	"path/filepath"
@@ -69,7 +70,31 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 	if hub != nil {
 		secret = hub.Secret()
 	}
+	if secret == "" {
+		secret = defaultAdminSecret
+	}
+
+	bucketResolver := func(id string) (*storage.S3Config, error) {
+		if store == nil {
+			return nil, fmt.Errorf("database unavailable")
+		}
+		b, err := store.GetBucket(id)
+		if err != nil || b == nil {
+			return nil, err
+		}
+		return &storage.S3Config{
+			Name:       b.Name,
+			Provider:   b.Provider,
+			Endpoint:   b.Endpoint,
+			Region:     b.Region,
+			AccessKey:  b.AccessKey,
+			SecretKey:  b.SecretKey,
+			PublicHost: b.PublicHost,
+		}, nil
+	}
+
 	s.files = fileapi.NewService(jobStore, tiers, coord, s.processingProfiles, s.mediaUsagePerNode)
+	s.files.SetBucketResolver(bucketResolver)
 	s.engine = lifecycle.New(
 		lcStore,
 		tiers,
@@ -78,6 +103,7 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 		lifecycle.WithUsageFunc(s.mediaUsagePerNode),
 		lifecycle.WithJobStore(jobStore),
 		lifecycle.WithSecret(secret),
+		lifecycle.WithBucketResolver(bucketResolver),
 	)
 	s.deduper = lifecycle.NewPlayDeduper(50000, 30*time.Minute)
 	s.files.SetIngestOrder(s.engine.IngestOrder)

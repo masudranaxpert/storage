@@ -64,6 +64,13 @@ func WithCoordinatorURL(baseURL string) ExecutorOption {
 	}
 }
 
+// WithExecutorBucketResolver injects remote S3/R2 bucket config resolution.
+func WithExecutorBucketResolver(fn func(id string) (*storage.S3Config, error)) ExecutorOption {
+	return func(ex *Executor) {
+		ex.bucketResolver = fn
+	}
+}
+
 // WithExecutorUsageFunc injects live per-node/per-block media byte usage for destination block selection.
 func WithExecutorUsageFunc(fn func() map[string]uint64) ExecutorOption {
 	return func(ex *Executor) {
@@ -133,6 +140,7 @@ type Executor struct {
 	client         *http.Client
 	secret         string
 	coordinatorURL string
+	bucketResolver func(id string) (*storage.S3Config, error)
 
 	globalLimit  int
 	perNodeLimit int
@@ -774,18 +782,56 @@ func (ex *Executor) nodeByID(nodeID string) *cluster.NodeRecord {
 	return nil
 }
 
-func (ex *Executor) doCopy(ctx context.Context, t *Task, fl *inFlightTask) error {
-	srcNode := ex.nodeByID(t.From.NodeID)
-	if srcNode == nil {
-		return fmt.Errorf("source node %s not found", t.From.NodeID)
+func (ex *Executor) getBucketConfig(id string) (*storage.S3Config, error) {
+	if ex.bucketResolver != nil {
+		return ex.bucketResolver(id)
 	}
-	dstNode := ex.nodeByID(t.To.NodeID)
-	if dstNode == nil {
-		return fmt.Errorf("destination node %s not found", t.To.NodeID)
+	return nil, fmt.Errorf("no bucket resolver configured on executor")
+}
+
+func (ex *Executor) doCopy(ctx context.Context, t *Task, fl *inFlightTask) error {
+	isDstBucket := strings.HasPrefix(t.To.NodeID, "bucket:")
+	isSrcBucket := strings.HasPrefix(t.From.NodeID, "bucket:")
+
+	var (
+		reqTargetBase string
+		dstBase       string
+		srcBase       string
+		dstS3, srcS3  *storage.S3Config
+		srcNode       *cluster.NodeRecord
+		dstNode       *cluster.NodeRecord
+		err           error
+	)
+
+	if isDstBucket {
+		bucketID := strings.TrimPrefix(t.To.NodeID, "bucket:")
+		dstS3, err = ex.getBucketConfig(bucketID)
+		if err != nil || dstS3 == nil {
+			return fmt.Errorf("destination bucket %s not found: %w", bucketID, err)
+		}
+	} else {
+		dstNode = ex.nodeByID(t.To.NodeID)
+		if dstNode == nil {
+			return fmt.Errorf("destination node %s not found", t.To.NodeID)
+		}
+		dstBase = fileapi.AgentBaseURL(dstNode)
 	}
 
-	srcBase := fileapi.AgentBaseURL(srcNode)
-	dstBase := fileapi.AgentBaseURL(dstNode)
+	if isSrcBucket {
+		bucketID := strings.TrimPrefix(t.From.NodeID, "bucket:")
+		srcS3, err = ex.getBucketConfig(bucketID)
+		if err != nil || srcS3 == nil {
+			return fmt.Errorf("source bucket %s not found: %w", bucketID, err)
+		}
+		reqTargetBase = dstBase // Destination node downloads from S3
+	} else {
+		srcNode = ex.nodeByID(t.From.NodeID)
+		if srcNode == nil {
+			return fmt.Errorf("source node %s not found", t.From.NodeID)
+		}
+		srcBase = fileapi.AgentBaseURL(srcNode)
+		reqTargetBase = srcBase
+	}
 
 	// Drain any stale progress messages from a prior attempt.
 	for {
@@ -815,14 +861,19 @@ drained:
 		FinalDir:    t.To.Path,
 		FinalAddr:   dstBase,
 		ProgressURL: progressURL,
+		S3:          dstS3,
+		SrcS3:       srcS3,
 	})
 
-	_, srcFiles, _ := ex.fetchMediaSize(ctx, srcBase, t.Key, t.From.Path)
+	var srcFiles int
+	if srcBase != "" {
+		_, srcFiles, _ = ex.fetchMediaSize(ctx, srcBase, t.Key, t.From.Path)
+	}
 	if srcFiles <= 0 {
 		srcFiles = 1
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, srcBase+"/api/v1/relocate", bytes.NewReader(reqBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqTargetBase+"/api/v1/relocate", bytes.NewReader(reqBody))
 	if err != nil {
 		return err
 	}
@@ -873,6 +924,49 @@ drained:
 }
 
 func (ex *Executor) doVerify(ctx context.Context, t *Task) error {
+	isDstBucket := strings.HasPrefix(t.To.NodeID, "bucket:")
+	isSrcBucket := strings.HasPrefix(t.From.NodeID, "bucket:")
+
+	if isDstBucket {
+		bucketID := strings.TrimPrefix(t.To.NodeID, "bucket:")
+		cfg, err := ex.getBucketConfig(bucketID)
+		if err != nil || cfg == nil {
+			return fmt.Errorf("verify destination bucket %s not found: %w", bucketID, err)
+		}
+		prefix := t.Key
+		if t.To.Path != "" && t.To.Path != "/" && t.To.Path != "." {
+			prefix = strings.Trim(t.To.Path, "/") + "/" + t.Key
+		}
+		size, err := storage.HeadObjectS3(ctx, *cfg, prefix+"/metadata.json")
+		if err != nil || size <= 0 {
+			size, err = storage.HeadObjectS3(ctx, *cfg, prefix+"/master.m3u8")
+			if err != nil || size <= 0 {
+				return fmt.Errorf("verify in bucket failed: media playlist not found on S3: %w", err)
+			}
+		}
+		t.Bytes = size
+		ex.saveTask(t)
+		return nil
+	}
+
+	if isSrcBucket {
+		dstNode := ex.nodeByID(t.To.NodeID)
+		if dstNode == nil {
+			return fmt.Errorf("destination node %s not found", t.To.NodeID)
+		}
+		dstBase := fileapi.AgentBaseURL(dstNode)
+		dstSize, dstFiles, err := ex.fetchMediaSize(ctx, dstBase, t.Key, t.To.Path)
+		if err != nil {
+			return fmt.Errorf("destination media-size probe failed: %w", err)
+		}
+		if dstSize <= 0 || dstFiles <= 0 {
+			return fmt.Errorf("verify destination size invalid: %d bytes (%d files)", dstSize, dstFiles)
+		}
+		t.Bytes = dstSize
+		ex.saveTask(t)
+		return nil
+	}
+
 	srcNode := ex.nodeByID(t.From.NodeID)
 	if srcNode == nil {
 		return fmt.Errorf("source node %s not found", t.From.NodeID)
@@ -1061,6 +1155,19 @@ func (ex *Executor) cancelAgentRelocate(t *Task) {
 }
 
 func (ex *Executor) callIngestDelete(ctx context.Context, nodeID, key, dir string) error {
+	if strings.HasPrefix(nodeID, "bucket:") {
+		bucketID := strings.TrimPrefix(nodeID, "bucket:")
+		cfg, err := ex.getBucketConfig(bucketID)
+		if err != nil || cfg == nil {
+			return fmt.Errorf("bucket %s not found for deletion: %w", bucketID, err)
+		}
+		prefix := key
+		if dir != "" && dir != "/" && dir != "." {
+			prefix = strings.Trim(dir, "/") + "/" + key
+		}
+		return storage.DeleteFolderS3(ctx, *cfg, prefix)
+	}
+
 	node := ex.nodeByID(nodeID)
 	if node == nil {
 		return fmt.Errorf("node %s not found", nodeID)

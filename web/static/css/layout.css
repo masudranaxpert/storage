@@ -342,7 +342,7 @@
 
     .mob-nav-item:hover,
     .mob-nav-item.active {
-        color: var(--orange-primary);
+        color: var(--orange-darker);
     }
 
     .app-main {

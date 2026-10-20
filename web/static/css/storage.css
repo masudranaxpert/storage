@@ -125,7 +125,7 @@
     gap: 7px;
     border: none;
     background: transparent;
-    color: var(--text-secondary);
+    color: #44403c;
     font-size: 13px;
     font-weight: 700;
     font-family: inherit;
@@ -135,14 +135,26 @@
     transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
+[data-theme="dark"] .storage-tab-btn {
+    color: #e7e5e4;
+}
+
 .storage-tab-btn:hover {
-    color: var(--text-primary);
+    color: #1c1917;
+}
+
+[data-theme="dark"] .storage-tab-btn:hover {
+    color: #ffffff;
 }
 
 .storage-tab-btn.active {
     background: var(--bg-surface);
-    color: var(--orange-dark);
+    color: #c2410c;
     box-shadow: var(--shadow-sm);
+}
+
+[data-theme="dark"] .storage-tab-btn.active {
+    color: #fb923c;
 }
 
 .storage-tab-btn:focus-visible {
@@ -315,7 +327,11 @@
 }
 
 .drive-tier-toggle-label.excluded {
-    color: var(--text-muted);
+    color: #4b5563;
+}
+
+[data-theme="dark"] .drive-tier-toggle-label.excluded {
+    color: #9ca3af;
 }
 
 .storage-mount-cell {

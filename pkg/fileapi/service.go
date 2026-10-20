@@ -51,9 +51,15 @@ type Service struct {
 	secret           string
 	authValidator    func(r *http.Request) bool
 	creatorResolver  func(r *http.Request) string
+	bucketResolver   func(id string) (*storage.S3Config, error)
 	deleteHandler    func(key string)
 	strikeMu         sync.Mutex
 	missingStrike    map[string]int
+}
+
+// SetBucketResolver configures remote S3/R2 bucket configuration lookup for storage placement.
+func (s *Service) SetBucketResolver(fn func(id string) (*storage.S3Config, error)) {
+	s.bucketResolver = fn
 }
 
 // SetCreatorResolver configures request provenance identification (API key label or Dashboard).
@@ -154,24 +160,82 @@ func (s *Service) sweepStaleJobs() {
 	}
 }
 
-// ReconcileGhostRecords verifies that completed file records actually exist on the target worker.
-// Requires 3 consecutive 404 strikes before deleting DB rows to avoid purging on transient glitches.
+// ReconcileGhostRecords verifies that completed file records actually exist on the target worker or bucket.
+// Requires 3 consecutive 404 strikes before deleting DB rows to avoid purging on transient glitches,
+// unless force is true (e.g. manual admin sync).
 func (s *Service) ReconcileGhostRecords() (int, error) {
+	return s.ReconcileGhostRecordsOpt(false)
+}
+
+// ReconcileGhostRecordsOpt reconciles completed file records against live workers and cloud buckets.
+func (s *Service) ReconcileGhostRecordsOpt(force bool) (int, error) {
 	recs, err := s.store.ListFileRecords()
 	if err != nil {
 		return 0, err
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 3 * time.Second}
 	purged := 0
 	for _, rec := range recs {
 		job, err := s.store.GetFileJob(rec.Key)
 		if err != nil || job == nil || job.State != StateCompleted {
 			continue
 		}
-		worker := s.nodeByID(job.Placement.NodeID)
-		if worker == nil || worker.Status != cluster.StatusOnline {
+
+		// 1. Reconcile remote S3 / Cloudflare R2 bucket objects
+		if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+			bucketID := strings.TrimPrefix(job.Placement.NodeID, "bucket:")
+			if s.bucketResolver != nil {
+				cfg, err := s.bucketResolver(bucketID)
+				if err == nil && cfg != nil {
+					cCfg := cluster.S3Config{
+						Endpoint:  cfg.Endpoint,
+						Region:    cfg.Region,
+						Name:      cfg.Name,
+						AccessKey: cfg.AccessKey,
+						SecretKey: cfg.SecretKey,
+					}
+					objs, err := cluster.ListObjectsS3(context.Background(), cCfg, rec.Key)
+					if err == nil && len(objs) == 0 {
+						s.strikeMu.Lock()
+						if s.missingStrike == nil {
+							s.missingStrike = make(map[string]int)
+						}
+						s.missingStrike[rec.Key]++
+						strikes := s.missingStrike[rec.Key]
+						if force || strikes >= 3 {
+							delete(s.missingStrike, rec.Key)
+							s.strikeMu.Unlock()
+							fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing in bucket %s — cleaning DB record\n",
+								rec.Key, rec.Filename, cfg.Name)
+							if s.deleteHandler != nil {
+								s.deleteHandler(rec.Key)
+							}
+							_ = s.store.DeleteFileJob(rec.Key)
+							_ = s.store.DeleteFileRecord(rec.Key)
+							purged++
+							continue
+						}
+						s.strikeMu.Unlock()
+					}
+				}
+			}
 			continue
 		}
+
+		// 2. Reconcile VPS worker node files
+		worker := s.nodeByID(job.Placement.NodeID)
+		if worker == nil && s.coord != nil {
+			for _, n := range s.coord.GetNodes() {
+				if n.Metrics.NodeID == job.Placement.NodeID {
+					worker = n
+					break
+				}
+			}
+		}
+		if worker == nil {
+			continue
+		}
+
 		probeURL := fmt.Sprintf("%s/media/%s/metadata.json", AgentBaseURL(worker), rec.Key)
 		req, err := http.NewRequest(http.MethodHead, probeURL, nil)
 		if err != nil {
@@ -194,10 +258,10 @@ func (s *Service) ReconcileGhostRecords() (int, error) {
 		if resp.StatusCode == http.StatusNotFound {
 			s.missingStrike[rec.Key]++
 			strikes := s.missingStrike[rec.Key]
-			if strikes >= 3 {
+			if force || strikes >= 3 {
 				delete(s.missingStrike, rec.Key)
 				s.strikeMu.Unlock()
-				fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing on %s disk (3 strikes) — cleaning DB record\n",
+				fmt.Printf("[FileAPI Reconcile] 🧹 Ghost file '%s' (%s) missing on %s disk — cleaning DB record\n",
 					rec.Key, rec.Filename, job.Placement.NodeID)
 				if s.deleteHandler != nil {
 					s.deleteHandler(rec.Key)
@@ -252,6 +316,24 @@ func (s *Service) workerPool() ([]*cluster.NodeRecord, error) {
 		return nil, ErrNoWorker
 	}
 	return candidates, nil
+}
+
+// activeIngestsPerWorker tallies active (non-completed, non-failed) jobs assigned to each worker.
+func (s *Service) activeIngestsPerWorker() map[string]int {
+	counts := make(map[string]int)
+	if s.store == nil {
+		return counts
+	}
+	jobs, err := s.store.ListFileJobs()
+	if err != nil {
+		return counts
+	}
+	for _, j := range jobs {
+		if j != nil && j.State != StateCompleted && j.State != StateFailed && j.NodeID != "" {
+			counts[j.NodeID]++
+		}
+	}
+	return counts
 }
 
 // tierByID finds a resolved tier status by ID.
@@ -443,10 +525,10 @@ func (s *Service) CreateFromURL(rawURL string, createdBy ...string) (*CreateResp
 	}
 
 	// Pick the processing worker independently: prefer the block owner
-	// (direct write, no transfer), else the worker with the roomiest scratch.
-	worker := PickProcessingWorker(workers, placement.NodeID, uint64(probe.SizeBytes))
-	if worker == nil {
-		return nil, fmt.Errorf("no processing worker has enough scratch space for %d bytes (need ~2x for raw + CMAF)", probe.SizeBytes)
+	// (direct write, no transfer), else the worker with the roomiest scratch and concurrency headroom.
+	worker, err := PickProcessingWorkerWithLimits(workers, placement.NodeID, uint64(probe.SizeBytes), s.profiles(), s.activeIngestsPerWorker())
+	if err != nil {
+		return nil, err
 	}
 	if worker.Metrics.NodeID != placement.NodeID {
 		log.Printf("[FileAPI] 🔀 decoupled placement for %s: process on %s, store on %s:%s",
@@ -538,9 +620,9 @@ func (s *Service) ReserveUpload(rawFilename string, expectedSize int64, createdB
 		return nil, err
 	}
 
-	worker := PickProcessingWorker(workers, placement.NodeID, uint64(expectedSize))
-	if worker == nil {
-		return nil, fmt.Errorf("no processing worker has enough scratch space for %d bytes", expectedSize)
+	worker, err := PickProcessingWorkerWithLimits(workers, placement.NodeID, uint64(expectedSize), s.profiles(), s.activeIngestsPerWorker())
+	if err != nil {
+		return nil, err
 	}
 
 	now := time.Now().UTC()
@@ -591,7 +673,7 @@ func (s *Service) Dispatch(job *FileJob, rec *FileRecord) error {
 		return fmt.Errorf("assigned worker '%s' is offline", job.NodeID)
 	}
 
-	payload := map[string]string{
+	payload := map[string]interface{}{
 		"key":        job.Key,
 		"source_url": job.SourceURL,
 		"filename":   rec.Filename,
@@ -602,15 +684,34 @@ func (s *Service) Dispatch(job *FileJob, rec *FileRecord) error {
 		// Direct: write onto the block this worker owns.
 		payload["target_dir"] = cleanTarget
 	} else {
-		// Decoupled: process in scratch, then transfer to the block owner.
-		owner := s.nodeByID(job.Placement.NodeID)
-		if owner == nil {
-			return fmt.Errorf("storage node '%s' is offline", job.Placement.NodeID)
+		// Decoupled: process in scratch, then transfer to the block owner or S3.
+		if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+			bucketID := strings.TrimPrefix(job.Placement.NodeID, "bucket:")
+			var s3Cfg *storage.S3Config
+			if s.bucketResolver != nil {
+				cfg, err := s.bucketResolver(bucketID)
+				if err != nil || cfg == nil {
+					return fmt.Errorf("storage bucket '%s' not found: %v", bucketID, err)
+				}
+				s3Cfg = cfg
+			}
+			payload["scratch"] = "true"
+			payload["final_node_id"] = job.Placement.NodeID
+			payload["final_dir"] = cleanTarget
+			payload["final_addr"] = ""
+			if s3Cfg != nil {
+				payload["s3"] = s3Cfg
+			}
+		} else {
+			owner := s.nodeByID(job.Placement.NodeID)
+			if owner == nil {
+				return fmt.Errorf("storage node '%s' is offline", job.Placement.NodeID)
+			}
+			payload["scratch"] = "true"
+			payload["final_node_id"] = job.Placement.NodeID
+			payload["final_dir"] = cleanTarget
+			payload["final_addr"] = AgentBaseURL(owner)
 		}
-		payload["scratch"] = "true"
-		payload["final_node_id"] = job.Placement.NodeID
-		payload["final_dir"] = cleanTarget
-		payload["final_addr"] = AgentBaseURL(owner)
 	}
 
 	body, _ := json.Marshal(payload)
@@ -882,6 +983,14 @@ func (s *Service) StreamURL(job *FileJob) string {
 		}
 	}
 
+	// 2b. If target is an S3/R2 remote bucket, resolve the bucket's PublicHost
+	if publicHost == "" && strings.HasPrefix(job.Placement.NodeID, "bucket:") && s.bucketResolver != nil {
+		bucketID := strings.TrimPrefix(job.Placement.NodeID, "bucket:")
+		if cfg, err := s.bucketResolver(bucketID); err == nil && cfg != nil && cfg.PublicHost != "" {
+			publicHost = cfg.PublicHost
+		}
+	}
+
 	if publicHost != "" {
 		host := strings.TrimSpace(publicHost)
 		host = strings.TrimRight(host, "/")
@@ -892,10 +1001,25 @@ func (s *Service) StreamURL(job *FileJob) string {
 				host = "https://" + host
 			}
 		}
+		if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+			targetFile := ""
+			if len(job.MetadataJSON) > 0 {
+				var meta struct {
+					Filename string `json:"filename"`
+				}
+				if json.Unmarshal(job.MetadataJSON, &meta) == nil && meta.Filename != "" {
+					targetFile = "/" + meta.Filename
+				}
+			}
+			return fmt.Sprintf("%s/%s%s", host, job.Key, targetFile)
+		}
 		return fmt.Sprintf("%s/stream/%s", host, job.Key)
 	}
 
 	// 3. Fallback: worker agent's direct reachable address
+	if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+		return ""
+	}
 	node := s.nodeByID(job.Placement.NodeID)
 	if node == nil || node.Status == cluster.StatusOffline {
 		return ""

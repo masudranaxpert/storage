@@ -78,6 +78,30 @@ func TestPickProcessingWorkerSkipsTightScratch(t *testing.T) {
 	}
 }
 
+func TestPickProcessingWorkerWithLimits(t *testing.T) {
+	n1 := node("vps-01", cluster.StatusOnline, 100, true, true)
+	n2 := node("vps-02", cluster.StatusOnline, 100, true, true)
+
+	profiles := map[string]cluster.ProcessingProfile{
+		"vps-01": {NodeID: "vps-01", Enabled: true, MaxConcurrentIngests: 2},
+		"vps-02": {NodeID: "vps-02", Enabled: true, MaxConcurrentIngests: 1},
+	}
+
+	// Case 1: vps-01 at capacity (2 active jobs), vps-02 has slot (0 active jobs)
+	active := map[string]int{"vps-01": 2, "vps-02": 0}
+	got, err := PickProcessingWorkerWithLimits([]*cluster.NodeRecord{n1, n2}, "vps-01", 10<<30, profiles, active)
+	if err != nil || got.Metrics.NodeID != "vps-02" {
+		t.Fatalf("expected vps-02 (vps-01 is full), got %v (err: %v)", got, err)
+	}
+
+	// Case 2: All workers at capacity
+	active["vps-02"] = 1
+	got, err = PickProcessingWorkerWithLimits([]*cluster.NodeRecord{n1, n2}, "vps-01", 10<<30, profiles, active)
+	if err == nil || got != nil {
+		t.Fatalf("expected error when all workers are at capacity, got %v", got)
+	}
+}
+
 func TestPickBlockInTier(t *testing.T) {
 	block := storage.BlockStatus{
 		Block: storage.Block{
@@ -351,6 +375,14 @@ func TestReconcileGhostRecordsThreeStrikes(t *testing.T) {
 	}
 	if exists, _ := store.FileRecordExists("transient1"); !exists {
 		t.Fatal("transient1 should still exist after only 2 consecutive 404s")
+	}
+
+	// Force reconcile: transient1 should be purged immediately on strike 1.
+	if purged, err := svc.ReconcileGhostRecordsOpt(true); err != nil || purged != 1 {
+		t.Fatalf("force reconcile: got purged=%d err=%v, want 1", purged, err)
+	}
+	if exists, _ := store.FileRecordExists("transient1"); exists {
+		t.Fatal("transient1 should have been purged immediately under force reconcile")
 	}
 }
 

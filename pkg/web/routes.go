@@ -41,6 +41,14 @@ func (s *Server) Handler() http.Handler {
 			s.handleStorageBucketTest(w, r)
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "/sync") {
+			s.handleStorageBucketSync(w, r)
+			return
+		}
+		if r.Method == http.MethodPut || r.Method == http.MethodPatch {
+			s.handleStorageBucketUpdate(w, r)
+			return
+		}
 		s.handleStorageBucketDelete(w, r)
 	})
 	mux.HandleFunc("/api/tiers", s.handleTiers)

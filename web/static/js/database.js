@@ -407,7 +407,7 @@ const DBStudio = (() => {
             await api('/api/dbadmin/entry', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ table: currentTable, key: editingKey, value: val })
+                body: JSON.stringify({ table: currentTable, key: editingKey, value: JSON.parse(val) })
             });
             closeRowModal();
             await loadRows();
@@ -622,7 +622,7 @@ const DBStudio = (() => {
             await api('/api/dbadmin/entry', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ table, key, value })
+                body: JSON.stringify({ table, key, value: JSON.parse(value) })
             });
             closeCreateModal();
             if (table === currentTable) await loadRows();

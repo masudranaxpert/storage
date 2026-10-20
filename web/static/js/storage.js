@@ -110,7 +110,7 @@
                         <td data-label="Tier Pool">
                             <div class="drive-tier-toggle-cell">
                                 <label class="proc-ios-toggle" title="${isEligible ? 'Allowed in Storage Tiers (click to exclude)' : 'Excluded from Storage Tiers (click to allow)'}">
-                                    <input type="checkbox" ${isEligible ? 'checked' : ''} onchange="toggleDriveTierEligibility('${global.escapeHtml(m.node_id)}', '${global.escapeHtml(d.path)}', this.checked, this)">
+                                    <input type="checkbox" aria-label="${isEligible ? 'Allowed in Storage Tiers (click to exclude)' : 'Excluded from Storage Tiers (click to allow)'}" ${isEligible ? 'checked' : ''} onchange="toggleDriveTierEligibility('${global.escapeHtml(m.node_id)}', '${global.escapeHtml(d.path)}', this.checked, this)">
                                     <span class="proc-ios-slider"></span>
                                 </label>
                                 <span class="drive-tier-toggle-label ${isEligible ? 'allowed' : 'excluded'}">${isEligible ? 'Allowed' : 'Excluded'}</span>
@@ -134,12 +134,18 @@
 
     function switchStorageTab(tab) {
         currentStorageTab = tab;
-        document.querySelectorAll('.storage-tab-btn').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.storage-tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-selected', 'false');
+        });
         document.querySelectorAll('.storage-tab-content').forEach(content => content.style.display = 'none');
 
         const btn = document.getElementById(`tab-btn-${tab}`);
         const content = document.getElementById(`storage-tab-${tab}`);
-        if (btn) btn.classList.add('active');
+        if (btn) {
+            btn.classList.add('active');
+            btn.setAttribute('aria-selected', 'true');
+        }
         if (content) content.style.display = 'block';
 
         if (tab === 'folders') {
@@ -511,17 +517,22 @@
 
     function cleanDriveFolder(nodeId, dirPath, target) {
         const isMedia = target === 'media';
+        const isBucket = (typeof nodeId === 'string') && nodeId.startsWith('bucket:');
         openStorageCleanModal({
             nodeId: nodeId,
             dirPath: dirPath,
             target: target,
-            title: isMedia ? 'Delete Stored Media' : 'Clean Temp Files',
-            sub: `Drive cleanup on ${nodeId}`,
-            desc: isMedia
-                ? `⚠️ <strong>Warning:</strong> This will permanently delete <strong>all media video files</strong> inside <code style="background:#fee2e2; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code> on node <strong>${global.escapeHtml(nodeId)}</strong>. This will set its storage usage to 0 B.`
-                : `This will remove all temporary download and working files from <code style="background:#eff6ff; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code> on node <strong>${global.escapeHtml(nodeId)}</strong>.`,
-            actionLabel: isMedia ? 'Delete Media Now' : 'Clean Temp Now',
-            requireConfirmation: false
+            title: isBucket ? (isMedia ? 'Purge Bucket Objects' : 'Clean Bucket Temp') : (isMedia ? 'Delete Stored Media' : 'Clean Temp Files'),
+            sub: isBucket ? `Cloud bucket cleanup (${dirPath})` : `Drive cleanup on ${nodeId}`,
+            desc: isBucket
+                ? (isMedia
+                    ? `⚠️ <strong>Warning:</strong> This will permanently delete <strong>all media objects</strong> in bucket <code style="background:#fee2e2; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code> and synchronize database records.`
+                    : `This will remove temporary scratch files from bucket <code style="background:#eff6ff; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code>.`)
+                : (isMedia
+                    ? `⚠️ <strong>Warning:</strong> This will permanently delete <strong>all media video files</strong> inside <code style="background:#fee2e2; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code> on node <strong>${global.escapeHtml(nodeId)}</strong>. This will set its storage usage to 0 B.`
+                    : `This will remove all temporary download and working files from <code style="background:#eff6ff; padding:2px 6px; border-radius:4px; font-size:12px;">${global.escapeHtml(dirPath)}</code> on node <strong>${global.escapeHtml(nodeId)}</strong>.`),
+            actionLabel: isMedia ? (isBucket ? 'Purge Bucket Now' : 'Delete Media Now') : 'Clean Temp Now',
+            requireConfirmation: isBucket && isMedia
         });
     }
 
@@ -622,42 +633,71 @@
             const provColor = providerName === 'R2' ? '#f38020' : (providerName === 'S3' ? '#ff9900' : '#2563eb');
             const provBg = providerName === 'R2' ? 'rgba(243,128,32,0.1)' : (providerName === 'S3' ? 'rgba(255,153,0,0.1)' : 'rgba(37,99,235,0.1)');
             const tierBadge = tierBadgeForBucket(b.id);
-            const publicCdn = b.public_host ? `<a href="${global.escapeHtml(b.public_host)}" target="_blank" rel="noopener" style="color:var(--orange-primary);text-decoration:none;font-weight:600;">${global.escapeHtml(b.public_host)}</a>` : '<span style="color:var(--text-muted);">—</span>';
+            const publicCdn = b.public_host 
+                ? `<a href="${global.escapeHtml(b.public_host)}" target="_blank" rel="noopener" title="${global.escapeHtml(b.public_host)}" style="display:inline-block;max-width:220px;color:var(--orange-primary);text-decoration:none;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;">${global.escapeHtml(b.public_host)}</a>` 
+                : '<span style="color:var(--text-muted);">—</span>';
 
             rows += `
                 <tr>
-                    <td>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:4px;background:${provBg};color:${provColor};">
+                    <td data-label="Bucket Name">
+                        <div style="display:flex;align-items:center;gap:8px;max-width:200px;min-width:0;">
+                            <span style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:4px;background:${provBg};color:${provColor};flex-shrink:0;">
                                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"></path></svg>
                             </span>
-                            <span style="font-weight:700;color:var(--text-primary);font-family:'JetBrains Mono',monospace;">${global.escapeHtml(b.name)}</span>
+                            <span title="${global.escapeHtml(b.name)}" style="font-weight:700;color:var(--text-primary);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;">${global.escapeHtml(b.name)}</span>
                         </div>
                     </td>
-                    <td>
-                        <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-sm);background:${provBg};color:${provColor};font-size:11px;font-weight:700;letter-spacing:0.3px;">
+                    <td data-label="Provider">
+                        <span style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:var(--radius-sm);background:${provBg};color:${provColor};font-size:11px;font-weight:700;letter-spacing:0.3px;white-space:nowrap;">
                             ${global.escapeHtml(providerName)}
                         </span>
                     </td>
-                    <td>
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);word-break:break-all;">
+                    <td data-label="Used Size" style="white-space:nowrap;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;">
+                            <span class="tabular-num" style="font-weight:700;color:var(--text-primary);font-size:12.5px;">${global.formatBytes(b.used_bytes || 0)}</span>
+                            <span style="font-size:11px;color:var(--text-muted);font-weight:500;">(${b.object_count || 0} obj)</span>
+                            <button type="button" class="btn btn-secondary btn-sm btn-bucket-sync" onclick="syncBucketSize('${global.escapeHtml(b.id)}', this)" title="Refresh bucket size" style="padding:2px 5px;font-size:11px;line-height:1;margin-left:2px;cursor:pointer;">
+                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                                </svg>
+                            </button>
+                        </div>
+                    </td>
+                    <td data-label="Endpoint URL">
+                        <span title="${global.escapeHtml(b.endpoint)}" style="display:inline-block;max-width:240px;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;vertical-align:middle;">
                             ${global.escapeHtml(b.endpoint)}
                         </span>
                     </td>
-                    <td>
-                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);">
+                    <td data-label="Region">
+                        <span style="font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-secondary);white-space:nowrap;">
                             ${global.escapeHtml(b.region || 'auto')}
                         </span>
                     </td>
-                    <td>${publicCdn}</td>
-                    <td>${tierBadge}</td>
-                    <td style="text-align:right;">
-                        <button type="button" class="btn btn-secondary btn-sm" onclick="deleteBucket('${global.escapeHtml(b.id)}', '${global.escapeHtml(b.name)}')" title="Delete bucket" style="padding:4px 8px;color:var(--status-offline);">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="3 6 5 6 21 6"></polyline>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            </svg>
-                        </button>
+                    <td data-label="Public CDN Host">${publicCdn}</td>
+                    <td data-label="Tier Assignment" style="white-space:nowrap;">${tierBadge}</td>
+                    <td data-label="Actions" style="text-align:right;white-space:nowrap;">
+                        <div style="display:inline-flex;align-items:center;gap:6px;justify-content:flex-end;">
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="cleanDriveFolder('bucket:${global.escapeHtml(b.id)}', '${global.escapeHtml(b.name)}', 'media')" title="Purge files in bucket" style="padding:4px 8px;color:#dc2626;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
+                                </svg>
+                                <span>Purge</span>
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="openEditBucketModal('${global.escapeHtml(b.id)}')" title="Edit bucket" style="padding:4px 8px;display:inline-flex;align-items:center;gap:4px;font-size:11.5px;font-weight:600;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 20h9"></path>
+                                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+                                </svg>
+                                <span>Edit</span>
+                            </button>
+                            <button type="button" class="btn btn-secondary btn-sm" onclick="deleteBucket('${global.escapeHtml(b.id)}', '${global.escapeHtml(b.name)}')" title="Delete bucket" style="padding:4px 8px;color:var(--status-offline);display:inline-flex;align-items:center;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        </div>
                     </td>
                 </tr>
             `;
@@ -669,18 +709,79 @@
         const modal = document.getElementById('modal-add-bucket');
         if (!modal) return;
         selectBucketProvider('r2');
+        const titleEl = document.getElementById('bucket-modal-title');
+        const idInput = document.getElementById('bucket-id-val');
         const nameEl = document.getElementById('bucket-name-input');
         const epEl = document.getElementById('bucket-endpoint-input');
+        const regEl = document.getElementById('bucket-region-input');
         const keyEl = document.getElementById('bucket-access-key-input');
         const secEl = document.getElementById('bucket-secret-key-input');
         const hostEl = document.getElementById('bucket-publichost-input');
+        const secReq = document.getElementById('bucket-secret-key-required');
+        const saveBtnText = document.getElementById('btn-save-bucket-text');
+
+        if (titleEl) titleEl.innerText = 'Add S3 / R2 Bucket';
+        if (idInput) idInput.value = '';
         if (nameEl) nameEl.value = '';
         if (epEl) epEl.value = '';
+        if (regEl) regEl.value = 'auto';
         if (keyEl) keyEl.value = '';
-        if (secEl) secEl.value = '';
+        if (secEl) {
+            secEl.value = '';
+            secEl.placeholder = 'Secret Key';
+            secEl.required = true;
+        }
+        if (secReq) secReq.style.display = 'inline';
         if (hostEl) hostEl.value = '';
+        if (saveBtnText) saveBtnText.innerText = 'Save Bucket';
+
         const feedback = document.getElementById('bucket-test-feedback');
         if (feedback) feedback.style.display = 'none';
+        modal.style.display = 'flex';
+        global.setModalOpen(true);
+    }
+
+    function openEditBucketModal(bucketId) {
+        const bucket = cachedBuckets.find(b => b.id === bucketId);
+        if (!bucket) {
+            alert('Bucket not found');
+            return;
+        }
+
+        const modal = document.getElementById('modal-add-bucket');
+        if (!modal) return;
+
+        selectBucketProvider(bucket.provider || 'r2');
+
+        const titleEl = document.getElementById('bucket-modal-title');
+        const idInput = document.getElementById('bucket-id-val');
+        const nameEl = document.getElementById('bucket-name-input');
+        const epEl = document.getElementById('bucket-endpoint-input');
+        const regEl = document.getElementById('bucket-region-input');
+        const keyEl = document.getElementById('bucket-access-key-input');
+        const secEl = document.getElementById('bucket-secret-key-input');
+        const hostEl = document.getElementById('bucket-publichost-input');
+        const secReq = document.getElementById('bucket-secret-key-required');
+        const saveBtnText = document.getElementById('btn-save-bucket-text');
+
+        if (titleEl) titleEl.innerText = 'Edit S3 / R2 Bucket';
+        if (idInput) idInput.value = bucket.id;
+        if (nameEl) nameEl.value = bucket.name || '';
+        if (epEl) epEl.value = bucket.endpoint || '';
+        if (regEl) regEl.value = bucket.region || 'auto';
+        if (keyEl) keyEl.value = bucket.access_key || '';
+        if (secEl) {
+            secEl.value = '';
+            secEl.placeholder = 'Leave blank to keep existing secret';
+            secEl.required = false;
+        }
+        if (secReq) secReq.style.display = 'none';
+        if (hostEl) hostEl.value = bucket.public_host || '';
+        if (saveBtnText) saveBtnText.innerText = 'Update Bucket';
+
+        const feedback = document.getElementById('bucket-test-feedback');
+        if (feedback) feedback.style.display = 'none';
+
         modal.style.display = 'flex';
         global.setModalOpen(true);
     }
@@ -710,13 +811,13 @@
         const regInput = document.getElementById('bucket-region-input');
         if (prov === 'r2') {
             if (epInput && !epInput.value) epInput.placeholder = 'https://<account-id>.r2.cloudflarestorage.com';
-            if (regInput) { regInput.value = 'auto'; regInput.placeholder = 'auto'; }
+            if (regInput && !regInput.value) { regInput.value = 'auto'; regInput.placeholder = 'auto'; }
         } else if (prov === 's3') {
             if (epInput && !epInput.value) epInput.placeholder = 'https://s3.us-east-1.amazonaws.com';
-            if (regInput) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
+            if (regInput && !regInput.value) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
         } else {
             if (epInput && !epInput.value) epInput.placeholder = 'https://minio.example.com:9000';
-            if (regInput) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
+            if (regInput && !regInput.value) { regInput.value = 'us-east-1'; regInput.placeholder = 'us-east-1'; }
         }
     }
 
@@ -725,6 +826,7 @@
         const feedback = document.getElementById('bucket-test-feedback');
         if (!feedback) return;
 
+        const id = (document.getElementById('bucket-id-val')?.value || '').trim();
         const name = (document.getElementById('bucket-name-input').value || '').trim();
         const endpoint = (document.getElementById('bucket-endpoint-input').value || '').trim();
         const provider = (document.getElementById('bucket-provider-val').value || 'r2').trim();
@@ -732,7 +834,7 @@
         const accessKey = (document.getElementById('bucket-access-key-input').value || '').trim();
         const secretKey = (document.getElementById('bucket-secret-key-input').value || '').trim();
 
-        if (!name || !endpoint || !accessKey || !secretKey) {
+        if (!name || !endpoint || !accessKey || (!id && !secretKey)) {
             feedback.style.display = 'block';
             feedback.style.background = 'rgba(239,68,68,0.1)';
             feedback.style.color = 'var(--status-offline, #ef4444)';
@@ -751,6 +853,7 @@
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
+                    id: id,
                     name: name,
                     provider: provider,
                     endpoint: endpoint,
@@ -780,6 +883,7 @@
         const btn = document.getElementById('btn-save-bucket');
         const feedback = document.getElementById('bucket-test-feedback');
 
+        const id = (document.getElementById('bucket-id-val')?.value || '').trim();
         const name = (document.getElementById('bucket-name-input').value || '').trim();
         const endpoint = (document.getElementById('bucket-endpoint-input').value || '').trim();
         const provider = (document.getElementById('bucket-provider-val').value || 'r2').trim();
@@ -791,8 +895,11 @@
         if (btn) { btn.disabled = true; btn.innerText = 'Saving...'; }
 
         try {
-            const res = await fetch('/api/storage/buckets', {
-                method: 'POST',
+            const url = id ? `/api/storage/buckets/${encodeURIComponent(id)}` : '/api/storage/buckets';
+            const method = id ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method: method,
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     name: name,
@@ -814,7 +921,7 @@
                 await global.fetchTiersView(true);
             }
             if (typeof global.showToast === 'function') {
-                global.showToast('Bucket registered successfully');
+                global.showToast(id ? 'Bucket updated successfully' : 'Bucket registered successfully');
             }
         } catch (err) {
             if (feedback) {
@@ -826,7 +933,11 @@
                 alert('Failed to save bucket: ' + err.message);
             }
         } finally {
-            if (btn) { btn.disabled = false; btn.innerText = 'Save Bucket'; }
+            if (btn) { 
+                btn.disabled = false; 
+                const saveBtnText = document.getElementById('btn-save-bucket-text');
+                if (saveBtnText) saveBtnText.innerText = id ? 'Update Bucket' : 'Save Bucket';
+            }
         }
     }
 
@@ -852,6 +963,31 @@
             }
         } catch (err) {
             alert('Failed to delete bucket: ' + err.message);
+        }
+    }
+
+    async function syncBucketSize(id, btn) {
+        const svg = btn ? btn.querySelector('svg') : null;
+        if (btn) btn.disabled = true;
+        if (svg) svg.style.animation = 'spin 0.8s linear infinite';
+
+        try {
+            const res = await fetch(`/api/storage/buckets/${encodeURIComponent(id)}/sync`, {
+                method: 'POST'
+            });
+            if (!res.ok) {
+                const text = await res.text();
+                throw new Error(text);
+            }
+            await fetchBuckets();
+            if (typeof global.showToast === 'function') {
+                global.showToast('Bucket size updated');
+            }
+        } catch (err) {
+            alert('Failed to sync bucket size: ' + err.message);
+        } finally {
+            if (btn) btn.disabled = false;
+            if (svg) svg.style.animation = '';
         }
     }
 
@@ -900,11 +1036,13 @@
     global.fetchBuckets = fetchBuckets;
     global.renderBuckets = renderBuckets;
     global.openAddBucketModal = openAddBucketModal;
+    global.openEditBucketModal = openEditBucketModal;
     global.closeAddBucketModal = closeAddBucketModal;
     global.selectBucketProvider = selectBucketProvider;
     global.testBucketCredentials = testBucketCredentials;
     global.submitAddBucket = submitAddBucket;
     global.deleteBucket = deleteBucket;
+    global.syncBucketSize = syncBucketSize;
 
     if (global.App && global.App.pages) {
         global.App.pages.storage = { init, destroy, render: renderStorage };

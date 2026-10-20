@@ -138,6 +138,10 @@ func (s *Server) processingProfiles() map[string]cluster.ProcessingProfile {
 		return profiles
 	}
 	for id, cfg := range configs {
+		maxConcurrent := cfg.MaxConcurrentIngests
+		if maxConcurrent <= 0 {
+			maxConcurrent = 2
+		}
 		profiles[id] = cluster.ProcessingProfile{
 			NodeID:               id,
 			Enabled:              cfg.Enabled && cfg.ProcessingEnabled,
@@ -145,6 +149,7 @@ func (s *Server) processingProfiles() map[string]cluster.ProcessingProfile {
 			ReservedRAMBytes:     cfg.ReservedRAMBytes,
 			PreferredDiskType:    strings.ToUpper(cfg.PreferredDiskType),
 			ReservedStorageBytes: cfg.ReservedStorageBytes,
+			MaxConcurrentIngests: maxConcurrent,
 		}
 	}
 	return profiles
@@ -160,6 +165,22 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	mediaID := parts[0]
+
+	// Signed stream token verification (Hotlink / Anti-Leech Protection)
+	token := r.URL.Query().Get("token")
+	expStr := r.URL.Query().Get("exp")
+	if expStr == "" {
+		expStr = r.URL.Query().Get("expires")
+	}
+	secret := adminSecret(s)
+	if token != "" || expStr != "" {
+		if !fileapi.ValidateStreamToken(mediaID, token, expStr, secret) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
+			return
+		}
+	}
 
 	if strings.HasSuffix(cleanSubPath, "metadata.json") && s.store != nil {
 		if job, _ := s.store.GetFileJob(mediaID); job != nil && len(job.MetadataJSON) > 0 {
@@ -181,14 +202,32 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		if s.files != nil && s.store != nil {
 			if job, _ := s.store.GetFileJob(mediaID); job != nil && job.Placement.NodeID != "" {
 				targetURL := s.files.StreamURL(job)
-				if targetURL == "" && s.coord != nil {
-					// Fallback: even if node status is offline due to a delayed heartbeat,
-					// attempt proxy/stream via node's recorded IP if node record exists.
-					for _, n := range s.coord.GetNodes() {
-						if n.Metrics.NodeID == job.Placement.NodeID {
-							targetURL = fmt.Sprintf("%s/stream/%s", fileapi.AgentBaseURL(n), job.Key)
-							break
+				if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+					if len(parts) > 1 {
+						publicHost := job.Placement.PublicHost
+						if publicHost == "" && s.files != nil {
+							publicHost = s.files.StreamURL(job)
 						}
+						// If StreamURL is full URL, trim off the filename to append requested part
+						if idx := strings.LastIndex(targetURL, "/"); idx != -1 {
+							targetURL = targetURL[:idx] + "/" + strings.Join(parts[1:], "/")
+						} else {
+							targetURL += "/" + strings.Join(parts[1:], "/")
+						}
+					}
+				} else {
+					if targetURL == "" && s.coord != nil {
+						// Fallback: even if node status is offline due to a delayed heartbeat,
+						// attempt proxy/stream via node's recorded IP if node record exists.
+						for _, n := range s.coord.GetNodes() {
+							if n.Metrics.NodeID == job.Placement.NodeID {
+								targetURL = fmt.Sprintf("%s/stream/%s", fileapi.AgentBaseURL(n), job.Key)
+								break
+							}
+						}
+					}
+					if len(parts) > 1 {
+						targetURL += "/" + strings.Join(parts[1:], "/")
 					}
 				}
 				if targetURL != "" {
@@ -202,16 +241,15 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 							s.engine.RecordHit(mediaID)
 						}
 					}
-					if len(parts) > 1 {
-						targetURL += "/" + strings.Join(parts[1:], "/")
-					}
 
 					isHTTPS := r.TLS != nil ||
 						strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
 						r.Header.Get("CF-Ray") != "" ||
 						strings.Contains(r.Header.Get("CF-Visitor"), "https")
 
-					isProxy := isHTTPS ||
+					// Proxy is only required when HTTPS clients access unencrypted HTTP nodes to prevent mixed-content blocks,
+					// or when explicitly requested via ?proxy=1. External HTTPS CDN / R2 targets are redirected directly.
+					isProxy := (isHTTPS && !strings.HasPrefix(targetURL, "https://")) ||
 						r.URL.Query().Get("proxy") == "true" ||
 						r.URL.Query().Get("proxy") == "1" ||
 						strings.EqualFold(r.Header.Get("X-Stream-Proxy"), "true")

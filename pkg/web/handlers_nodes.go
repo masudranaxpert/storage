@@ -133,6 +133,25 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 		s.coord.RemoveNode(nodeID)
 
+		// Cascade delete: purge all file records associated with this decommissioned/dead node
+		if s.store != nil {
+			if recs, err := s.store.ListFileRecords(); err == nil {
+				for _, rec := range recs {
+					if job, err := s.store.GetFileJob(rec.Key); err == nil && job != nil {
+						if job.Placement.NodeID == nodeID || job.NodeID == nodeID {
+							if s.files != nil {
+								_ = s.files.Delete(rec.Key)
+							} else {
+								_ = s.store.DeleteFileJob(rec.Key)
+								_ = s.store.DeleteFileRecord(rec.Key)
+							}
+							fmt.Printf("[Delete Node] 🧹 Auto-purged orphaned file '%s' from deleted node '%s'\n", rec.Key, nodeID)
+						}
+					}
+				}
+			}
+		}
+
 		if s.store != nil {
 			cfg, _ := s.store.GetNodeConfig(nodeID)
 			if cfg == nil {
@@ -594,6 +613,7 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 			PreferredDisk        string `json:"preferred_disk"`
 			ReservedStorageGB    uint64 `json:"reserved_storage_gb"`
 			ReservedStorageBytes uint64 `json:"reserved_storage_bytes"`
+			MaxConcurrentIngests int    `json:"max_concurrent_ingests"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid json payload", http.StatusBadRequest)
@@ -611,6 +631,11 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 		}
 		cfg.ProcessingEnabled = req.Enabled || req.ProcessingEnabled
 		cfg.ReservedCPUCores = req.ReservedCPUCores
+		if req.MaxConcurrentIngests > 0 {
+			cfg.MaxConcurrentIngests = req.MaxConcurrentIngests
+		} else if cfg.MaxConcurrentIngests <= 0 {
+			cfg.MaxConcurrentIngests = 2
+		}
 		if req.ReservedRAMBytes > 0 {
 			cfg.ReservedRAMBytes = req.ReservedRAMBytes
 		} else {

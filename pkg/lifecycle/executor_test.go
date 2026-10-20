@@ -367,10 +367,13 @@ func (fa *fakeAgentNode) handleRelocate(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
-	srcFolder := filepath.Join(fa.resolveDir(req.SrcDir), req.Key)
-	if st, err := os.Stat(srcFolder); err != nil || !st.IsDir() {
-		http.Error(w, "source not found", http.StatusNotFound)
-		return
+	var srcFolder string
+	if req.SrcS3 == nil {
+		srcFolder = filepath.Join(fa.resolveDir(req.SrcDir), req.Key)
+		if st, err := os.Stat(srcFolder); err != nil || !st.IsDir() {
+			http.Error(w, "source not found", http.StatusNotFound)
+			return
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -393,6 +396,32 @@ func (fa *fakeAgentNode) handleRelocate(w http.ResponseWriter, r *http.Request) 
 			delete(fa.activeRelocates, req.TaskID)
 			fa.mu.Unlock()
 		}()
+
+		if req.S3 != nil {
+			if err := storage.UploadFolderS3(ctx, *req.S3, req.Key, srcFolder, nil); err != nil {
+				fa.postProgress(req.ProgressURL, ProgressPayload{State: "failed", Error: err.Error()})
+				return
+			}
+			fa.postProgress(req.ProgressURL, ProgressPayload{
+				State:           "copied",
+				ProgressPercent: 100,
+				Speed:           "Ready",
+			})
+			return
+		}
+		if req.SrcS3 != nil {
+			dstFolder := filepath.Join(fa.resolveDir(req.FinalDir), req.Key)
+			if err := storage.DownloadFolderS3(ctx, *req.SrcS3, req.Key, dstFolder, nil); err != nil {
+				fa.postProgress(req.ProgressURL, ProgressPayload{State: "failed", Error: err.Error()})
+				return
+			}
+			fa.postProgress(req.ProgressURL, ProgressPayload{
+				State:           "copied",
+				ProgressPercent: 100,
+				Speed:           "Ready",
+			})
+			return
+		}
 
 		dstPeer := fa.peers[req.FinalNodeID]
 		if dstPeer == nil {
@@ -1297,3 +1326,202 @@ func TestExecutorExpireTaskAgentFailurePreservesDatabase(t *testing.T) {
 		t.Fatal("INVARIANT VIOLATION: FileState was deleted despite agent delete failure")
 	}
 }
+
+func TestLifecycleRelocateToAndFromS3Bucket(t *testing.T) {
+	peers := make(map[string]*fakeAgentNode)
+	nodeHdd := newFakeAgentNode(t, "node-hdd", peers)
+
+	srcBlock := nodeHdd.blockDir("hdd")
+	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, nil)
+	registerFakeNode(coord, nodeHdd, srcBlock)
+
+	// Mock S3/R2 Server
+	var s3Mu sync.Mutex
+	s3Objects := make(map[string][]byte)
+
+	s3Srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s3Mu.Lock()
+		defer s3Mu.Unlock()
+
+		path := strings.TrimPrefix(r.URL.Path, "/archive-bucket")
+		path = strings.TrimPrefix(path, "/")
+
+		switch r.Method {
+		case http.MethodHead:
+			data, ok := s3Objects[path]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+			w.WriteHeader(http.StatusOK)
+		case http.MethodPut:
+			data, _ := io.ReadAll(r.Body)
+			s3Objects[path] = data
+			w.WriteHeader(http.StatusOK)
+		case http.MethodGet:
+			if r.URL.Query().Get("list-type") == "2" {
+				prefix := r.URL.Query().Get("prefix")
+				w.Header().Set("Content-Type", "application/xml")
+				fmt.Fprint(w, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)
+				for k, v := range s3Objects {
+					if strings.HasPrefix(k, prefix) {
+						fmt.Fprintf(w, `<Contents><Key>%s</Key><Size>%d</Size><LastModified>2026-10-19T12:00:00Z</LastModified></Contents>`, k, len(v))
+					}
+				}
+				fmt.Fprint(w, `</ListBucketResult>`)
+				return
+			}
+			data, ok := s3Objects[path]
+			if !ok {
+				http.NotFound(w, r)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(data)
+		case http.MethodDelete:
+			delete(s3Objects, path)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			http.Error(w, "not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	defer s3Srv.Close()
+
+	s3Cfg := &storage.S3Config{
+		Name:      "archive-bucket",
+		Provider:  "r2",
+		Endpoint:  s3Srv.URL,
+		Region:    "auto",
+		AccessKey: "test-acc",
+		SecretKey: "test-sec",
+	}
+
+	tm := storage.NewManager(nil)
+	_ = tm.Upsert(storage.Tier{
+		ID:     0,
+		Name:   "Tier 0 · Hot (HDD)",
+		System: true,
+		Blocks: []storage.Block{{NodeID: "node-hdd", Path: srcBlock, DiskType: "HDD"}},
+	})
+	_ = tm.Upsert(storage.Tier{
+		ID:     3,
+		Name:   "Tier 3 · Cold (Cloudflare R2)",
+		System: false,
+		Blocks: []storage.Block{{NodeID: "bucket:bkt-r2", Path: ""}},
+	})
+
+	store := newFullMemStore()
+	key := "fileToR2Archive01"
+	payload := []byte("fake-hls-video-data")
+	nodeHdd.seedMedia(t, srcBlock, key, payload)
+
+	_ = store.SaveFileRecord(&fileapi.FileRecord{Key: key, SizeBytes: int64(len(payload))})
+	_ = store.SaveFileJob(&fileapi.FileJob{
+		Key:        key,
+		State:      fileapi.StateCompleted,
+		TotalBytes: int64(len(payload)),
+		Placement: fileapi.Placement{
+			TierID:    0,
+			TierLabel: "tier0",
+			NodeID:    "node-hdd",
+			Path:      srcBlock,
+		},
+	})
+
+	eng := New(
+		store,
+		tm,
+		coord,
+		nil,
+		WithJobStore(store),
+		WithBucketResolver(func(id string) (*storage.S3Config, error) {
+			if id == "bkt-r2" {
+				return s3Cfg, nil
+			}
+			return nil, fmt.Errorf("unknown bucket %s", id)
+		}),
+		WithExecutorOptions(
+			WithExecutorPollInterval(10*time.Millisecond),
+			WithExecutorBackoffs([]time.Duration{10 * time.Millisecond}),
+		),
+	)
+
+	progSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+		if len(parts) == 5 && parts[4] == "progress" {
+			var p ProgressPayload
+			_ = json.NewDecoder(r.Body).Decode(&p)
+			_ = eng.Executor().ApplyProgress(parts[3], p)
+			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer progSrv.Close()
+	eng.Executor().SetCoordinatorURL(progSrv.URL)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go eng.Run(ctx)
+
+	// Step 1: Relocate from VPS HDD -> R2 Bucket
+	task, err := eng.Executor().Enqueue(&Task{
+		Key:  key,
+		Kind: TaskDemote,
+		From: fileapi.Placement{TierID: 0, NodeID: "node-hdd", Path: srcBlock},
+		To:   fileapi.Placement{TierID: 3, NodeID: "bucket:bkt-r2", Path: ""},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue to S3 failed: %v", err)
+	}
+
+	done := waitForTaskTerminal(t, store, task.ID, 5*time.Second)
+	if done.State != TaskDone {
+		t.Fatalf("expected TaskDone relocating to S3, got %s (err: %s)", done.State, done.Error)
+	}
+
+	// Verify object exists in S3
+	s3Mu.Lock()
+	_, inS3 := s3Objects[key+"/metadata.json"]
+	s3Count := len(s3Objects)
+	s3Mu.Unlock()
+	if !inS3 || s3Count == 0 {
+		t.Fatalf("expected media in S3, found %d objects", s3Count)
+	}
+
+	// Verify local copy cleaned on VPS
+	if nodeHdd.hasAnyDir(srcBlock, key) {
+		t.Fatal("expected local copy deleted after moving to S3, but still exists")
+	}
+
+	// Step 2: Promote back from R2 Bucket -> VPS HDD
+	promoteTask, err := eng.Executor().Enqueue(&Task{
+		Key:  key,
+		Kind: TaskPromote,
+		From: fileapi.Placement{TierID: 3, NodeID: "bucket:bkt-r2", Path: ""},
+		To:   fileapi.Placement{TierID: 0, NodeID: "node-hdd", Path: srcBlock},
+	})
+	if err != nil {
+		t.Fatalf("Enqueue from S3 failed: %v", err)
+	}
+
+	donePromote := waitForTaskTerminal(t, store, promoteTask.ID, 5*time.Second)
+	if donePromote.State != TaskDone {
+		t.Fatalf("expected TaskDone promoting from S3, got %s (err: %s)", donePromote.State, donePromote.Error)
+	}
+
+	// Verify media restored locally on VPS
+	if !nodeHdd.hasMedia(srcBlock, key) {
+		t.Fatal("expected local media restored from S3")
+	}
+
+	// Verify S3 copy was cleaned up after promotion
+	s3Mu.Lock()
+	leftoverS3 := len(s3Objects)
+	s3Mu.Unlock()
+	if leftoverS3 != 0 {
+		t.Fatalf("expected S3 objects deleted after promotion, but %d remain", leftoverS3)
+	}
+}
+

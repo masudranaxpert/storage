@@ -136,6 +136,13 @@ func WithExecutorOptions(opts ...ExecutorOption) Option {
 	}
 }
 
+// WithBucketResolver injects bucket configuration lookup for S3/R2 remote lifecycle relocations.
+func WithBucketResolver(fn func(id string) (*storage.S3Config, error)) Option {
+	return func(e *Engine) {
+		e.executorOpts = append(e.executorOpts, WithExecutorBucketResolver(fn))
+	}
+}
+
 // Engine manages the tier flow policy, placement simulation, hit recording, evaluation, and task execution.
 type Engine struct {
 	mu           sync.RWMutex
@@ -527,7 +534,7 @@ func (e *Engine) buildSnapshot(now time.Time) Snapshot {
 					}
 				}
 				offline := false
-				if hasNodeStatus && j.Placement.NodeID != "" && !nodeOnline[j.Placement.NodeID] {
+				if hasNodeStatus && j.Placement.NodeID != "" && !strings.HasPrefix(j.Placement.NodeID, "bucket:") && !nodeOnline[j.Placement.NodeID] {
 					offline = true
 				}
 				files = append(files, FileView{

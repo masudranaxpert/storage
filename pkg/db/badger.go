@@ -34,6 +34,7 @@ type NodeConfig struct {
 	ReservedRAMBytes     uint64   `json:"reserved_ram_bytes"`
 	PreferredDiskType    string   `json:"preferred_disk_type"`       // NVME/SSD/HDD, "" = any
 	ReservedStorageBytes uint64   `json:"reserved_storage_bytes"`    // scratch-space floor, 0 = no check
+	MaxConcurrentIngests int      `json:"max_concurrent_ingests"`    // max parallel ingest tasks (gatekeeper, e.g. 2)
 	ExcludedDrives       []string `json:"excluded_drives,omitempty"` // drive mount paths excluded from storage tiers
 
 	SSHHost     string `json:"ssh_host,omitempty"`

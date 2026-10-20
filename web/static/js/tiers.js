@@ -814,6 +814,7 @@ function renderProcessing(force = false) {
         const ramId = `proc-${n.node_id}-ram`;
         const diskId = `proc-${n.node_id}-disk`;
         const scratchId = `proc-${n.node_id}-scratch`;
+        const maxIngestId = `proc-${n.node_id}-max-ingests`;
 
         const enabled = dirtyInputs[enabledId] !== undefined ? !!dirtyInputs[enabledId] : !!p.enabled;
         const cpuVal = dirtyInputs[cpuId] !== undefined ? dirtyInputs[cpuId] : (p.reserved_cpu_cores || '');
@@ -822,6 +823,7 @@ function renderProcessing(force = false) {
         const prefDisk = (dirtyInputs[diskId] !== undefined ? dirtyInputs[diskId] : (p.preferred_disk_type || ''));
         const scratchGB = p.reserved_storage_bytes ? Math.round(p.reserved_storage_bytes / (1024 * 1024 * 1024)) : '';
         const scratchVal = dirtyInputs[scratchId] !== undefined ? dirtyInputs[scratchId] : (scratchGB || '');
+        const maxIngestVal = dirtyInputs[maxIngestId] !== undefined ? dirtyInputs[maxIngestId] : (p.max_concurrent_ingests || 2);
 
         const statusHtml = enabled
             ? (n.eligible
@@ -858,7 +860,8 @@ function renderProcessing(force = false) {
             dirtyInputs[cpuId] !== undefined ||
             dirtyInputs[ramId] !== undefined ||
             dirtyInputs[diskId] !== undefined ||
-            dirtyInputs[scratchId] !== undefined
+            dirtyInputs[scratchId] !== undefined ||
+            dirtyInputs[maxIngestId] !== undefined
         );
 
         return `
@@ -923,6 +926,14 @@ function renderProcessing(force = false) {
                         </div>
 
                         <div class="proc-input-col">
+                            <label class="proc-label" for="${maxIngestId}">Max Concurrent <span style="color:var(--orange-primary);font-weight:700;">*</span></label>
+                            <div class="proc-input-wrap">
+                                <input type="number" min="1" max="20" placeholder="e.g. 2" id="${maxIngestId}" value="${escapeHtml(maxIngestVal)}" class="proc-input-ctrl tabular-num" required oninput="onInputChange('${maxIngestId}', this.value)">
+                                <span class="proc-input-unit">Jobs</span>
+                            </div>
+                        </div>
+
+                        <div class="proc-input-col">
                             <label class="proc-label" for="${diskId}">Temp Partition</label>
                             <select id="${diskId}" class="proc-select-ctrl" onchange="onInputChange('${diskId}', this.value)">
                                 ${diskOptionsHtml}
@@ -963,6 +974,7 @@ async function saveProcessingProfile(nodeId) {
     const enabled = document.getElementById(`proc-${nodeId}-enabled`).checked;
     const cpu = parseInt(document.getElementById(`proc-${nodeId}-cpu`).value) || 0;
     const ramMB = parseInt(document.getElementById(`proc-${nodeId}-ram`).value) || 0;
+    const maxIngests = parseInt(document.getElementById(`proc-${nodeId}-max-ingests`) ? document.getElementById(`proc-${nodeId}-max-ingests`).value : 2) || 2;
     const disk = document.getElementById(`proc-${nodeId}-disk`).value;
     const scratchGB = parseInt(document.getElementById(`proc-${nodeId}-scratch`).value) || 0;
 
@@ -972,7 +984,8 @@ async function saveProcessingProfile(nodeId) {
         reserved_cpu_cores: cpu,
         reserved_ram_bytes: ramMB > 0 ? ramMB * 1024 * 1024 : 0,
         preferred_disk_type: disk,
-        reserved_storage_bytes: scratchGB > 0 ? scratchGB * 1024 * 1024 * 1024 : 0
+        reserved_storage_bytes: scratchGB > 0 ? scratchGB * 1024 * 1024 * 1024 : 0,
+        max_concurrent_ingests: maxIngests
     };
 
     try {
@@ -990,6 +1003,7 @@ async function saveProcessingProfile(nodeId) {
         delete dirtyInputs[`proc-${nodeId}-ram`];
         delete dirtyInputs[`proc-${nodeId}-disk`];
         delete dirtyInputs[`proc-${nodeId}-scratch`];
+        delete dirtyInputs[`proc-${nodeId}-max-ingests`];
         const btn = document.getElementById(`btn-save-proc-${nodeId}`);
         if (btn) btn.classList.remove('has-changes');
         await fetchTiersView(true);

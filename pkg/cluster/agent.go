@@ -72,11 +72,12 @@ type Agent struct {
 }
 
 // TransferTarget names the final home of a decoupled file job: the node
-// that owns the storage block, the block path, and its agent HTTP address.
+// that owns the storage block, the block path, its agent HTTP address, or remote S3.
 type TransferTarget struct {
-	NodeID string
-	Dir    string
-	Addr   string
+	NodeID string    `json:"node_id"`
+	Dir    string    `json:"dir"`
+	Addr   string    `json:"addr"`
+	S3     *S3Config `json:"s3,omitempty"`
 }
 
 // registerRoot makes an additional directory streamable through the
@@ -699,13 +700,14 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			return
 		}
 		var req struct {
-			Key         string `json:"key"`
-			SourceURL   string `json:"source_url"`
-			Filename    string `json:"filename"`
-			TargetDir   string `json:"target_dir"`
-			FinalNodeID string `json:"final_node_id"`
-			FinalDir    string `json:"final_dir"`
-			FinalAddr   string `json:"final_addr"`
+			Key         string    `json:"key"`
+			SourceURL   string    `json:"source_url"`
+			Filename    string    `json:"filename"`
+			TargetDir   string    `json:"target_dir"`
+			FinalNodeID string    `json:"final_node_id"`
+			FinalDir    string    `json:"final_dir"`
+			FinalAddr   string    `json:"final_addr"`
+			S3          *S3Config `json:"s3,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
 			http.Error(w, "invalid request", http.StatusBadRequest)
@@ -722,9 +724,13 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 		targetDir := a.resolveTargetDir(req.TargetDir)
 
 		var final *TransferTarget
-		if req.FinalNodeID != "" && req.FinalNodeID != a.NodeID && req.FinalAddr != "" {
-			if dir := a.resolveTargetDir(req.FinalDir); dir != "" && dir != "." && !strings.Contains(dir, "..") {
-				final = &TransferTarget{NodeID: req.FinalNodeID, Dir: dir, Addr: req.FinalAddr}
+		if req.FinalNodeID != "" && req.FinalNodeID != a.NodeID {
+			if req.S3 != nil || strings.HasPrefix(req.FinalNodeID, "bucket:") {
+				final = &TransferTarget{NodeID: req.FinalNodeID, Dir: req.FinalDir, S3: req.S3}
+			} else if req.FinalAddr != "" {
+				if dir := a.resolveTargetDir(req.FinalDir); dir != "" && dir != "." && !strings.Contains(dir, "..") {
+					final = &TransferTarget{NodeID: req.FinalNodeID, Dir: dir, Addr: req.FinalAddr}
+				}
 			}
 		}
 		if final != nil {
@@ -1736,13 +1742,28 @@ func (a *Agent) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *TransferTarget,
 	report ProgressReporterFunc) error {
 	totalBytes, _ := media.CalculateFolderSize(baseDir)
-	report("transferring", 90.0, "Starting transfer to "+final.NodeID, "", nil, map[string]interface{}{
-		"stage":             "transfer",
-		"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
-		"stage_percent":     0.0,
-		"transferred_bytes": int64(0),
-		"total_bytes":       totalBytes,
-	})
+	if report != nil {
+		report("transferring", 90.0, "Starting transfer to "+final.NodeID, "", nil, map[string]interface{}{
+			"stage":             "transfer",
+			"stage_name":        fmt.Sprintf("Syncing to %s", final.NodeID),
+			"stage_percent":     0.0,
+			"transferred_bytes": int64(0),
+			"total_bytes":       totalBytes,
+		})
+	}
+
+	// S3 / R2 Bucket transfer path
+	if final.S3 != nil || strings.HasPrefix(final.NodeID, "bucket:") {
+		if final.S3 == nil {
+			return fmt.Errorf("transfer to bucket %s requested but S3 configuration missing", final.NodeID)
+		}
+		prefix := key
+		if final.Dir != "" && final.Dir != "." && final.Dir != "/" && (final.S3 == nil || final.Dir != final.S3.Name) {
+			prefix = strings.Trim(final.Dir, "/") + "/" + key
+		}
+		// Strict Resumable Multipart: S3/R2 uploads strictly require rclone; no fallback permitted.
+		return a.transferFolderRcloneS3(ctx, key, baseDir, *final.S3, prefix, totalBytes, report)
+	}
 
 	// Primary Engine: Rclone Remote Control Daemon (rcd) with multi-connection transfers
 	rcloneErr := a.transferFolderRclone(ctx, key, baseDir, final, totalBytes, report)

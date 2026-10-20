@@ -483,12 +483,12 @@
 
         if (isSetup) {
             if (title) title.innerText = 'Create Administrator Account';
-            if (sub) sub.innerText = 'Initialize the primary admin credentials for this Stream Mesh node.';
+            if (sub) sub.innerText = 'Set up administrator credentials to continue.';
             if (confirmGroup) confirmGroup.style.display = 'flex';
             if (submitText) submitText.innerText = 'Create Account & Sign In';
         } else {
-            if (title) title.innerText = 'Sign in to Stream Mesh';
-            if (sub) sub.innerText = 'Enter your administrator credentials to access the control plane.';
+            if (title) title.innerText = 'Sign In';
+            if (sub) sub.innerText = 'Enter your credentials to continue.';
             if (confirmGroup) confirmGroup.style.display = 'none';
             if (submitText) submitText.innerText = 'Sign In';
         }
@@ -546,6 +546,10 @@
             document.body.classList.remove('auth-required');
             hideAuthModal();
             showToast({ title: 'Welcome back!', message: `Signed in as ${data.username}`, type: 'success' });
+            if (!document.querySelector('.page-view')) {
+                window.location.reload();
+                return;
+            }
             checkAuthStatus();
         } catch (err) {
             if (errorAlert && errorText) {
@@ -558,7 +562,7 @@
     }
 
     async function performLogout() {
-        if (!confirm('Are you sure you want to log out of the control plane?')) return;
+        if (!confirm('Are you sure you want to log out?')) return;
         try {
             await fetch('/api/auth/logout', { method: 'POST' });
             document.body.classList.add('auth-required');

@@ -23,11 +23,14 @@ type BucketRecord struct {
 	Provider   string    `json:"provider"`              // "r2", "s3", "minio", "b2", "wasabi", "custom"
 	Endpoint   string    `json:"endpoint"`              // e.g. "https://<account>.r2.cloudflarestorage.com"
 	Region     string    `json:"region"`                // e.g. "auto", "us-east-1"
-	AccessKey  string    `json:"access_key"`            // Access Key ID
-	SecretKey  string    `json:"secret_key,omitempty"`  // Secret Access Key
-	PublicHost string    `json:"public_host,omitempty"` // Public CDN URL (e.g. "https://cdn.example.com")
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	AccessKey    string    `json:"access_key"`            // Access Key ID
+	SecretKey    string    `json:"secret_key,omitempty"`  // Secret Access Key
+	PublicHost   string    `json:"public_host,omitempty"` // Public CDN URL (e.g. "https://cdn.example.com")
+	UsedBytes    int64     `json:"used_bytes"`            // Total aggregated bytes in bucket
+	ObjectCount  int64     `json:"object_count"`          // Total object count
+	LastSyncedAt time.Time `json:"last_synced_at"`        // Last time size was synced
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // SaveBucket stores or updates an S3/R2 bucket record.

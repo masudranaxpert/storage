@@ -1,13 +1,17 @@
-# Stream Mesh — coordinator only.
-# Workers = real VPS via dashboard "+ Add VPS" or: stream add-vps ...
-# (ffmpeg/aria2 install on the VPS during provision — not in this image)
+# Stream Mesh — Distributed Media Cluster & Coordinator
 #
-#   docker compose up --build
-#   → http://localhost:1212
+# Quickstart (Coordinator only):
+#   docker compose up -d --build
+#   Dashboard: http://localhost:1212
+#
+# Optional: Launch with a local worker agent alongside coordinator:
+#   docker compose --profile with-agent up -d --build
 
 services:
   coordinator:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: stream-coordinator
     command: ["coordinator", "--port=1212", "--grpc-port=9090"]
     ports:
@@ -18,6 +22,32 @@ services:
     networks:
       - stream-mesh
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1212/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  # Optional local worker agent for standalone/testing setups
+  agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: stream-agent-local
+    command: ["agent", "--join=http://coordinator:1212", "--port=2052"]
+    ports:
+      - "2052:2052"
+    volumes:
+      - agent-media:/stream/media
+      - agent-scratch:/stream/processing
+    depends_on:
+      coordinator:
+        condition: service_healthy
+    networks:
+      - stream-mesh
+    restart: unless-stopped
+    profiles: ["with-agent"]
 
 networks:
   stream-mesh:
@@ -25,3 +55,5 @@ networks:
 
 volumes:
   coord-data:
+  agent-media:
+  agent-scratch:

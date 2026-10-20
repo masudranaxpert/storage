@@ -3,6 +3,7 @@ package fileapi
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"stream/pkg/cluster"
 	"stream/pkg/storage"
@@ -87,27 +88,61 @@ func ReceiverCandidates(nodes []*cluster.NodeRecord) map[string]bool {
 // PickProcessingWorker chooses the VPS that runs download + remux. The
 // block owner is preferred when it is itself a processing worker (zero-copy
 // fast path); otherwise the eligible worker with the most free disk wins so
-// the scratch folder (raw + CMAF, roughly 2.2x the source size) fits.
+// PickProcessingWorker chooses the VPS that runs download + remux.
 func PickProcessingWorker(candidates []*cluster.NodeRecord, blockOwnerID string, requiredBytes uint64) *cluster.NodeRecord {
+	w, _ := PickProcessingWorkerWithLimits(candidates, blockOwnerID, requiredBytes, nil, nil)
+	return w
+}
+
+// PickProcessingWorkerWithLimits selects an eligible worker considering active concurrency and scratch disk limits.
+func PickProcessingWorkerWithLimits(candidates []*cluster.NodeRecord, blockOwnerID string, requiredBytes uint64,
+	profiles map[string]cluster.ProcessingProfile, activeJobs map[string]int) (*cluster.NodeRecord, error) {
+	if len(candidates) == 0 {
+		return nil, ErrNoWorker
+	}
+	var atConcurrencyLimit int
+	var atDiskLimit int
 	var best *cluster.NodeRecord
 	var bestFree uint64
-	for i := range candidates {
-		c := candidates[i]
-		if c.Metrics.NodeID == blockOwnerID {
-			return c
+
+	for _, c := range candidates {
+		nodeID := c.Metrics.NodeID
+		maxConcurrent := 2
+		if prof, ok := profiles[nodeID]; ok && prof.MaxConcurrentIngests > 0 {
+			maxConcurrent = prof.MaxConcurrentIngests
 		}
+		if active := activeJobs[nodeID]; active >= maxConcurrent {
+			atConcurrencyLimit++
+			continue
+		}
+
 		var free uint64
 		for _, d := range c.Metrics.Disks {
 			free += d.FreeBytes
 		}
 		if requiredBytes > 0 && free < requiredBytes*2 {
-			continue // scratch cannot hold raw + CMAF comfortably
+			atDiskLimit++
+			continue
+		}
+
+		if nodeID == blockOwnerID {
+			return c, nil
 		}
 		if best == nil || free > bestFree {
 			best, bestFree = c, free
 		}
 	}
-	return best
+
+	if best != nil {
+		return best, nil
+	}
+	if atConcurrencyLimit == len(candidates) {
+		return nil, fmt.Errorf("all processing workers reached their concurrency limit (max concurrent ingests active)")
+	}
+	if atDiskLimit > 0 {
+		return nil, fmt.Errorf("insufficient scratch disk space on processing workers for %d bytes (need ~2x for raw + CMAF)", requiredBytes)
+	}
+	return nil, ErrNoWorker
 }
 
 // ErrNoWorker is returned when no processing VPS satisfies the requirements.
@@ -126,7 +161,7 @@ func PickBlockInTier(tier *storage.TierStatus, requiredBytes uint64, allowedNode
 		if !bs.Online {
 			continue
 		}
-		if allowedNodes != nil && !allowedNodes[bs.Block.NodeID] {
+		if allowedNodes != nil && !allowedNodes[bs.Block.NodeID] && !strings.HasPrefix(bs.Block.NodeID, "bucket:") {
 			continue
 		}
 		if freeOf(bs) < requiredBytes {

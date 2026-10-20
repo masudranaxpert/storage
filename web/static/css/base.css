@@ -563,7 +563,7 @@ body {
 
 .ui-badge-neutral {
     background: var(--bg-subtle);
-    color: var(--text-secondary);
+    color: var(--text-primary);
     border: 1px solid var(--border-light);
 }
 

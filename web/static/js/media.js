@@ -7,6 +7,9 @@
     let mediaPageSize = 10;
     let mediaSearchQuery = '';
     let mediaFilterStatus = 'all';
+    let mediaFilterNode = '';
+    let mediaFilterTier = '';
+    let selectedMediaKeys = new Set();
     let mediaPollInterval = null;
     let selectedUploadFile = null;
     let lastMediaDataHash = '';
@@ -173,6 +176,8 @@
                 if (timeA !== timeB) return timeB - timeA;
                 return (b.key || '').localeCompare(a.key || '');
             });
+
+            updateNodeFilterDropdown();
 
             const sel = window.getSelection();
             const hasSelection = sel && !sel.isCollapsed && document.getElementById('media-table-body')?.contains(sel.anchorNode);
@@ -403,6 +408,14 @@
                     return false;
                 }
             }
+            if (mediaFilterNode) {
+                const itemNode = (item.placement?.node_id || item.worker_node_id || item.node_id || '').toLowerCase();
+                if (itemNode !== mediaFilterNode.toLowerCase()) return false;
+            }
+            if (mediaFilterTier) {
+                const itemTier = (item.placement?.tier_label || (item.placement?.tier_id !== undefined ? `tier${item.placement.tier_id}` : '')).toLowerCase();
+                if (itemTier !== mediaFilterTier.toLowerCase()) return false;
+            }
             if (mediaSearchQuery) {
                 const q = mediaSearchQuery;
                 const id = (item.key || '').toLowerCase();
@@ -457,13 +470,14 @@
 
         if (paginatedItems.length === 0) {
             tbody.innerHTML = (global.UI && typeof global.UI.emptyState === 'function')
-                ? global.UI.emptyState({ colspan: 8, padding: '40px', color: 'var(--text-muted)', message: 'No media items match your search or filter.' })
-                : `<tr><td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">No media items match your search or filter.</td></tr>`;
+                ? global.UI.emptyState({ colspan: 9, padding: '40px', color: 'var(--text-muted)', message: 'No media items match your search or filter.' })
+                : `<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">No media items match your search or filter.</td></tr>`;
             return;
         }
 
         tbody.innerHTML = paginatedItems.map(item => {
             const isReady = item.state === 'completed';
+            const isMissing = item.state === 'missing';
             const isFailed = item.state === 'failed';
             const filename = item.filename || item.key;
             const sizeStr = item.size_bytes ? global.formatBytes(item.size_bytes) : '-';
@@ -549,7 +563,16 @@
             }
 
             let statusHtml = '';
-            if (isReady) {
+            if (isMissing) {
+                statusHtml = `
+                    <div class="media-failed-alert" style="background:#fee2e2;border:1px solid #fca5a5;padding:6px 10px;border-radius:var(--radius-sm);">
+                        <span style="color:#b91c1c;font-weight:700;font-size:11.5px;display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            File Missing on Node
+                        </span>
+                        <div style="font-size:10.5px;color:#b91c1c;margin-top:2px;">File removed from storage disk</div>
+                    </div>`;
+            } else if (isReady) {
                 statusHtml = `<span class="badge-cmaf">✓ Ready Stream</span>${relocationBadgeHtml}`;
             } else if (isFailed) {
                 statusHtml = `
@@ -610,8 +633,12 @@
                 </div>
             `;
 
+            const isChecked = selectedMediaKeys.has(item.key);
             return `
-                <tr class="media-row-card">
+                <tr class="media-row-card ${isChecked ? 'row-selected' : ''}">
+                    <td style="text-align:center;width:36px;vertical-align:middle;">
+                        <input type="checkbox" class="media-row-checkbox" value="${global.escapeHtml(item.key)}" ${isChecked ? 'checked' : ''} onchange="onMediaRowCheckChange('${global.escapeHtml(item.key)}', this.checked)">
+                    </td>
                     <td data-label="Media Asset" class="media-cell-asset">
                         <div>
                             <div class="media-card-title" title="${global.escapeHtml(filename)}">
@@ -678,6 +705,111 @@
                 </tr>
             `;
         }).join('');
+        updateBatchDeleteUI();
+    }
+
+    function updateNodeFilterDropdown() {
+        const sel = document.getElementById('media-node-filter');
+        if (!sel) return;
+        const currentVal = sel.value;
+        const nodes = new Set();
+        mediaList.forEach(item => {
+            const n = item.placement?.node_id || item.worker_node_id || item.node_id;
+            if (n) nodes.add(n);
+        });
+        const sorted = Array.from(nodes).sort();
+        let html = '<option value="">All VPS Nodes</option>';
+        sorted.forEach(n => {
+            html += `<option value="${global.escapeHtml(n)}" ${n === currentVal ? 'selected' : ''}>${global.escapeHtml(n)}</option>`;
+        });
+        sel.innerHTML = html;
+    }
+
+    function onMediaNodeFilterChange() {
+        const sel = document.getElementById('media-node-filter');
+        mediaFilterNode = sel ? sel.value : '';
+        mediaCurrentPage = 1;
+        renderMediaTable();
+    }
+
+    function onMediaTierFilterChange() {
+        const sel = document.getElementById('media-tier-filter');
+        mediaFilterTier = sel ? sel.value : '';
+        mediaCurrentPage = 1;
+        renderMediaTable();
+    }
+
+    function updateBatchDeleteUI() {
+        const btn = document.getElementById('btn-batch-delete');
+        const txt = document.getElementById('text-batch-delete');
+        const selectAll = document.getElementById('media-select-all');
+        if (!btn || !txt) return;
+        const count = selectedMediaKeys.size;
+        if (count > 0) {
+            btn.style.display = 'inline-flex';
+            txt.textContent = `Delete Selected (${count})`;
+        } else {
+            btn.style.display = 'none';
+            if (selectAll) selectAll.checked = false;
+        }
+    }
+
+    function onMediaRowCheckChange(key, checked) {
+        if (checked) {
+            selectedMediaKeys.add(key);
+        } else {
+            selectedMediaKeys.delete(key);
+        }
+        updateBatchDeleteUI();
+    }
+
+    function toggleSelectAllMedia(checked) {
+        const checkboxes = document.querySelectorAll('.media-row-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = checked;
+            if (checked) {
+                selectedMediaKeys.add(cb.value);
+            } else {
+                selectedMediaKeys.delete(cb.value);
+            }
+        });
+        updateBatchDeleteUI();
+    }
+
+    async function deleteSelectedMedia() {
+        const count = selectedMediaKeys.size;
+        if (count === 0) return;
+        if (!confirm(`Are you sure you want to permanently delete ${count} selected video file(s)?\n\nThis will remove them from the database and storage nodes immediately.`)) {
+            return;
+        }
+        const btn = document.getElementById('btn-batch-delete');
+        const txt = document.getElementById('text-batch-delete');
+        if (btn) btn.disabled = true;
+        if (txt) txt.textContent = 'Deleting...';
+
+        try {
+            const keys = Array.from(selectedMediaKeys);
+            const res = await fetch('/api/v1/files', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ keys })
+            });
+            if (!res.ok) {
+                const errText = await res.text();
+                throw new Error(errText || 'Batch delete failed');
+            }
+            selectedMediaKeys.clear();
+            updateBatchDeleteUI();
+            await fetchMediaList(true);
+            if (global.showToast) {
+                global.showToast(`Successfully deleted ${count} media file(s).`, 'success');
+            }
+        } catch (err) {
+            alert('Failed to delete selected files: ' + err.message);
+        } finally {
+            if (btn) btn.disabled = false;
+            updateBatchDeleteUI();
+        }
     }
 
     function openIngestURLModal() {
@@ -877,7 +1009,7 @@
         if (text) text.innerText = 'Auditing nodes...';
 
         try {
-            const resp = await fetch('/api/v1/files-sync', { method: 'POST' });
+            const resp = await fetch('/api/v1/files-sync?force=true', { method: 'POST' });
             const data = await resp.json();
             if (resp.ok) {
                 await fetchMediaList();
@@ -913,9 +1045,21 @@
         const filename = job.filename || mediaID;
         global.safeSetText('stream-modal-title', filename);
 
-        const isHttps = window.location.protocol === 'https:';
-        // On HTTPS, use coordinator's secure proxy stream route to prevent mixed-content blocks
-        const streamUrl = isHttps ? `${window.location.origin}/stream/${encodeURIComponent(mediaID)}` : (job.stream_url || `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`);
+        let streamUrl = job.stream_url;
+        if (!streamUrl || (window.location.protocol === 'https:' && streamUrl.startsWith('http://'))) {
+            try {
+                const tokenRes = await fetch(`/api/v1/files/${encodeURIComponent(mediaID)}/token`);
+                if (tokenRes.ok) {
+                    const tokenData = await tokenRes.json();
+                    if (tokenData && tokenData.play_url) {
+                        streamUrl = `${window.location.origin}${tokenData.play_url}`;
+                    }
+                }
+            } catch (_) {}
+            if (!streamUrl || streamUrl.startsWith('http://')) {
+                streamUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
+            }
+        }
 
         const directInput = document.getElementById('stream-direct-url');
         if (directInput) directInput.value = streamUrl;
@@ -959,7 +1103,16 @@
         }
 
         let activeStreamUrl = streamUrl;
-        const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
+        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
+        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
+            try {
+                const u = new URL(job.stream_url);
+                const pathParts = u.pathname.split('/').filter(Boolean);
+                if (pathParts.length > 0) {
+                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
+                }
+            } catch (_) {}
+        }
         if (meta && (meta.master_m3u8 || (meta.audio_tracks && meta.audio_tracks.length > 1))) {
             const candidateHlsUrl = `${baseDirUrl}/${meta.master_m3u8 || 'master.m3u8'}`;
             try {
@@ -984,7 +1137,16 @@
         const subList = document.getElementById('stream-modal-sub-list');
 
         const key = job.key;
-        const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(key)}`;
+        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(key)}`;
+        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
+            try {
+                const u = new URL(job.stream_url);
+                const pathParts = u.pathname.split('/').filter(Boolean);
+                if (pathParts.length > 0) {
+                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
+                }
+            } catch (_) {}
+        }
 
         if (meta && meta.audio_tracks && meta.audio_tracks.length > 1) {
             if (tracksInfo) {
@@ -1107,7 +1269,16 @@
         }
 
         const filename = job.filename || job.key;
-        const baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(job.key)}`;
+        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(job.key)}`;
+        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
+            try {
+                const u = new URL(job.stream_url);
+                const pathParts = u.pathname.split('/').filter(Boolean);
+                if (pathParts.length > 0) {
+                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
+                }
+            } catch (_) {}
+        }
         const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
 
         let subtitleOption = undefined;
@@ -1212,14 +1383,10 @@
 
         try {
             const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-            const isCrossOrigin = streamUrl.startsWith('http://') || (streamUrl.startsWith('https://') && !streamUrl.startsWith(window.location.origin));
             const videoAttrs = {
                 playsInline: 'true',
                 'webkit-playsinline': 'true'
             };
-            if (isCrossOrigin) {
-                videoAttrs.crossOrigin = 'anonymous';
-            }
 
             const artOptions = {
                 container: '#artplayer-container',
@@ -1943,6 +2110,11 @@
     global.fetchMediaList = fetchMediaList;
     global.scheduleNextMediaPoll = scheduleNextMediaPoll;
     global.setMediaFilter = setMediaFilter;
+    global.onMediaNodeFilterChange = onMediaNodeFilterChange;
+    global.onMediaTierFilterChange = onMediaTierFilterChange;
+    global.toggleSelectAllMedia = toggleSelectAllMedia;
+    global.onMediaRowCheckChange = onMediaRowCheckChange;
+    global.deleteSelectedMedia = deleteSelectedMedia;
     global.onMediaSearchChange = onMediaSearchChange;
     global.onMediaPageSizeChange = onMediaPageSizeChange;
     global.renderPipelineStepper = renderPipelineStepper;

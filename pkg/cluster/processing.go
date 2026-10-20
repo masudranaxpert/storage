@@ -17,6 +17,7 @@ type ProcessingProfile struct {
 	ReservedRAMBytes     uint64 `json:"reserved_ram_bytes"`
 	PreferredDiskType    string `json:"preferred_disk_type"` // NVME/SSD/HDD, "" = any
 	ReservedStorageBytes uint64 `json:"reserved_storage_bytes"`
+	MaxConcurrentIngests int    `json:"max_concurrent_ingests"` // max concurrent ingest/transcode jobs (default 2)
 }
 
 // Eligibility reports whether a node may take processing jobs right now,
@@ -34,7 +35,7 @@ type Eligibility struct {
 
 // DefaultProfile keeps unconfigured nodes disabled by default for processing.
 func DefaultProfile(nodeID string) ProcessingProfile {
-	return ProcessingProfile{NodeID: nodeID, Enabled: false}
+	return ProcessingProfile{NodeID: nodeID, Enabled: false, MaxConcurrentIngests: 2}
 }
 
 // CheckEligibility evaluates a node's live telemetry against a reservation.

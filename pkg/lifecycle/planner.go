@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"stream/pkg/fileapi"
@@ -91,7 +92,7 @@ func Evaluate(snap Snapshot) ([]Task, []SkippedCandidate) {
 		if f.Offline {
 			continue
 		}
-		if f.Placement.NodeID != "" && nodeHasBlocks[f.Placement.NodeID] && !nodeOnline[f.Placement.NodeID] {
+		if f.Placement.NodeID != "" && !strings.HasPrefix(f.Placement.NodeID, "bucket:") && nodeHasBlocks[f.Placement.NodeID] && !nodeOnline[f.Placement.NodeID] {
 			continue
 		}
 

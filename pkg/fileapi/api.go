@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -32,7 +33,8 @@ func (s *Service) handleSyncFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	purged, err := s.ReconcileGhostRecords()
+	force := r.URL.Query().Get("force") != "false"
+	purged, err := s.ReconcileGhostRecordsOpt(force)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
@@ -210,6 +212,10 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 	}
 	if action == "demand" && s.demandHandler != nil {
 		s.demandHandler(w, r, key)
+		return
+	}
+	if action == "token" && r.Method == http.MethodGet {
+		s.handleToken(w, r, key)
 		return
 	}
 	if action != "" {
@@ -577,4 +583,24 @@ func classifyErr(err error) int {
 func writeErr(w http.ResponseWriter, code int, err error) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// handleToken generates an HMAC-SHA256 signed playback token and URL for anti-leech protection.
+func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string) {
+	duration := 4 * time.Hour
+	if d := r.URL.Query().Get("hours"); d != "" {
+		if h, err := strconv.Atoi(d); err == nil && h > 0 && h <= 72 {
+			duration = time.Duration(h) * time.Hour
+		}
+	}
+	exp := time.Now().Add(duration).Unix()
+	token := GenerateStreamToken(key, exp, s.secret)
+	playURL := fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"key":        key,
+		"token":      token,
+		"expires_at": exp,
+		"play_url":   playURL,
+	})
 }

@@ -57,22 +57,24 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 
 			baseURL := fileapi.AgentBaseURL(node)
 			resp, err := client.Get(baseURL + "/api/v1/storage-folders")
-			if err == nil && resp.StatusCode == http.StatusOK {
-				var folderStats struct {
-					Drives              []cluster.StreamDriveStat `json:"drives"`
-					MediaSizeBytes      uint64                    `json:"media_size_bytes"`
-					MediaFileCount      int                       `json:"media_file_count"`
-					ProcessingSizeBytes uint64                    `json:"processing_size_bytes"`
-					ProcessingFileCount int                       `json:"processing_file_count"`
-					TotalStreamBytes    uint64                    `json:"total_stream_bytes"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
-					item.Drives = folderStats.Drives
-					item.MediaSizeBytes = folderStats.MediaSizeBytes
-					item.MediaFileCount = folderStats.MediaFileCount
-					item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
-					item.ProcessingFileCount = folderStats.ProcessingFileCount
-					item.TotalStreamBytes = folderStats.TotalStreamBytes
+			if err == nil {
+				if resp.StatusCode == http.StatusOK {
+					var folderStats struct {
+						Drives              []cluster.StreamDriveStat `json:"drives"`
+						MediaSizeBytes      uint64                    `json:"media_size_bytes"`
+						MediaFileCount      int                       `json:"media_file_count"`
+						ProcessingSizeBytes uint64                    `json:"processing_size_bytes"`
+						ProcessingFileCount int                       `json:"processing_file_count"`
+						TotalStreamBytes    uint64                    `json:"total_stream_bytes"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
+						item.Drives = folderStats.Drives
+						item.MediaSizeBytes = folderStats.MediaSizeBytes
+						item.MediaFileCount = folderStats.MediaFileCount
+						item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
+						item.ProcessingFileCount = folderStats.ProcessingFileCount
+						item.TotalStreamBytes = folderStats.TotalStreamBytes
+					}
 				}
 				resp.Body.Close()
 			}
@@ -82,6 +84,40 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 		}(n)
 	}
 	wg.Wait()
+
+	// Include registered S3/R2 remote object storage buckets in the folders list
+	if s.store != nil {
+		if buckets, err := s.store.ListBuckets(); err == nil {
+			for _, b := range buckets {
+				provName := strings.ToUpper(b.Provider)
+				if provName == "" {
+					provName = "R2"
+				}
+				results = append(results, NodeFolderResponse{
+					NodeID:              "bucket:" + b.ID,
+					Hostname:            b.Name,
+					PrimaryIP:           b.Endpoint,
+					Status:              "online",
+					MediaSizeBytes:      uint64(b.UsedBytes),
+					MediaFileCount:      int(b.ObjectCount),
+					ProcessingSizeBytes: 0,
+					ProcessingFileCount: 0,
+					TotalStreamBytes:    uint64(b.UsedBytes),
+					Drives: []cluster.StreamDriveStat{
+						{
+							DriveName:        fmt.Sprintf("%s (%s)", b.Name, provName),
+							MountPoint:       b.Name,
+							StreamRoot:       b.Endpoint,
+							MediaDir:         b.Name,
+							MediaSizeBytes:   uint64(b.UsedBytes),
+							MediaFileCount:   int(b.ObjectCount),
+							TotalStreamBytes: uint64(b.UsedBytes),
+						},
+					},
+				})
+			}
+		}
+	}
 
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].NodeID < results[j].NodeID
@@ -124,20 +160,138 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 			}
 			baseURL := fileapi.AgentBaseURL(n)
 			resp, err := client.Post(baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), "application/json", nil)
-			if err == nil && resp.StatusCode == http.StatusOK {
-				var res struct {
-					FreedBytes uint64 `json:"freed_bytes"`
-					FreedItems int    `json:"freed_items"`
-				}
-				if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
-					totalFreedBytes += res.FreedBytes
-					totalFreedItems += res.FreedItems
+			if err == nil {
+				if resp.StatusCode == http.StatusOK {
+					var res struct {
+						FreedBytes uint64 `json:"freed_bytes"`
+						FreedItems int    `json:"freed_items"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+						totalFreedBytes += res.FreedBytes
+						totalFreedItems += res.FreedItems
+					}
 				}
 				resp.Body.Close()
 			}
 		}
+
+		if req.Target == "media" || req.Target == "all" {
+			// Also clean connected remote buckets when purging all media
+			if s.store != nil {
+				if buckets, err := s.store.ListBuckets(); err == nil {
+					for _, b := range buckets {
+						cfg := cluster.S3Config{
+							Endpoint:  b.Endpoint,
+							Region:    b.Region,
+							Name:      b.Name,
+							AccessKey: b.AccessKey,
+							SecretKey: b.SecretKey,
+						}
+						if objects, err := cluster.ListObjectsS3(r.Context(), cfg, ""); err == nil {
+							for _, obj := range objects {
+								if err := cluster.DeleteObjectS3(r.Context(), cfg, obj.Key); err == nil {
+									totalFreedBytes += uint64(obj.Size)
+									totalFreedItems++
+								}
+							}
+						}
+						b.UsedBytes = 0
+						b.ObjectCount = 0
+						_ = s.store.SaveBucket(b)
+					}
+				}
+			}
+			// Purge all file records from coordinator DB
+			if s.store != nil {
+				if recs, err := s.store.ListFileRecords(); err == nil {
+					for _, rec := range recs {
+						if s.files != nil {
+							_ = s.files.Delete(rec.Key)
+						} else {
+							_ = s.store.DeleteFileJob(rec.Key)
+							_ = s.store.DeleteFileRecord(rec.Key)
+						}
+					}
+				}
+			}
+		}
+
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":      "cleaned_all",
+			"target":      req.Target,
+			"freed_bytes": totalFreedBytes,
+			"freed_items": totalFreedItems,
+		})
+		return
+	}
+
+	if strings.HasPrefix(req.NodeID, "bucket:") {
+		if s.store == nil {
+			http.Error(w, `{"error":"storage database not initialized"}`, http.StatusInternalServerError)
+			return
+		}
+		bucketID := strings.TrimPrefix(req.NodeID, "bucket:")
+		b, err := s.store.GetBucket(bucketID)
+		if err != nil || b == nil {
+			http.Error(w, `{"error":"bucket not found"}`, http.StatusNotFound)
+			return
+		}
+
+		cfg := cluster.S3Config{
+			Endpoint:  b.Endpoint,
+			Region:    b.Region,
+			Name:      b.Name,
+			AccessKey: b.AccessKey,
+			SecretKey: b.SecretKey,
+		}
+
+		prefix := req.Dir
+		if req.Target == "processing" || req.Target == "scratch" || req.Target == "temp" {
+			if prefix == "" {
+				prefix = "temp/"
+			}
+		} else if req.Dir == b.Name {
+			prefix = ""
+		}
+
+		objects, err := cluster.ListObjectsS3(r.Context(), cfg, prefix)
+		if err != nil {
+			http.Error(w, fmt.Sprintf(`{"error":"failed to list bucket objects: %s"}`, err.Error()), http.StatusBadGateway)
+			return
+		}
+
+		var totalFreedBytes uint64
+		var totalFreedItems int
+		for _, obj := range objects {
+			if err := cluster.DeleteObjectS3(r.Context(), cfg, obj.Key); err == nil {
+				totalFreedBytes += uint64(obj.Size)
+				totalFreedItems++
+			}
+		}
+
+		if req.Target == "media" || req.Target == "all" || prefix == "" {
+			b.UsedBytes = 0
+			b.ObjectCount = 0
+			_ = s.store.SaveBucket(b)
+
+			if recs, err := s.store.ListFileRecords(); err == nil {
+				for _, rec := range recs {
+					if job, err := s.store.GetFileJob(rec.Key); err == nil && job != nil {
+						if job.Placement.NodeID == req.NodeID || job.Placement.NodeID == b.ID {
+							if s.files != nil {
+								_ = s.files.Delete(rec.Key)
+							} else {
+								_ = s.store.DeleteFileJob(rec.Key)
+								_ = s.store.DeleteFileRecord(rec.Key)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":      "cleaned",
 			"target":      req.Target,
 			"freed_bytes": totalFreedBytes,
 			"freed_items": totalFreedItems,
@@ -168,6 +322,23 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK && req.Target == "media" && s.store != nil {
+		if recs, err := s.store.ListFileRecords(); err == nil {
+			for _, rec := range recs {
+				if job, err := s.store.GetFileJob(rec.Key); err == nil && job != nil {
+					if job.Placement.NodeID == targetNode.Metrics.NodeID {
+						if s.files != nil {
+							_ = s.files.Delete(rec.Key)
+						} else {
+							_ = s.store.DeleteFileJob(rec.Key)
+							_ = s.store.DeleteFileRecord(rec.Key)
+						}
+					}
+				}
+			}
+		}
+	}
 
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)

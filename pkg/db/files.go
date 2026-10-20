@@ -34,6 +34,18 @@ func (s *Store) SaveFileRecord(rec *fileapi.FileRecord) error {
 	})
 }
 
+// unmarshalJSONWithFallback handles both standard JSON and double-quoted JSON strings.
+func unmarshalJSONWithFallback(val []byte, target interface{}) error {
+	if err := json.Unmarshal(val, target); err == nil {
+		return nil
+	}
+	var unquoted string
+	if err := json.Unmarshal(val, &unquoted); err == nil {
+		return json.Unmarshal([]byte(unquoted), target)
+	}
+	return json.Unmarshal(val, target)
+}
+
 // GetFileRecord fetches the main-table row for a key.
 func (s *Store) GetFileRecord(key string) (*fileapi.FileRecord, error) {
 	if s == nil {
@@ -49,7 +61,7 @@ func (s *Store) GetFileRecord(key string) (*fileapi.FileRecord, error) {
 			return err
 		}
 		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &rec)
+			return unmarshalJSONWithFallback(val, &rec)
 		})
 	})
 	if err != nil {
@@ -112,7 +124,7 @@ func (s *Store) ListFileRecords() ([]*fileapi.FileRecord, error) {
 			item := it.Item()
 			ok := item.Value(func(val []byte) error {
 				var rec fileapi.FileRecord
-				if err := json.Unmarshal(val, &rec); err == nil {
+				if err := unmarshalJSONWithFallback(val, &rec); err == nil && rec.Key != "" {
 					list = append(list, &rec)
 				}
 				return nil
@@ -166,7 +178,7 @@ func (s *Store) GetFileJob(key string) (*fileapi.FileJob, error) {
 			return err
 		}
 		return item.Value(func(val []byte) error {
-			return json.Unmarshal(val, &job)
+			return unmarshalJSONWithFallback(val, &job)
 		})
 	})
 	if err != nil {
@@ -196,7 +208,7 @@ func (s *Store) ListFileJobs() ([]*fileapi.FileJob, error) {
 			item := it.Item()
 			ok := item.Value(func(val []byte) error {
 				var job fileapi.FileJob
-				if err := json.Unmarshal(val, &job); err == nil {
+				if err := unmarshalJSONWithFallback(val, &job); err == nil && job.Key != "" {
 					list = append(list, &job)
 				}
 				return nil

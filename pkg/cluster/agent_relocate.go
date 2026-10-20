@@ -14,13 +14,15 @@ import (
 
 // RelocateRequest is the JSON payload accepted by POST /api/v1/relocate.
 type RelocateRequest struct {
-	TaskID      string `json:"task_id"`
-	Key         string `json:"key"`
-	SrcDir      string `json:"src_dir"`
-	FinalNodeID string `json:"final_node_id"`
-	FinalDir    string `json:"final_dir"`
-	FinalAddr   string `json:"final_addr"`
-	ProgressURL string `json:"progress_url"`
+	TaskID      string    `json:"task_id"`
+	Key         string    `json:"key"`
+	SrcDir      string    `json:"src_dir"`
+	FinalNodeID string    `json:"final_node_id"`
+	FinalDir    string    `json:"final_dir"`
+	FinalAddr   string    `json:"final_addr"`
+	ProgressURL string    `json:"progress_url"`
+	S3          *S3Config `json:"s3,omitempty"`
+	SrcS3       *S3Config `json:"src_s3,omitempty"`
 }
 
 // MediaSizeResponse is the JSON payload returned by GET /api/v1/media-size.
@@ -130,10 +132,14 @@ func (a *Agent) handleRelocate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, srcFolder, exists := a.locateMediaFolder(req.SrcDir, req.Key)
-	if !exists {
-		http.Error(w, `{"error":"source media folder not found"}`, http.StatusNotFound)
-		return
+	var srcFolder string
+	if req.SrcS3 == nil {
+		var exists bool
+		_, srcFolder, exists = a.locateMediaFolder(req.SrcDir, req.Key)
+		if !exists {
+			http.Error(w, `{"error":"source media folder not found"}`, http.StatusNotFound)
+			return
+		}
 	}
 
 	finalDir := a.resolveTargetDir(req.FinalDir)
@@ -173,6 +179,37 @@ func (a *Agent) runRelocateTask(ctx context.Context, req RelocateRequest, srcFol
 	totalBytes, _ := measureFolderBytesAndFiles(srcFolder)
 	report := a.relocateProgressReporter(req.ProgressURL, totalBytes)
 
+	// Remote S3 download path: pull from S3 into finalDir/<key>
+	if req.SrcS3 != nil {
+		dstFolder := filepath.Join(finalDir, req.Key)
+		report("copying", 10.0, "Downloading from S3", "", nil, map[string]interface{}{
+			"transferred_bytes": int64(0),
+			"total_bytes":       int64(0),
+		})
+		prefix := req.Key
+		if req.SrcDir != "" && req.SrcDir != "." && req.SrcDir != "/" {
+			prefix = strings.Trim(req.SrcDir, "/") + "/" + req.Key
+		}
+		if err := DownloadFolderS3(ctx, *req.SrcS3, prefix, dstFolder, func(copied int64) {
+			report("copying", 50.0, "Downloading from S3", "", nil, map[string]interface{}{
+				"transferred_bytes": copied,
+			})
+		}); err != nil {
+			_ = os.RemoveAll(dstFolder)
+			report("failed", 0, "0 B/s", err.Error(), nil, map[string]interface{}{
+				"transferred_bytes": int64(0),
+			})
+			return
+		}
+		a.registerRoot(finalDir)
+		dlBytes, _ := measureFolderBytesAndFiles(dstFolder)
+		report("copied", 100.0, "Ready", "", nil, map[string]interface{}{
+			"transferred_bytes": dlBytes,
+			"total_bytes":       dlBytes,
+		})
+		return
+	}
+
 	if req.FinalNodeID == "" || req.FinalNodeID == a.NodeID {
 		dstFolder := filepath.Join(finalDir, req.Key)
 		report("copying", 10.0, "Local tier copy", "", nil, map[string]interface{}{
@@ -210,6 +247,7 @@ func (a *Agent) runRelocateTask(ctx context.Context, req RelocateRequest, srcFol
 		NodeID: req.FinalNodeID,
 		Dir:    finalDir,
 		Addr:   req.FinalAddr,
+		S3:     req.S3,
 	}
 	if err := a.transferFolder(ctx, req.Key, srcFolder, target, report); err != nil {
 		report("failed", 0, "0 B/s", err.Error(), nil, map[string]interface{}{

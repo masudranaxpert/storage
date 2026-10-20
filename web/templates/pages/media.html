@@ -113,6 +113,25 @@
                 </svg>
                 <input type="text" id="media-search-input" placeholder="Search video name, ID, node..." oninput="onMediaSearchChange()">
             </div>
+
+            <!-- Node Filter Dropdown -->
+            <select id="media-node-filter" onchange="onMediaNodeFilterChange()" style="padding:7px 11px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-weight:600; font-family:inherit; color:var(--text-primary); outline:none; cursor:pointer;" title="Filter by VPS storage node">
+                <option value="">All VPS Nodes</option>
+            </select>
+
+            <!-- Tier Filter Dropdown -->
+            <select id="media-tier-filter" onchange="onMediaTierFilterChange()" style="padding:7px 11px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-weight:600; font-family:inherit; color:var(--text-primary); outline:none; cursor:pointer;" title="Filter by storage tier">
+                <option value="">All Storage Tiers</option>
+                <option value="tier0">Tier 0 (Hot)</option>
+                <option value="tier1">Tier 1 (SSD)</option>
+                <option value="tier2">Tier 2 (HDD)</option>
+            </select>
+
+            <!-- Batch Action Button (Hidden by default, shown when items are selected) -->
+            <button id="btn-batch-delete" class="btn btn-danger" onclick="deleteSelectedMedia()" style="display:none;align-items:center;gap:6px;padding:6px 14px;font-size:12px;background:var(--red-primary,#e53e3e);color:#fff;border:none;border-radius:var(--radius-sm);font-weight:600;cursor:pointer;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span id="text-batch-delete">Delete Selected (0)</span>
+            </button>
         </div>
     </div>
 
@@ -122,20 +141,21 @@
             <table class="custom-table responsive-card-table" id="media-data-table">
                 <thead>
                     <tr>
+                        <th style="width:36px; text-align:center;"><input type="checkbox" id="media-select-all" onchange="toggleSelectAllMedia(this.checked)" title="Select all items"></th>
                         <th style="width:23%;">MEDIA ASSET</th>
-                        <th style="width:12%;">CREATED BY</th>
-                        <th style="width:13%;">SPECS &amp; TRACKS</th>
+                        <th style="width:11%;">CREATED BY</th>
+                        <th style="width:12%;">SPECS &amp; TRACKS</th>
                         <th style="width:14%;">STORAGE LOCATION</th>
                         <th style="width:8%;">SIZE</th>
                         <th style="width:9%;">HEAT SCORE</th>
                         <th style="width:11%;">STATUS &amp; PIPELINE</th>
-                        <th style="text-align: right; width:10%;">ACTIONS</th>
+                        <th style="text-align: right; width:9%;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody id="media-table-body">
                     <!-- Dynamically populated via media.js -->
                     <tr>
-                        <td colspan="8" style="text-align: center; padding: 40px; color: var(--text-muted);">
+                        <td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">
                             No media items match your search or filter.
                         </td>
                     </tr>

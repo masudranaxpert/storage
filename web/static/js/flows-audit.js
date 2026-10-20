@@ -48,8 +48,8 @@
                             </svg>
                         </div>
                         <div>
-                            <h3 class="fl-subview-title">Lifecycle Expire Audit Log</h3>
-                            <p class="fl-subview-subtitle">Immutable audit trail of files permanently deleted by configured expire policies</p>
+                            <h3 class="fl-subview-title">Expire Audit Log</h3>
+                            <p class="fl-subview-subtitle">History of files removed by expire rules</p>
                         </div>
                     </div>
                     <div class="fl-subview-actions">
@@ -86,8 +86,8 @@
 
         if (!total) {
             listEl.innerHTML = (UI.flow && UI.flow.empty)
-                ? UI.flow.empty('No deletions recorded', 'No files have been deleted by expire rules yet.')
-                : `<div class="fl-empty"><strong>No deletions recorded</strong></div>`;
+                ? UI.flow.empty('No deletions', 'No expired files recorded.')
+                : `<div class="fl-empty"><strong>No deletions</strong></div>`;
             if (pagEl) pagEl.innerHTML = '';
             return;
         }
@@ -119,7 +119,7 @@
                     <div class="fl-subview-page-info">Showing ${total} deletion record${total === 1 ? '' : 's'}</div>
                     <div style="font-size:11.5px;color:var(--text-muted);display:flex;align-items:center;gap:6px;">
                         <span class="status-indicator-dot online" style="width:6px;height:6px;"></span>
-                        <span>Immutable audit ledger</span>
+                        <span>Audit log active</span>
                     </div>
                 `;
             }
