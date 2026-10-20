@@ -119,8 +119,15 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 			SSHPassword string `json:"ssh_password"`
 			SSHUser     string `json:"ssh_user"`
 			SSHHost     string `json:"ssh_host"`
+			SSHPort     int    `json:"ssh_port"`
+			StopRemote  *bool  `json:"stop_remote"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&payload)
+
+		shouldStopRemote := true
+		if payload.StopRemote != nil {
+			shouldStopRemote = *payload.StopRemote
+		}
 
 		// Capture live IPs before RemoveNode drops telemetry — old nodes often
 		// have no SSH fields saved, so delete must fall back to heartbeat IPs.
@@ -130,6 +137,69 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 				liveIPs = append(liveIPs, n.Metrics.IPs...)
 				break
 			}
+		}
+
+		var cfg *db.NodeConfig
+		if s.store != nil {
+			cfg, _ = s.store.GetNodeConfig(nodeID)
+		}
+		if cfg == nil {
+			cfg = &db.NodeConfig{NodeID: nodeID}
+		}
+
+		if payload.SSHPassword != "" {
+			cfg.SSHPassword = payload.SSHPassword
+		}
+		if payload.SSHUser != "" {
+			cfg.SSHUser = payload.SSHUser
+		}
+		if payload.SSHHost != "" {
+			cfg.SSHHost = payload.SSHHost
+		}
+		if payload.SSHPort > 0 {
+			cfg.SSHPort = payload.SSHPort
+		}
+		if cfg.SSHHost == "" {
+			for _, ip := range liveIPs {
+				if ip != "" && ip != "127.0.0.1" && !strings.HasPrefix(ip, "172.") {
+					cfg.SSHHost = ip
+					break
+				}
+			}
+		}
+		if cfg.SSHUser == "" {
+			cfg.SSHUser = "root"
+		}
+		if cfg.SSHPort == 0 {
+			cfg.SSHPort = 22
+		}
+
+		remoteStopped := false
+		if shouldStopRemote {
+			if cfg.SSHHost != "" && cfg.SSHPassword != "" {
+				req := provision.Request{
+					Host:     cfg.SSHHost,
+					Port:     cfg.SSHPort,
+					User:     cfg.SSHUser,
+					Password: cfg.SSHPassword,
+					UseSudo:  cfg.SSHUseSudo,
+					NodeName: cfg.NodeID,
+				}
+				if err := provision.StopServiceOverSSH(r.Context(), req); err != nil {
+					fmt.Printf("[Delete Node] ❌ SSH decommission of '%s' (%s) failed: %v\n", cfg.NodeID, cfg.SSHHost, err)
+					w.WriteHeader(http.StatusBadGateway)
+					json.NewEncoder(w).Encode(map[string]interface{}{
+						"error": fmt.Sprintf("Failed to stop remote agent over SSH: %v. You can choose 'Remove from Cluster Only' to skip SSH decommission.", err),
+					})
+					return
+				}
+				remoteStopped = true
+				fmt.Printf("[Delete Node] 🛑 Remote agent on '%s' (%s) stopped and decommissioned via SSH\n", cfg.NodeID, cfg.SSHHost)
+			} else {
+				fmt.Printf("[Delete Node] ℹ️ '%s' removal requested with remote stop, but no SSH credentials available — skipping SSH decommission\n", nodeID)
+			}
+		} else {
+			fmt.Printf("[Delete Node] ℹ️ '%s' unregistering from cluster only (remote agent untouched)\n", nodeID)
 		}
 
 		s.coord.RemoveNode(nodeID)
@@ -151,62 +221,15 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 			}
-		}
-
-		if s.store != nil {
-			cfg, _ := s.store.GetNodeConfig(nodeID)
-			if cfg == nil {
-				cfg = &db.NodeConfig{NodeID: nodeID}
-			}
 			cfg.Enabled = false
-			if payload.SSHPassword != "" {
-				cfg.SSHPassword = payload.SSHPassword
-			}
-			if payload.SSHUser != "" {
-				cfg.SSHUser = payload.SSHUser
-			}
-			if payload.SSHHost != "" {
-				cfg.SSHHost = payload.SSHHost
-			}
-			if cfg.SSHHost == "" {
-				for _, ip := range liveIPs {
-					if ip != "" && ip != "127.0.0.1" && !strings.HasPrefix(ip, "172.") {
-						cfg.SSHHost = ip
-						break
-					}
-				}
-			}
-			if cfg.SSHUser == "" {
-				cfg.SSHUser = "root"
-			}
-			if cfg.SSHPort == 0 {
-				cfg.SSHPort = 22
-			}
 			_ = s.store.SaveNodeConfig(cfg)
-
-			if cfg.SSHHost != "" && cfg.SSHPassword != "" {
-				go func(c db.NodeConfig) {
-					req := provision.Request{
-						Host:     c.SSHHost,
-						Port:     c.SSHPort,
-						User:     c.SSHUser,
-						Password: c.SSHPassword,
-						UseSudo:  c.SSHUseSudo,
-						NodeName: c.NodeID,
-					}
-					if err := provision.StopServiceOverSSH(context.Background(), req); err != nil {
-						fmt.Printf("[Delete Node] SSH decommission of '%s' (%s) failed: %v\n", c.NodeID, c.SSHHost, err)
-						return
-					}
-					fmt.Printf("[Delete Node] Remote agent on '%s' (%s) fully removed\n", c.NodeID, c.SSHHost)
-				}(*cfg)
-			} else {
-				fmt.Printf("[Delete Node] '%s' disabled locally but no SSH password — remote agent may keep running until stopped manually\n", nodeID)
-			}
 		}
 
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"deleted"}`))
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":         "deleted",
+			"remote_stopped": remoteStopped,
+		})
 		return
 	}
 

@@ -140,7 +140,7 @@
                         </button>
 
                         ${!m.node_id.includes('(master)') ? `
-                        <button class="node-btn-action node-btn-icon danger" onclick="event.stopPropagation(); deleteNodeConfirm('${global.escapeHtml(m.node_id)}')" title="Remove node from cluster" aria-label="Remove node from cluster">
+                        <button class="node-btn-action node-btn-icon danger" onclick="event.stopPropagation(); openDeleteNodeModal('${global.escapeHtml(m.node_id)}')" title="Remove node from cluster" aria-label="Remove node from cluster">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -370,34 +370,145 @@
         }
     }
 
-    async function deleteNodeConfirm(nodeId) {
-        if (!confirm(`Are you sure you want to remove node '${nodeId}' from the cluster?\n\nThis unregisters the node and stops the remote stream-agent over SSH.`)) {
-            return;
-        }
+    let activeDecommissionNodeId = null;
+    let activeDecommissionConfig = null;
 
-        let sshPassword = '';
+    async function openDeleteNodeModal(nodeId) {
+        activeDecommissionNodeId = nodeId;
+        const modal = document.getElementById('modal-delete-node');
+        if (!modal) return;
+
+        document.getElementById('del-modal-node-id').innerText = nodeId;
+        document.getElementById('del-modal-host').innerText = 'Loading...';
+        const badge = document.getElementById('del-modal-cred-badge');
+        badge.innerText = 'Checking credentials...';
+        badge.style.background = 'var(--bg-body)';
+        badge.style.color = 'var(--text-secondary)';
+
+        document.getElementById('del-modal-error-box').style.display = 'none';
+        document.getElementById('del-modal-loading').style.display = 'none';
+        document.getElementById('del-modal-submit-btn').disabled = false;
+        document.getElementById('del-modal-manual-ssh-wrap').style.display = 'none';
+
+        const radioStop = document.querySelector('input[name="del-node-mode"][value="stop_remote"]');
+        if (radioStop) radioStop.checked = true;
+
+        modal.style.display = 'flex';
+
         try {
-            const cfgRes = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/config`);
-            if (cfgRes.ok) {
-                const cfg = await cfgRes.json();
-                if (!cfg.ssh_password) {
-                    sshPassword = prompt(`SSH password for '${nodeId}' (needed to stop the remote agent):`) || '';
+            const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}/config`);
+            if (res.ok) {
+                activeDecommissionConfig = await res.json();
+                const host = activeDecommissionConfig.ssh_host || 'Unknown';
+                document.getElementById('del-modal-host').innerText = host;
+
+                if (activeDecommissionConfig.ssh_password) {
+                    badge.innerText = '✓ Saved in DB';
+                    badge.style.background = 'rgba(22, 163, 74, 0.12)';
+                    badge.style.color = '#16a34a';
+                    document.getElementById('del-modal-manual-ssh-wrap').style.display = 'none';
+                } else {
+                    badge.innerText = 'None Stored';
+                    badge.style.background = 'rgba(234, 88, 12, 0.12)';
+                    badge.style.color = '#ea580c';
+                    toggleDeleteNodeMode();
                 }
             } else {
-                sshPassword = prompt(`SSH password for '${nodeId}' (needed to stop the remote agent):`) || '';
+                document.getElementById('del-modal-host').innerText = 'Unknown';
+                badge.innerText = 'None Stored';
+                toggleDeleteNodeMode();
             }
-        } catch (_) {
-            sshPassword = prompt(`SSH password for '${nodeId}' (needed to stop the remote agent):`) || '';
+        } catch (e) {
+            console.warn('Could not fetch node config:', e);
+            document.getElementById('del-modal-host').innerText = 'Unknown';
+            badge.innerText = 'None Stored';
+            toggleDeleteNodeMode();
+        }
+    }
+
+    function toggleDeleteNodeMode() {
+        const selectedMode = document.querySelector('input[name="del-node-mode"]:checked')?.value;
+        const manualWrap = document.getElementById('del-modal-manual-ssh-wrap');
+        const submitText = document.getElementById('del-modal-submit-text');
+        const submitBtn = document.getElementById('del-modal-submit-btn');
+
+        if (selectedMode === 'cluster_only') {
+            if (manualWrap) manualWrap.style.display = 'none';
+            if (submitText) submitText.innerText = 'Unregister from Cluster';
+            if (submitBtn) submitBtn.style.background = '#475569';
+        } else {
+            if (submitText) submitText.innerText = 'Confirm Decommission';
+            if (submitBtn) submitBtn.style.background = '#dc2626';
+            if (!activeDecommissionConfig || !activeDecommissionConfig.ssh_password) {
+                if (manualWrap) {
+                    manualWrap.style.display = 'block';
+                    if (activeDecommissionConfig && activeDecommissionConfig.ssh_user) {
+                        const userEl = document.getElementById('del-modal-ssh-user');
+                        if (userEl) userEl.value = activeDecommissionConfig.ssh_user;
+                    }
+                }
+            } else {
+                if (manualWrap) manualWrap.style.display = 'none';
+            }
+        }
+    }
+
+    function closeDeleteNodeModal() {
+        const modal = document.getElementById('modal-delete-node');
+        if (modal) modal.style.display = 'none';
+        activeDecommissionNodeId = null;
+        activeDecommissionConfig = null;
+    }
+
+    async function executeDecommissionNode() {
+        if (!activeDecommissionNodeId) return;
+        const nodeId = activeDecommissionNodeId;
+        const selectedMode = document.querySelector('input[name="del-node-mode"]:checked')?.value;
+        const isStopRemote = selectedMode === 'stop_remote';
+
+        const errorBox = document.getElementById('del-modal-error-box');
+        const errorText = document.getElementById('del-modal-error-text');
+        const loadingBox = document.getElementById('del-modal-loading');
+        const loadingText = document.getElementById('del-modal-loading-text');
+        const submitBtn = document.getElementById('del-modal-submit-btn');
+        const cancelBtn = document.getElementById('del-modal-cancel-btn');
+
+        if (errorBox) errorBox.style.display = 'none';
+        if (loadingBox) {
+            loadingBox.style.display = 'block';
+            if (loadingText) {
+                loadingText.innerText = isStopRemote ? 'Connecting via SSH to stop remote agent...' : 'Unregistering node from cluster...';
+            }
+        }
+        if (submitBtn) submitBtn.disabled = true;
+        if (cancelBtn) cancelBtn.disabled = true;
+
+        const payload = {
+            stop_remote: isStopRemote
+        };
+
+        if (isStopRemote) {
+            const passEl = document.getElementById('del-modal-ssh-pass');
+            const userEl = document.getElementById('del-modal-ssh-user');
+            const manualPass = passEl ? passEl.value.trim() : '';
+            const manualUser = userEl ? userEl.value.trim() : '';
+            if (manualPass) {
+                payload.ssh_password = manualPass;
+            }
+            if (manualUser) {
+                payload.ssh_user = manualUser;
+            }
         }
 
         try {
             const res = await fetch(`/api/nodes/${encodeURIComponent(nodeId)}`, {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(sshPassword ? { ssh_password: sshPassword, ssh_user: 'root' } : {})
+                body: JSON.stringify(payload)
             });
 
             if (res.ok) {
+                closeDeleteNodeModal();
                 const cardEl = document.getElementById(`card-${nodeId}`);
                 if (cardEl) {
                     cardEl.style.transition = 'all 0.3s ease';
@@ -405,15 +516,33 @@
                     cardEl.style.transform = 'scale(0.95)';
                     setTimeout(() => cardEl.remove(), 300);
                 }
+                if (global.showToast) {
+                    global.showToast(isStopRemote ? `Node '${nodeId}' decommissioned and stopped over SSH.` : `Node '${nodeId}' removed from cluster.`, 'success');
+                }
                 await global.fetchClusterTelemetry();
             } else {
-                const errText = await res.text();
-                alert(`Failed to remove node '${nodeId}': ${errText}`);
+                let errMsg = 'Failed to decommission node.';
+                try {
+                    const data = await res.json();
+                    if (data.error) errMsg = data.error;
+                } catch (_) {
+                    errMsg = await res.text();
+                }
+                if (errorText) errorText.innerText = errMsg;
+                if (errorBox) errorBox.style.display = 'block';
             }
         } catch (err) {
-            console.error('Error removing node:', err);
-            alert(`Network error removing node: ${err.message}`);
+            if (errorText) errorText.innerText = `Network error: ${err.message}`;
+            if (errorBox) errorBox.style.display = 'block';
+        } finally {
+            if (loadingBox) loadingBox.style.display = 'none';
+            if (submitBtn) submitBtn.disabled = false;
+            if (cancelBtn) cancelBtn.disabled = false;
         }
+    }
+
+    async function deleteNodeConfirm(nodeId) {
+        openDeleteNodeModal(nodeId);
     }
 
     async function triggerAutoInstallTools(nodeId, btnElement, sshPassword, sshUser, tool) {
@@ -1098,6 +1227,10 @@
     global.handleUserInputChange = handleUserInputChange;
     global.waitForProvisionedNode = waitForProvisionedNode;
     global.handleProvisionSubmit = handleProvisionSubmit;
+    global.openDeleteNodeModal = openDeleteNodeModal;
+    global.closeDeleteNodeModal = closeDeleteNodeModal;
+    global.executeDecommissionNode = executeDecommissionNode;
+    global.toggleDeleteNodeMode = toggleDeleteNodeMode;
 
     if (global.App && global.App.pages) {
         global.App.pages.nodes = { init, destroy, render: renderNodes };
