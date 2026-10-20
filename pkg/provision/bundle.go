@@ -103,12 +103,22 @@ func BuildOrGetWorkerBundle() ([]byte, error) {
 			bundleModTime := fiBundle.ModTime()
 			upToDate := true
 
+			// Check stream binary mod time
+			for _, p := range linuxBinaryCandidates() {
+				if fi, err := os.Stat(p); err == nil && fi.ModTime().After(bundleModTime) {
+					upToDate = false
+					break
+				}
+			}
+
 			// Check all tool candidates
-			for _, tool := range []string{"ffmpeg", "ffprobe", "aria2c", "rclone"} {
-				if path, found := FindStaticBinary(tool); found {
-					if fi, err := os.Stat(path); err == nil && fi.ModTime().After(bundleModTime) {
-						upToDate = false
-						break
+			if upToDate {
+				for _, tool := range []string{"ffmpeg", "ffprobe", "aria2c", "rclone"} {
+					if path, found := FindStaticBinary(tool); found {
+						if fi, err := os.Stat(path); err == nil && fi.ModTime().After(bundleModTime) {
+							upToDate = false
+							break
+						}
 					}
 				}
 			}
