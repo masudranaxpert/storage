@@ -14,12 +14,13 @@ import (
 	"syscall"
 	"time"
 
-	"stream/pkg/cluster"
-	"stream/pkg/db"
-	"stream/pkg/provision"
-	"stream/pkg/storage"
-	"stream/pkg/telemetry"
-	"stream/pkg/web"
+	"stream/internal/agent"
+	"stream/internal/api"
+	"stream/internal/cluster"
+	"stream/internal/database"
+	"stream/internal/provision"
+	"stream/internal/storage"
+	"stream/internal/telemetry"
 )
 
 func formatBytes(bytes uint64) string {
@@ -104,12 +105,12 @@ func runCoordinator(args []string) {
 	scratchDir := fs.String("scratch-dir", filepath.Join("data", "processing"), "Local scratch directory for processing")
 	fs.Parse(args)
 
-	store, err := db.Open(db.GetDataDir())
+	store, err := database.Open(database.GetDataDir())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to open BadgerDB (%v), running in-memory\n", err)
 	} else {
 		defer store.Close()
-		fmt.Printf("📦 BadgerDB database active at: %s\n", db.GetDataDir())
+		fmt.Printf("📦 BadgerDB database active at: %s\n", database.GetDataDir())
 	}
 
 	var dataStore cluster.DataStore
@@ -158,7 +159,7 @@ func runCoordinator(args []string) {
 		joinURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
 		grpcTarget := fmt.Sprintf("127.0.0.1:%d", *grpcPort)
 
-		localAgent := cluster.NewAgent(localNodeID, joinURL, 5*time.Second, *agentPort, *mediaDir, grpcTarget, clusterSecret)
+		localAgent := agent.NewAgent(localNodeID, joinURL, 5*time.Second, *agentPort, *mediaDir, grpcTarget, clusterSecret)
 		if *scratchDir != "" {
 			localAgent.ScratchDir = *scratchDir
 		}
@@ -180,7 +181,7 @@ func runCoordinator(args []string) {
 	addr := fmt.Sprintf(":%d", *port)
 	staticDir := filepath.Join("web", "static")
 	templateDir := filepath.Join("web", "templates")
-	srv := web.NewServer(addr, coord, hub, store, tiers, staticDir, templateDir)
+	srv := api.NewServer(addr, coord, hub, store, tiers, staticDir, templateDir)
 
 	procCtx, procCancel := context.WithCancel(context.Background())
 	defer procCancel()
@@ -280,22 +281,22 @@ func runAgent(args []string) {
 	fmt.Printf("Target coordinator: %s (Interval: %v)\n", *joinURL, *interval)
 	fmt.Printf("Direct Streaming Port: :%d\n", *port)
 
-	agent := cluster.NewAgent(*nodeName, *joinURL, *interval, *port, *mediaDir, *grpcTarget, *secret)
+	a := agent.NewAgent(*nodeName, *joinURL, *interval, *port, *mediaDir, *grpcTarget, *secret)
 	if *corsOrigins != "" {
-		agent.SetCORSOrigins(*corsOrigins)
+		a.SetCORSOrigins(*corsOrigins)
 	}
 	if *scratchDir != "" {
-		agent.ScratchDir = *scratchDir
+		a.ScratchDir = *scratchDir
 	}
-	if *quotaBytes > 0 && agent.Quota != nil {
-		agent.Quota.SetAllocatedMaxBytes(*quotaBytes)
+	if *quotaBytes > 0 && a.Quota != nil {
+		a.Quota.SetAllocatedMaxBytes(*quotaBytes)
 		fmt.Printf("Storage quota enforced: %s max allocation\n", telemetry.FormatBytes(*quotaBytes))
 	}
 	if *advertise != "" {
-		agent.AdvertiseAddr = *advertise
+		a.AdvertiseAddr = *advertise
 		fmt.Printf("Advertise address: %s (node-to-node transfers)\n", *advertise)
 	}
-	fmt.Printf("Control plane target: %s (persistent gRPC stream, HTTP fallback)\n", agent.GRPCTarget)
+	fmt.Printf("Control plane target: %s (persistent gRPC stream, HTTP fallback)\n", a.GRPCTarget)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -309,7 +310,7 @@ func runAgent(args []string) {
 		cancel()
 	}()
 
-	if err := agent.Start(ctx); err != nil && err != context.Canceled {
+	if err := a.Start(ctx); err != nil && err != context.Canceled {
 		fmt.Fprintf(os.Stderr, "Agent error: %v\n", err)
 		os.Exit(1)
 	}
