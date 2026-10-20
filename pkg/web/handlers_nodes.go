@@ -39,6 +39,10 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !s.requireSecret(w, r) {
+		return
+	}
+
 	var metrics telemetry.NodeMetrics
 	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
 		http.Error(w, fmt.Sprintf("invalid payload: %v", err), http.StatusBadRequest)

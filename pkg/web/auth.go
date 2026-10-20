@@ -15,7 +15,6 @@ import (
 const (
 	adminCookieName    = "stream_admin"
 	adminCookieMessage = "admin-ui"
-	defaultAdminSecret = "stream-control-plane-session-2026"
 
 	// sessionCookieName stores the stateful DB session token for logged-in accounts.
 	sessionCookieName = "stream_session"
@@ -25,10 +24,13 @@ func adminSecret(s *Server) string {
 	if s != nil && s.hub != nil && s.hub.Secret() != "" {
 		return s.hub.Secret()
 	}
-	return defaultAdminSecret
+	return ""
 }
 
 func adminCookieToken(secret string) string {
+	if secret == "" {
+		return ""
+	}
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(adminCookieMessage))
 	return hex.EncodeToString(mac.Sum(nil))
@@ -137,21 +139,16 @@ func (s *Server) isCallerAuthenticated(r *http.Request) bool {
 			}
 		}
 	}
-	if provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(sec)) == 1 {
+	if sec != "" && provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(sec)) == 1 {
 		return true
 	}
-	// 3. Fallback: if no users are created yet in the database, allow bootstrap
+	// 3. Fallback: if no users are created yet in the database, allow bootstrap with admin cookie
 	if s.store != nil {
 		hasUsers, err := s.store.HasAnyUsers()
 		if err == nil && !hasUsers {
-			if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" {
+			if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" && sec != "" {
 				expected := adminCookieToken(sec)
 				if subtle.ConstantTimeCompare([]byte(c.Value), []byte(expected)) == 1 {
-					return true
-				}
-			}
-			if (s.hub == nil || s.hub.Secret() == "") {
-				if hasKeys, _ := s.store.HasAnyAPIKeys(); !hasKeys {
 					return true
 				}
 			}
@@ -159,8 +156,6 @@ func (s *Server) isCallerAuthenticated(r *http.Request) bool {
 	}
 	return false
 }
-
-
 
 // requireAdmin authorizes privileged API mutations.
 func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
@@ -171,16 +166,20 @@ func (s *Server) requireAdmin(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-// requireSecret verifies the cluster secret header or Bearer token when a secret is configured.
+// requireSecret verifies the cluster secret header or Bearer token for agent & cluster operations.
 func (s *Server) requireSecret(w http.ResponseWriter, r *http.Request) bool {
-	if s.hub == nil || s.hub.Secret() == "" {
-		return true
+	sec := adminSecret(s)
+	if sec == "" {
+		writeJSONErr(w, http.StatusUnauthorized, "unauthorized: valid cluster secret required")
+		return false
 	}
-	sec := s.hub.Secret()
 	provided := r.Header.Get("X-Cluster-Secret")
 	if provided == "" {
 		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-			provided = strings.TrimPrefix(auth, "Bearer ")
+			candidate := strings.TrimPrefix(auth, "Bearer ")
+			if !strings.HasPrefix(candidate, "sm_live_") {
+				provided = candidate
+			}
 		}
 	}
 	if provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(sec)) == 1 {

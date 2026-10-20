@@ -328,3 +328,63 @@ func (s *Store) DeleteUser(username string) error {
 	})
 }
 
+const clusterSecretKey = "cluster:secret"
+
+// GetOrSetClusterSecret returns the persistent cluster secret from BadgerDB.
+// If explicitSecret is provided, it saves and returns it.
+// If no secret exists in DB, it generates a secure 32-byte hex secret, persists it, and returns it.
+func (s *Store) GetOrSetClusterSecret(explicitSecret string) (string, error) {
+	if s == nil || s.db == nil {
+		if explicitSecret != "" {
+			return explicitSecret, nil
+		}
+		b := make([]byte, 32)
+		_, _ = rand.Read(b)
+		return hex.EncodeToString(b), nil
+	}
+
+	explicitSecret = strings.TrimSpace(explicitSecret)
+	if explicitSecret != "" {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		err := s.db.Update(func(txn *badger.Txn) error {
+			return txn.Set([]byte(clusterSecretKey), []byte(explicitSecret))
+		})
+		return explicitSecret, err
+	}
+
+	s.mu.RLock()
+	var existing string
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(clusterSecretKey))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			existing = string(val)
+			return nil
+		})
+	})
+	s.mu.RUnlock()
+
+	if err == nil && existing != "" {
+		return existing, nil
+	}
+
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("failed to generate cluster secret: %w", err)
+	}
+	generated := hex.EncodeToString(b)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	err = s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(clusterSecretKey), []byte(generated))
+	})
+	if err != nil {
+		return "", err
+	}
+	return generated, nil
+}
+

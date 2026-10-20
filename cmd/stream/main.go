@@ -123,7 +123,20 @@ func runCoordinator(args []string) {
 
 	tiers := storage.NewManager(tierStore)
 
-	hub := cluster.NewGRPCHub(coord, dataStore, *secret)
+	var clusterSecret string
+	if envSec := os.Getenv("STREAM_SECRET"); envSec != "" && *secret == "" {
+		*secret = envSec
+	}
+	if store != nil {
+		if sec, err := store.GetOrSetClusterSecret(*secret); err == nil && sec != "" {
+			clusterSecret = sec
+		}
+	}
+	if clusterSecret == "" {
+		clusterSecret = *secret
+	}
+
+	hub := cluster.NewGRPCHub(coord, dataStore, clusterSecret)
 	go func() {
 		if err := hub.ListenAndServe(*grpcPort); err != nil {
 			fmt.Fprintf(os.Stderr, "gRPC control plane error: %v\n", err)
@@ -145,7 +158,7 @@ func runCoordinator(args []string) {
 		joinURL := fmt.Sprintf("http://127.0.0.1:%d", *port)
 		grpcTarget := fmt.Sprintf("127.0.0.1:%d", *grpcPort)
 
-		localAgent := cluster.NewAgent(localNodeID, joinURL, 5*time.Second, *agentPort, *mediaDir, grpcTarget, *secret)
+		localAgent := cluster.NewAgent(localNodeID, joinURL, 5*time.Second, *agentPort, *mediaDir, grpcTarget, clusterSecret)
 		if *scratchDir != "" {
 			localAgent.ScratchDir = *scratchDir
 		}

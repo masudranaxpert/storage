@@ -33,6 +33,10 @@ func (s *Service) handleSyncFiles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	if !s.isAuthorized(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
+		return
+	}
 	force := r.URL.Query().Get("force") != "false"
 	purged, err := s.ReconcileGhostRecordsOpt(force)
 	if err != nil {
@@ -156,6 +160,10 @@ func (s *Service) handleReserveUpload(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
+	if !s.isAuthorized(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
+		return
+	}
 	var req CreateRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, fmt.Errorf("invalid json body"))
@@ -194,6 +202,12 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 		s.handleProgress(w, r, key)
 		return
 	}
+
+	if r.Method != http.MethodOptions && !s.isAuthorized(r) {
+		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
+		return
+	}
+
 	if action == "upload" {
 		s.handleUpload(w, r, key)
 		return
@@ -220,11 +234,6 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 	}
 	if action != "" {
 		writeErr(w, http.StatusNotFound, fmt.Errorf("not found"))
-		return
-	}
-
-	if r.Method != http.MethodOptions && !s.isAuthorized(r) {
-		writeErr(w, http.StatusUnauthorized, fmt.Errorf("unauthorized: valid API key required"))
 		return
 	}
 
@@ -270,15 +279,18 @@ func (s *Service) handleFileSub(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// validSecret verifies the cluster secret header or Bearer token when configured.
+// validSecret verifies the cluster secret header or Bearer token for internal callbacks.
 func (s *Service) validSecret(r *http.Request) bool {
 	if s.secret == "" {
-		return true
+		return false
 	}
 	provided := r.Header.Get("X-Cluster-Secret")
 	if provided == "" {
 		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
-			provided = strings.TrimPrefix(auth, "Bearer ")
+			candidate := strings.TrimPrefix(auth, "Bearer ")
+			if !strings.HasPrefix(candidate, "sm_live_") {
+				provided = candidate
+			}
 		}
 	}
 	return provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(s.secret)) == 1

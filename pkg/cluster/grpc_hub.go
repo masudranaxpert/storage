@@ -108,15 +108,16 @@ func (h *GRPCHub) ListenAndServe(port int) error {
 // authInterceptor validates the shared cluster secret carried as
 // "authorization: Bearer <secret>" metadata on every stream.
 func (h *GRPCHub) authInterceptor(srv interface{}, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-	if h.secret != "" {
-		md, ok := metadata.FromIncomingContext(ss.Context())
-		if !ok {
-			return status.Error(codes.Unauthenticated, "missing metadata")
-		}
-		vals := md.Get("authorization")
-		if len(vals) == 0 || vals[0] != "Bearer "+h.secret {
-			return status.Error(codes.Unauthenticated, "invalid cluster secret")
-		}
+	if h.secret == "" {
+		return status.Error(codes.Unauthenticated, "cluster secret required on control plane")
+	}
+	md, ok := metadata.FromIncomingContext(ss.Context())
+	if !ok {
+		return status.Error(codes.Unauthenticated, "missing metadata")
+	}
+	vals := md.Get("authorization")
+	if len(vals) == 0 || vals[0] != "Bearer "+h.secret {
+		return status.Error(codes.Unauthenticated, "invalid cluster secret")
 	}
 	return handler(srv, ss)
 }

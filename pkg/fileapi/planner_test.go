@@ -294,13 +294,13 @@ func TestProgressAuth(t *testing.T) {
 		t.Fatalf("expected 202 with Bearer token, got %d", rec4.Code)
 	}
 
-	// 5. Dev mode (empty secret) -> 202 without headers
+	// 5. Zero-Trust: empty secret must reject (401 Unauthorized)
 	svc.SetSecret("")
 	req5 := httptest.NewRequest(http.MethodPost, "/api/v1/files/k1/progress", bytes.NewReader(payload))
 	rec5 := httptest.NewRecorder()
 	mux.ServeHTTP(rec5, req5)
-	if rec5.Code != http.StatusAccepted {
-		t.Fatalf("expected 202 when secret is empty, got %d", rec5.Code)
+	if rec5.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 when secret is empty, got %d", rec5.Code)
 	}
 }
 

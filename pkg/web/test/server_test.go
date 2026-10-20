@@ -29,12 +29,18 @@ func TestWebServerAPIs(t *testing.T) {
 	defer store.Close()
 
 	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, store)
-	hub := cluster.NewGRPCHub(coord, store, "")
+	testSecret := "test-cluster-secret"
+	hub := cluster.NewGRPCHub(coord, store, testSecret)
 	tiers := storage.NewManager(store)
 	srv := web.NewServer(":0", coord, hub, store, tiers, "../../../web/static", "../../../web/templates")
 	handler := srv.Handler()
 
-	// 1. Test POST /api/heartbeat
+	withAuth := func(req *http.Request) *http.Request {
+		req.Header.Set("X-Cluster-Secret", testSecret)
+		return req
+	}
+
+	// 1. Test POST /api/heartbeat without secret -> 401 Unauthorized
 	metrics := telemetry.NodeMetrics{
 		NodeID:   "web-test-vps",
 		Hostname: "web-host",
@@ -42,9 +48,17 @@ func TestWebServerAPIs(t *testing.T) {
 		CPU:      telemetry.CPUStat{Cores: 4},
 	}
 	body, _ := json.Marshal(metrics)
+	reqNoAuth := httptest.NewRequest(http.MethodPost, "/api/heartbeat", bytes.NewBuffer(body))
+	recNoAuth := httptest.NewRecorder()
+	handler.ServeHTTP(recNoAuth, reqNoAuth)
+	if recNoAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized without secret, got %d", recNoAuth.Code)
+	}
+
+	// With cluster secret -> 200 OK
 	req := httptest.NewRequest(http.MethodPost, "/api/heartbeat", bytes.NewBuffer(body))
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	handler.ServeHTTP(rec, withAuth(req))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from heartbeat, got %d", rec.Code)
@@ -53,7 +67,7 @@ func TestWebServerAPIs(t *testing.T) {
 	// 2. Test GET /api/pool
 	reqPool := httptest.NewRequest(http.MethodGet, "/api/pool", nil)
 	recPool := httptest.NewRecorder()
-	handler.ServeHTTP(recPool, reqPool)
+	handler.ServeHTTP(recPool, withAuth(reqPool))
 
 	if recPool.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from /api/pool, got %d", recPool.Code)
@@ -71,7 +85,7 @@ func TestWebServerAPIs(t *testing.T) {
 	allocPayload := []byte(`{"allocated_max_bytes": 107374182400}`)
 	reqAlloc := httptest.NewRequest(http.MethodPost, "/api/nodes/web-test-vps/allocate", bytes.NewBuffer(allocPayload))
 	recAlloc := httptest.NewRecorder()
-	handler.ServeHTTP(recAlloc, reqAlloc)
+	handler.ServeHTTP(recAlloc, withAuth(reqAlloc))
 
 	if recAlloc.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from allocate, got %d", recAlloc.Code)
@@ -80,7 +94,7 @@ func TestWebServerAPIs(t *testing.T) {
 	// 4. GET /api/tiers — seeded defaults, unassigned block discovery
 	reqTiers := httptest.NewRequest(http.MethodGet, "/api/tiers", nil)
 	recTiers := httptest.NewRecorder()
-	handler.ServeHTTP(recTiers, reqTiers)
+	handler.ServeHTTP(recTiers, withAuth(reqTiers))
 
 	if recTiers.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from /api/tiers, got %d", recTiers.Code)
@@ -116,7 +130,7 @@ func TestWebServerAPIs(t *testing.T) {
 	})
 	reqTierSave := httptest.NewRequest(http.MethodPost, "/api/tiers", bytes.NewBuffer(tierPayload))
 	recTierSave := httptest.NewRecorder()
-	handler.ServeHTTP(recTierSave, reqTierSave)
+	handler.ServeHTTP(recTierSave, withAuth(reqTierSave))
 
 	if recTierSave.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from tier upsert, got %d: %s", recTierSave.Code, recTierSave.Body.String())
@@ -126,7 +140,7 @@ func TestWebServerAPIs(t *testing.T) {
 	procPayload := []byte(`{"processing_enabled":true,"reserved_cpu_cores":1,"reserved_ram_mb":500,"preferred_disk_type":"ssd","reserved_storage_gb":5}`)
 	reqProc := httptest.NewRequest(http.MethodPost, "/api/nodes/web-test-vps/processing", bytes.NewBuffer(procPayload))
 	recProc := httptest.NewRecorder()
-	handler.ServeHTTP(recProc, reqProc)
+	handler.ServeHTTP(recProc, withAuth(reqProc))
 
 	if recProc.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from processing profile save, got %d: %s", recProc.Code, recProc.Body.String())
@@ -145,7 +159,7 @@ func TestWebServerAPIs(t *testing.T) {
 	// 7. GET /api/processing — the node must be eligible for processing
 	reqProcList := httptest.NewRequest(http.MethodGet, "/api/processing", nil)
 	recProcList := httptest.NewRecorder()
-	handler.ServeHTTP(recProcList, reqProcList)
+	handler.ServeHTTP(recProcList, withAuth(reqProcList))
 
 	if recProcList.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from /api/processing, got %d", recProcList.Code)
@@ -172,7 +186,7 @@ func TestWebServerAPIs(t *testing.T) {
 	// 8. Quota merge: allocation save must not wipe the processing profile
 	reqAlloc2 := httptest.NewRequest(http.MethodPost, "/api/nodes/web-test-vps/allocate", bytes.NewBuffer([]byte(`{"allocated_max_bytes": 1000000}`)))
 	recAlloc2 := httptest.NewRecorder()
-	handler.ServeHTTP(recAlloc2, reqAlloc2)
+	handler.ServeHTTP(recAlloc2, withAuth(reqAlloc2))
 
 	if recAlloc2.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK from second allocate, got %d", recAlloc2.Code)
@@ -186,7 +200,7 @@ func TestWebServerAPIs(t *testing.T) {
 	// 9. GET /api/tiers — verify assigned block is excluded from unassigned_blocks
 	reqTiers2 := httptest.NewRequest(http.MethodGet, "/api/tiers", nil)
 	recTiers2 := httptest.NewRecorder()
-	handler.ServeHTTP(recTiers2, reqTiers2)
+	handler.ServeHTTP(recTiers2, withAuth(reqTiers2))
 
 	var tiersResp2 struct {
 		Tiers            []storage.TierStatus `json:"tiers"`
@@ -209,14 +223,14 @@ func TestWebServerAPIs(t *testing.T) {
 	})
 	reqTier2Save := httptest.NewRequest(http.MethodPost, "/api/tiers", bytes.NewBuffer(tier2Payload))
 	recTier2Save := httptest.NewRecorder()
-	handler.ServeHTTP(recTier2Save, reqTier2Save)
+	handler.ServeHTTP(recTier2Save, withAuth(reqTier2Save))
 	if recTier2Save.Code != http.StatusOK {
 		t.Fatalf("expected 200 OK moving block to tier 2: %d", recTier2Save.Code)
 	}
 
 	reqTiers3 := httptest.NewRequest(http.MethodGet, "/api/tiers", nil)
 	recTiers3 := httptest.NewRecorder()
-	handler.ServeHTTP(recTiers3, reqTiers3)
+	handler.ServeHTTP(recTiers3, withAuth(reqTiers3))
 	var tiersResp3 struct {
 		Tiers []storage.TierStatus `json:"tiers"`
 	}
