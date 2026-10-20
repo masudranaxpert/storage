@@ -10,10 +10,10 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: stream-coordinator
-    command: ["coordinator", "--port=1212", "--grpc-port=9090"]
+    command: ["coordinator", "--port=1212", "--grpc-port=9091"]
     ports:
       - "1213:1212"
-      - "9090:9090"
+      - "9091:9091"
     volumes:
       - coord-data:/app/data
     networks:

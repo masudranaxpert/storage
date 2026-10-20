@@ -376,6 +376,7 @@ func runAddVPS(args []string) {
 	keyPath := fs.String("key", "", "SSH private key path")
 	name := fs.String("name", "", "Node Alias/Name (defaults to vps-<ip>)")
 	coordinator := fs.String("coordinator", "http://127.0.0.1:1212", "Coordinator URL (must be reachable from the VPS — use public/VPC IP)")
+	grpcTarget := fs.String("grpc", "", "Coordinator gRPC control-plane host:port (optional override; e.g. coord:9091)")
 	fs.Parse(args)
 
 	if *host == "" {
@@ -398,6 +399,7 @@ func runAddVPS(args []string) {
 		PrivateKey:     privateKeyContent,
 		NodeName:       *name,
 		CoordinatorURL: *coordinator,
+		GRPCTarget:     *grpcTarget,
 	}
 
 	binData, err := provision.GetOrBuildLinuxBinary()

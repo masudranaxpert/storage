@@ -43,6 +43,7 @@ type GRPCHub struct {
 
 	mu      sync.RWMutex
 	streams map[string]chan *pb.CoordinatorMessage
+	port    int
 
 	// OnJobProgress is set by the caller (web server) to route live job
 	// progress reports arriving over gRPC into the ingest queue.
@@ -61,6 +62,7 @@ func NewGRPCHub(coord *Coordinator, store DataStore, secret string) *GRPCHub {
 		coord:   coord,
 		store:   store,
 		secret:  secret,
+		port:    DefaultGRPCPort,
 		streams: make(map[string]chan *pb.CoordinatorMessage),
 	}
 	if cp, ok := store.(NodeConfigProvider); ok {
@@ -77,8 +79,17 @@ func (h *GRPCHub) Secret() string {
 	return h.secret
 }
 
+// Port returns the gRPC listening port.
+func (h *GRPCHub) Port() int {
+	if h == nil || h.port <= 0 {
+		return DefaultGRPCPort
+	}
+	return h.port
+}
+
 // ListenAndServe starts the gRPC server on the given port.
 func (h *GRPCHub) ListenAndServe(port int) error {
+	h.port = port
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return fmt.Errorf("grpc listen :%d: %w", port, err)

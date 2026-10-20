@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -707,6 +708,12 @@ func (s *Server) handleProvisionNode(w http.ResponseWriter, r *http.Request) {
 			scheme = "https"
 		}
 		req.CoordinatorURL = fmt.Sprintf("%s://%s", scheme, r.Host)
+	}
+
+	if req.GRPCTarget == "" && s.hub != nil && s.hub.Port() > 0 && s.hub.Port() != cluster.DefaultGRPCPort {
+		if u, err := url.Parse(req.CoordinatorURL); err == nil && u.Hostname() != "" {
+			req.GRPCTarget = fmt.Sprintf("%s:%d", u.Hostname(), s.hub.Port())
+		}
 	}
 
 	if s.hub != nil && s.hub.Secret() != "" && req.Secret == "" {
