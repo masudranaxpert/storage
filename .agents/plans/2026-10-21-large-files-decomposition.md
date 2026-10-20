@@ -78,5 +78,5 @@ Target metric: Every decomposed file is focused, has a single clear purpose, and
   - [x] Run `go vet ./...` (0 warnings).
   - [x] Run `go test -count=1 ./...` (100% pass across all packages).
   - [x] Build binary: `go build -o stream ./cmd/stream`.
-  - [ ] Deploy to NextDeploy: `nd deploy stream-a050 -f`.
-  - [ ] Verify live dashboard: `curl -I http://204.136.10.31:1213/media`.
+  - [x] Deploy to NextDeploy: `nd deploy stream-a050 -f`.
+  - [x] Verify live dashboard: `curl -I http://204.136.10.31:1213/media`.
