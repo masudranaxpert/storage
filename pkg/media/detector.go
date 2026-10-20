@@ -11,8 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/gabriel-vasile/mimetype"
 )
 
 // SupportedVideoMIMEs lists the acceptable video container MIME types.
@@ -36,7 +34,7 @@ type MediaValidation struct {
 	OriginalName string `json:"original_name"`
 }
 
-// DetectFileMIME inspects the file header (first 3072 bytes) and returns MIME information.
+// DetectFileMIME inspects the file header (first 3072 bytes) and returns MIME information using Go stdlib.
 func DetectFileMIME(filePath string) (*MediaValidation, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -44,21 +42,51 @@ func DetectFileMIME(filePath string) (*MediaValidation, error) {
 	}
 	defer f.Close()
 
-	// Read only first 3072 bytes to save memory
 	header := make([]byte, 3072)
 	n, err := f.Read(header)
 	if err != nil && err != io.EOF {
 		return nil, fmt.Errorf("read header: %w", err)
 	}
 
-	mtype := mimetype.Detect(header[:n])
-	mimeString := mtype.String()
+	ext := strings.ToLower(filepath.Ext(filePath))
+	detected := ""
+	if n > 0 {
+		detected = http.DetectContentType(header[:n])
+	}
 
-	isVideo := strings.HasPrefix(mimeString, "video/") || SupportedVideoMIMEs[mimeString]
+	var mimeString string
+	var isVideo bool
+
+	// Check container magic bytes
+	if n >= 8 && string(header[4:8]) == "ftyp" {
+		mimeString = "video/mp4"
+		isVideo = true
+	} else if n >= 4 && header[0] == 0x1A && header[1] == 0x45 && header[2] == 0xDF && header[3] == 0xA3 {
+		mimeString = "video/x-matroska"
+		isVideo = true
+	} else if strings.HasPrefix(detected, "video/") || SupportedVideoMIMEs[detected] {
+		mimeString = detected
+		isVideo = true
+	} else {
+		// Non-video text or binary format (e.g. text/plain, application/json)
+		if detected != "" && !strings.HasPrefix(detected, "application/octet-stream") {
+			mimeString = detected
+			isVideo = false
+		} else {
+			extMime := mime.TypeByExtension(ext)
+			if strings.HasPrefix(extMime, "video/") || SupportedVideoMIMEs[extMime] {
+				mimeString = extMime
+				isVideo = true
+			} else {
+				mimeString = "application/octet-stream"
+				isVideo = false
+			}
+		}
+	}
 
 	return &MediaValidation{
 		MIMEType:     mimeString,
-		Extension:    mtype.Extension(),
+		Extension:    ext,
 		IsVideo:      isVideo,
 		OriginalName: filepath.Base(filePath),
 	}, nil

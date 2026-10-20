@@ -182,22 +182,20 @@
     function copyGeneratedKey(btnEl) {
         const secretInput = document.getElementById('apikey-secret-result');
         if (!secretInput || !secretInput.value) return;
-        navigator.clipboard.writeText(secretInput.value).then(() => {
-            if (btnEl) {
-                const origHtml = btnEl.innerHTML;
-                btnEl.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                btnEl.classList.add('is-copied');
-                setTimeout(() => {
-                    btnEl.innerHTML = origHtml;
-                    btnEl.classList.remove('is-copied');
-                }, 1400);
-            }
-            if (global.App && typeof global.App.showToast === 'function') {
-                global.App.showToast('API Key copied to clipboard', 'success');
-            }
-        }).catch(err => {
-            alert('Could not copy to clipboard: ' + err);
-        });
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (copyFn) {
+            copyFn(secretInput.value, 'API Key copied to clipboard').then(ok => {
+                if (ok && btnEl) {
+                    const origHtml = btnEl.innerHTML;
+                    btnEl.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    btnEl.classList.add('is-copied');
+                    setTimeout(() => {
+                        btnEl.innerHTML = origHtml;
+                        btnEl.classList.remove('is-copied');
+                    }, 1400);
+                }
+            });
+        }
     }
 
     function deleteAPIKey(key, name) {
@@ -225,22 +223,20 @@
 
     function copyRawAPIKey(key, btnEl) {
         if (!key) return;
-        navigator.clipboard.writeText(key).then(() => {
-            if (btnEl) {
-                const origHtml = btnEl.innerHTML;
-                btnEl.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                btnEl.classList.add('is-copied');
-                setTimeout(() => {
-                    btnEl.innerHTML = origHtml;
-                    btnEl.classList.remove('is-copied');
-                }, 1400);
-            }
-            if (global.App && typeof global.App.showToast === 'function') {
-                global.App.showToast('API Key copied to clipboard', 'success');
-            }
-        }).catch(err => {
-            alert('Could not copy to clipboard: ' + err);
-        });
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (copyFn) {
+            copyFn(key, 'API Key copied to clipboard').then(ok => {
+                if (ok && btnEl) {
+                    const origHtml = btnEl.innerHTML;
+                    btnEl.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    btnEl.classList.add('is-copied');
+                    setTimeout(() => {
+                        btnEl.innerHTML = origHtml;
+                        btnEl.classList.remove('is-copied');
+                    }, 1400);
+                }
+            });
+        }
     }
 
     function openIntegrationGuideModal() {
@@ -283,20 +279,20 @@
     function copyCurlExample(elementId, btnEl) {
         const el = document.getElementById(elementId);
         if (!el) return;
-        navigator.clipboard.writeText(el.innerText).then(() => {
-            if (btnEl) {
-                const origHtml = btnEl.innerHTML;
-                btnEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
-                btnEl.classList.add('is-copied');
-                setTimeout(() => {
-                    btnEl.innerHTML = origHtml;
-                    btnEl.classList.remove('is-copied');
-                }, 1400);
-            }
-            if (global.App && typeof global.App.showToast === 'function') {
-                global.App.showToast('cURL command copied to clipboard', 'success');
-            }
-        }).catch(() => {});
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (copyFn) {
+            copyFn(el.innerText, 'cURL command copied to clipboard').then(ok => {
+                if (ok && btnEl) {
+                    const origHtml = btnEl.innerHTML;
+                    btnEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+                    btnEl.classList.add('is-copied');
+                    setTimeout(() => {
+                        btnEl.innerHTML = origHtml;
+                        btnEl.classList.remove('is-copied');
+                    }, 1400);
+                }
+            });
+        }
     }
 
     function escapeHtml(str) {

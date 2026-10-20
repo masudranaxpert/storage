@@ -164,6 +164,7 @@
     }
 
     function fallbackCopyText(text, alertMsg) {
+        let successful = false;
         try {
             const textArea = document.createElement('textarea');
             textArea.value = text;
@@ -174,27 +175,43 @@
             document.body.appendChild(textArea);
             textArea.focus();
             textArea.select();
-            const successful = document.execCommand('copy');
+            successful = document.execCommand('copy');
             document.body.removeChild(textArea);
             if (successful) {
-                alert(alertMsg || 'Copied to clipboard!');
-                return;
+                if (alertMsg) {
+                    if (typeof showToast === 'function') {
+                        showToast(alertMsg, 'success');
+                    } else {
+                        alert(alertMsg);
+                    }
+                }
+                return true;
             }
         } catch (_) {}
-        prompt('Copy link:', text);
+        if (alertMsg) {
+            prompt('Copy to clipboard:', text);
+        }
+        return false;
     }
 
     function copyToClipboard(text, alertMsg) {
-        if (!text) return;
-        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-            navigator.clipboard.writeText(text).then(() => {
-                alert(alertMsg || 'Copied to clipboard!');
+        if (!text) return Promise.resolve(false);
+        // Modern async clipboard API only works in secure contexts (HTTPS or localhost)
+        if (window.isSecureContext && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            return navigator.clipboard.writeText(text).then(() => {
+                if (alertMsg) {
+                    if (typeof showToast === 'function') {
+                        showToast(alertMsg, 'success');
+                    } else {
+                        alert(alertMsg);
+                    }
+                }
+                return true;
             }).catch(() => {
-                fallbackCopyText(text, alertMsg);
+                return fallbackCopyText(text, alertMsg);
             });
-        } else {
-            fallbackCopyText(text, alertMsg);
         }
+        return Promise.resolve(fallbackCopyText(text, alertMsg));
     }
 
     function toggleMobileSidebar(forceState) {

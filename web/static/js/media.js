@@ -769,7 +769,7 @@
                                 ${global.escapeHtml(filename)}
                             </div>
                             <div class="media-card-meta">
-                                <span class="media-card-id">${global.escapeHtml(item.key)}</span>
+                                <span class="media-card-id" style="cursor:pointer;" onclick="copyToClipboard('${global.escapeHtml(item.key)}', 'File key copied!')" title="Click to copy file key">${global.escapeHtml(item.key)} <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;vertical-align:-1px;display:inline-block;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>
                                 <span class="media-card-meta-dot">&bull;</span>
                                 <span class="media-card-date">${dateStr}</span>
                                 <span class="media-card-meta-dot mob-only">&bull;</span>
@@ -2075,7 +2075,10 @@
 
     function copyDirectStreamURL() {
         const input = document.getElementById('stream-direct-url');
-        if (input) global.copyToClipboard(input.value, 'Direct Streaming URL copied!');
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (input && copyFn) {
+            copyFn(input.value, 'Direct Streaming URL copied!');
+        }
     }
 
     async function deleteMediaConfirm(mediaID) {

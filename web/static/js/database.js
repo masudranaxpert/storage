@@ -376,15 +376,14 @@ const DBStudio = (() => {
     async function copyJSON(btn) {
         const ed = ensureRowEditor();
         const textToCopy = (ed ? ed.getValue() : (document.getElementById('db-row-editor') || {}).value) || currentRawJSON;
-        try {
-            await navigator.clipboard.writeText(textToCopy);
-            if (btn) {
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (copyFn) {
+            const ok = await copyFn(textToCopy, 'JSON copied to clipboard');
+            if (ok && btn) {
                 const orig = btn.innerHTML;
                 btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><polyline points="20 6 9 17 4 12"></polyline></svg><span>Copied!</span>`;
                 setTimeout(() => { btn.innerHTML = orig; }, 1800);
             }
-        } catch (_) {
-            prompt('Copy JSON payload:', textToCopy);
         }
     }
 

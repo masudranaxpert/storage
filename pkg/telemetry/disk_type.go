@@ -9,12 +9,10 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/jaypipes/ghw"
 )
 
 // DetectDiskType determines whether a mountpoint or block device is an SSD, HDD, or NVMe
-// using hardware attributes: jaypipes/ghw hardware probe, TRIM/Discard capability, rotational rate, and bus type.
+// using hardware attributes: TRIM/Discard capability, rotational rate, model name, and bus type.
 func DetectDiskType(devicePath, mountpoint string) string {
 	if runtime.GOOS == "linux" {
 		return detectLinuxHardwareDiskType(devicePath, mountpoint)
@@ -166,27 +164,4 @@ func detectWindowsHardwareDiskType(mountpoint string) string {
 		return val
 	}
 	return "SSD"
-}
-
-// detectWithGHW inspects block storage topology using github.com/jaypipes/ghw
-func detectWithGHW(devName string) string {
-	block, err := ghw.Block()
-	if err != nil || block == nil {
-		return ""
-	}
-
-	for _, disk := range block.Disks {
-		if strings.EqualFold(disk.Name, devName) || strings.Contains(strings.ToLower(devName), strings.ToLower(disk.Name)) {
-			if disk.StorageController == ghw.STORAGE_CONTROLLER_NVME || strings.Contains(strings.ToUpper(disk.Model), "NVME") {
-				return "NVMe"
-			}
-			if disk.DriveType == ghw.DRIVE_TYPE_SSD || strings.Contains(strings.ToUpper(disk.Model), "SSD") {
-				return "SSD"
-			}
-			if disk.DriveType == ghw.DRIVE_TYPE_HDD {
-				return "HDD"
-			}
-		}
-	}
-	return ""
 }

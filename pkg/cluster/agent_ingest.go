@@ -341,16 +341,7 @@ func (a *Agent) transferFolder(ctx context.Context, key, baseDir string, final *
 		return a.transferFolderRcloneS3(ctx, key, baseDir, *final.S3, prefix, totalBytes, report)
 	}
 
-	// Primary Engine: Rclone Remote Control Daemon (rcd) with multi-connection transfers
-	rcloneErr := a.transferFolderRclone(ctx, key, baseDir, final, totalBytes, report)
-	if rcloneErr == nil {
-		return nil
-	}
-
-	fmt.Printf("[Agent %s] ⚠️ Rclone RCD transfer failed (%v), falling back to parallel chunk HTTP...\n",
-		a.NodeID, rcloneErr)
-
-	// Fallback Engine 1: Go Native parallel chunk streaming
+	// Primary Engine: Go Native parallel chunk streaming
 	initURL := fmt.Sprintf("%s/api/v1/ingest-init?key=%s&dir=%s",
 		strings.TrimRight(final.Addr, "/"), url.QueryEscape(key), url.QueryEscape(final.Dir))
 	initReq, err := http.NewRequestWithContext(ctx, http.MethodPost, initURL, nil)

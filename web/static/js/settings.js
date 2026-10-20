@@ -40,19 +40,19 @@
 
     function copyClusterJoinFlag(btnEl) {
         const flagText = `--secret="${CLUSTER_SECRET_TOKEN}"`;
-        navigator.clipboard.writeText(flagText).then(() => {
-            if (btnEl) {
-                const orig = btnEl.innerHTML;
-                btnEl.innerHTML = `
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="color:#10b981;"><polyline points="20 6 9 17 4 12"></polyline></svg>
-                    <span style="color:#10b981;font-weight:700;">Copied!</span>
-                `;
-                setTimeout(() => { btnEl.innerHTML = orig; }, 1600);
-            }
-            if (global.App && typeof global.App.showToast === 'function') {
-                global.App.showToast('Join flag copied to clipboard', 'success');
-            }
-        }).catch(() => {});
+        const copyFn = global.copyToClipboard || (global.App && global.App.copyToClipboard);
+        if (copyFn) {
+            copyFn(flagText, 'Join flag copied to clipboard').then(ok => {
+                if (ok && btnEl) {
+                    const orig = btnEl.innerHTML;
+                    btnEl.innerHTML = `
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" style="color:#10b981;"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        <span style="color:#10b981;font-weight:700;">Copied!</span>
+                    `;
+                    setTimeout(() => { btnEl.innerHTML = orig; }, 1600);
+                }
+            });
+        }
     }
 
     function renderSettings(pool) {
