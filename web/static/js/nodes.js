@@ -107,6 +107,7 @@
                                     <span class="status-pulse-dot"></span>
                                     ${global.escapeHtml(status)}
                                 </span>
+                                ${caps.version ? `<span class="node-version-badge" title="Stream Agent Version">${global.escapeHtml(caps.version)}</span>` : ''}
                             </div>
                             <div class="node-sub-row">
                                 <span class="meta-label">${global.escapeHtml(m.hostname || 'localhost')}</span>
@@ -217,7 +218,10 @@
                     <div class="node-drawer-section">
                         <div class="drawer-section-head">
                             <span class="drawer-title">Worker Bundles &amp; Capabilities</span>
-                            <span class="drawer-agent-tag">⚡ Stream Agent :${caps.agent_port || 2052}</span>
+                            <div style="display:inline-flex;align-items:center;gap:6px;">
+                                ${caps.version ? `<span class="node-version-badge" title="Stream Agent Binary Version">${global.escapeHtml(caps.version)}</span>` : ''}
+                                <span class="drawer-agent-tag">⚡ Stream Agent :${caps.agent_port || 2052}</span>
+                            </div>
                         </div>
                         <div class="drawer-tools-grid">
                             <div class="engine-badge ${hasAria ? 'ready' : 'missing'}">
@@ -237,6 +241,7 @@
                             </div>
                         </div>
                         <div class="drawer-paths-row">
+                            ${caps.version ? `<div class="path-item"><span class="path-key">Version:</span> <span class="path-val" style="font-weight:700;font-family:'JetBrains Mono',monospace;">${global.escapeHtml(caps.version)}</span></div>` : ''}
                             <div class="path-item"><span class="path-key">Binaries:</span> <span class="path-val">/opt/stream/bin</span></div>
                             ${m.media_path ? `<div class="path-item"><span class="path-key">Media Root:</span> <span class="path-val">${global.escapeHtml(m.media_path)}</span></div>` : ''}
                         </div>
@@ -970,6 +975,7 @@
                 `<span>${global.escapeHtml(m.hostname)} (${global.escapeHtml(m.os)} &bull; ${global.escapeHtml(m.platform || 'linux')})</span>` +
                 `<span style="color:var(--text-muted);">&bull;</span>` +
                 `<span>IP: <code class="mono-code">${global.escapeHtml(primaryIP)}</code>${extraBadge}</span>` +
+                (m.capabilities?.version ? `<span style="color:var(--text-muted);">&bull;</span><span class="node-version-badge" style="font-size:10px;padding:1px 6px;">${global.escapeHtml(m.capabilities.version)}</span>` : '') +
                 `</span>`;
         }
         if (cpuEl) cpuEl.innerText = `${m.cpu?.cores || 0} Cores • ${m.cpu?.model_name || 'Generic CPU'} • Load: ${(m.cpu?.used_percent || 0).toFixed(1)}%`;
