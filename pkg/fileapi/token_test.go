@@ -38,8 +38,8 @@ func TestStreamToken(t *testing.T) {
 		t.Fatal("tampered token must fail verification")
 	}
 
-	// 5. Allow when secret is empty (open access mode)
-	if !ValidateStreamToken(key, "", fmt.Sprintf("%d", expFuture), "") {
-		t.Fatal("empty secret should allow access")
+	// 5. Zero-Trust: empty secret must reject access
+	if ValidateStreamToken(key, "", fmt.Sprintf("%d", expFuture), "") {
+		t.Fatal("empty secret must reject access")
 	}
 }

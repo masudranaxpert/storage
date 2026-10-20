@@ -516,12 +516,24 @@ func TestBatchDelete(t *testing.T) {
 
 	coord := cluster.NewCoordinator(10*time.Second, 20*time.Second, nil)
 	svc := NewService(store, nil, coord, nil, nil)
+	svc.SetAuthValidator(func(r *http.Request) bool {
+		return r.Header.Get("X-API-Key") == "valid-key"
+	})
 
 	mux := http.NewServeMux()
 	svc.Register(mux)
 
+	// Verify unauthenticated delete is rejected (401 Unauthorized)
+	reqUnauth := httptest.NewRequest(http.MethodDelete, "/api/v1/files/k1,k2", nil)
+	recUnauth := httptest.NewRecorder()
+	mux.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 Unauthorized without API key, got %d", recUnauth.Code)
+	}
+
 	// 1. Comma-separated path delete: DELETE /api/v1/files/k1,k2
 	req1 := httptest.NewRequest(http.MethodDelete, "/api/v1/files/k1,k2", nil)
+	req1.Header.Set("X-API-Key", "valid-key")
 	rec1 := httptest.NewRecorder()
 	mux.ServeHTTP(rec1, req1)
 	if rec1.Code != http.StatusOK {
@@ -544,6 +556,7 @@ func TestBatchDelete(t *testing.T) {
 	})
 
 	req2 := httptest.NewRequest(http.MethodDelete, "/api/v1/files", bytes.NewBufferString(`{"keys":["k3"]}`))
+	req2.Header.Set("X-API-Key", "valid-key")
 	rec2 := httptest.NewRecorder()
 	mux.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {

@@ -193,15 +193,8 @@ func (s *Server) validateFileAPIAuth(r *http.Request) bool {
 		return false
 	}
 
-	// 5. If API keys exist in BadgerDB, external callers must provide a valid API key
-	if s.store != nil {
-		if hasKeys, err := s.store.HasAnyAPIKeys(); err == nil && hasKeys {
-			return false
-		}
-	}
-
-	// 6. Initial bootstrap fallback if no API keys exist and no secret enforced
-	return s.hub == nil || s.hub.Secret() == ""
+	// 5. All external requests must be authenticated (session, secret, or API key)
+	return false
 }
 
 // resolveFileAPICreator returns the human-readable originator of the file ingest request:

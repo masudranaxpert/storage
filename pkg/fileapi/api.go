@@ -56,7 +56,7 @@ func (s *Service) handleSyncFiles(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) isAuthorized(r *http.Request) bool {
 	if s.authValidator == nil {
-		return true
+		return false
 	}
 	return s.authValidator(r)
 }

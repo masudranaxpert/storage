@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -593,16 +594,18 @@ func tuneLinuxTCPBuffers() {
 // verifySecret validates whether an HTTP request supplies the matching cluster secret.
 func (a *Agent) verifySecret(r *http.Request) bool {
 	if a.Secret == "" {
-		return true
+		return false
 	}
-	if r.Header.Get("X-Cluster-Secret") == a.Secret {
-		return true
+	provided := r.Header.Get("X-Cluster-Secret")
+	if provided == "" {
+		if auth := r.Header.Get("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			candidate := strings.TrimPrefix(auth, "Bearer ")
+			if !strings.HasPrefix(candidate, "sm_live_") {
+				provided = candidate
+			}
+		}
 	}
-	auth := r.Header.Get("Authorization")
-	if strings.HasPrefix(auth, "Bearer ") && strings.TrimPrefix(auth, "Bearer ") == a.Secret {
-		return true
-	}
-	return false
+	return provided != "" && subtle.ConstantTimeCompare([]byte(provided), []byte(a.Secret)) == 1
 }
 
 // startStreamingServer initializes the local Byte-Range HTTP streaming server on port 2052
@@ -839,7 +842,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+		if !a.verifySecret(r) {
 			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
 			return
 		}
@@ -908,7 +911,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+		if !a.verifySecret(r) {
 			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
 			return
 		}
@@ -939,7 +942,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+		if !a.verifySecret(r) {
 			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
 			return
 		}
@@ -986,7 +989,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+		if !a.verifySecret(r) {
 			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
 			return
 		}
@@ -1055,7 +1058,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if a.Secret != "" && r.Header.Get("X-Cluster-Secret") != a.Secret {
+		if !a.verifySecret(r) {
 			http.Error(w, "invalid cluster secret", http.StatusUnauthorized)
 			return
 		}
@@ -1678,14 +1681,12 @@ func formatTransferSpeed(bps float64) string {
 // handleWebDAV provides high-speed WebDAV file ingest for rclone multi-stream transfers.
 func (a *Agent) handleWebDAV(w http.ResponseWriter, r *http.Request) {
 	authed := false
-	if a.Secret != "" && r.Header.Get("X-Cluster-Secret") == a.Secret {
+	if a.verifySecret(r) {
 		authed = true
-	} else if user, pass, ok := r.BasicAuth(); ok {
-		if (a.Secret == "" || pass == a.Secret) && (user == "admin" || user == "stream") {
+	} else if user, pass, ok := r.BasicAuth(); ok && a.Secret != "" {
+		if subtle.ConstantTimeCompare([]byte(pass), []byte(a.Secret)) == 1 && (user == "admin" || user == "stream") {
 			authed = true
 		}
-	} else if a.Secret == "" {
-		authed = true
 	}
 
 	if !authed {

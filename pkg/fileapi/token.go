@@ -22,7 +22,7 @@ func GenerateStreamToken(key string, exp int64, secret string) string {
 // ValidateStreamToken verifies that a stream token is unexpired and matches the expected HMAC signature.
 func ValidateStreamToken(key, token, expStr, secret string) bool {
 	if secret == "" {
-		return true
+		return false
 	}
 	if token == "" || expStr == "" {
 		return false
