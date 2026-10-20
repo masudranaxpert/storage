@@ -74,6 +74,7 @@ func ResolvePlaybackTicket(ticket, secret string) (string, int64, error) {
 	if secret == "" {
 		return "", 0, errors.New("empty cluster secret")
 	}
+	ticket = strings.TrimSuffix(ticket, ".mp4")
 	raw := strings.TrimPrefix(ticket, "t_")
 	data, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
