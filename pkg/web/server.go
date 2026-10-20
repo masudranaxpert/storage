@@ -66,12 +66,9 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 		jobStore = store
 		lcStore = store
 	}
-	var secret string
+	var clusterSecret string
 	if hub != nil {
-		secret = hub.Secret()
-	}
-	if secret == "" {
-		secret = defaultAdminSecret
+		clusterSecret = hub.Secret()
 	}
 
 	bucketResolver := func(id string) (*storage.S3Config, error) {
@@ -102,7 +99,7 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 		s.files,
 		lifecycle.WithUsageFunc(s.mediaUsagePerNode),
 		lifecycle.WithJobStore(jobStore),
-		lifecycle.WithSecret(secret),
+		lifecycle.WithSecret(clusterSecret),
 		lifecycle.WithBucketResolver(bucketResolver),
 	)
 	s.deduper = lifecycle.NewPlayDeduper(50000, 30*time.Minute)
@@ -114,7 +111,7 @@ func NewServer(addr string, coord *cluster.Coordinator, hub *cluster.GRPCHub, st
 	s.files.SetAuthValidator(s.validateFileAPIAuth)
 	s.files.SetCreatorResolver(s.resolveFileAPICreator)
 	if hub != nil {
-		s.files.SetSecret(secret)
+		s.files.SetSecret(clusterSecret)
 		hub.OnJobProgress = func(p cluster.JobProgress) {
 			_ = s.files.ApplyProgress(p.JobID, &fileapi.ProgressUpdate{
 				State:    fileapi.FileState(p.Status),

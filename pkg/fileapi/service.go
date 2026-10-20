@@ -1112,8 +1112,8 @@ func (s *Service) Retry(key string) (*FileJob, error) {
 	if err != nil || rec == nil {
 		return nil, fmt.Errorf("file record not found for key %s", key)
 	}
-	if job.State != StateFailed {
-		return nil, fmt.Errorf("only failed jobs can be retried (current state: %s)", job.State)
+	if job.State == StateCompleted {
+		return nil, fmt.Errorf("job '%s' is already completed and ready", key)
 	}
 	job.State = StateDownloading
 	job.Error = ""
