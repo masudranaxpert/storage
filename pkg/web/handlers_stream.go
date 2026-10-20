@@ -863,7 +863,7 @@ const embedPlayerHTML = `<!DOCTYPE html>
             volume: 0.8,
             isLive: false,
             muted: false,
-            autoplay: !isMobile,
+            autoplay: false,
             pip: false,
             autoSize: false,
             autoMini: false,
@@ -1052,35 +1052,6 @@ const embedPlayerHTML = `<!DOCTYPE html>
         window.art = art;
         art.muted = false;
         if (art.video) art.video.muted = false;
-        art.on('ready', function () {
-            var playPromise = art.play();
-            if (playPromise !== undefined && typeof playPromise.catch === 'function') {
-                playPromise.catch(function () {
-                    art.muted = true;
-                    if (art.video) art.video.muted = true;
-                    art.play().catch(function () {});
-                    if (art.notice) {
-                        art.notice.show = '🔊 Click anywhere to unmute';
-                    }
-                    var unmute = function () {
-                        art.muted = false;
-                        if (art.video) art.video.muted = false;
-                        if (window.artAudioCtrl && window.artAudioCtrl.audio) {
-                            window.artAudioCtrl.audio.muted = false;
-                        }
-                        if (art.notice) {
-                            art.notice.show = '🔊 Sound Unmuted';
-                        }
-                        ['click', 'touchstart', 'keydown'].forEach(function (evt) {
-                            window.removeEventListener(evt, unmute, true);
-                        });
-                    };
-                    ['click', 'touchstart', 'keydown'].forEach(function (evt) {
-                        window.addEventListener(evt, unmute, { once: true, capture: true });
-                    });
-                });
-            }
-        });
 
         function LockstepAudio(artInstance) {
             this.art = artInstance;

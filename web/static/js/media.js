@@ -1690,7 +1690,7 @@
                 volume: 0.8,
                 isLive: false,
                 muted: false,
-                autoplay: !isMobile,
+                autoplay: false,
                 pip: false,
                 autoSize: false,
                 autoMini: false,
@@ -1764,34 +1764,6 @@
             }
             currentArtPlayer.on('ready', () => {
                 cinemaReady();
-                const playPromise = currentArtPlayer.play();
-                if (playPromise !== undefined && typeof playPromise.catch === 'function') {
-                    playPromise.catch(() => {
-                        // Browser blocked unmuted autoplay, fallback to muted autoplay
-                        currentArtPlayer.muted = true;
-                        if (currentArtPlayer.video) currentArtPlayer.video.muted = true;
-                        currentArtPlayer.play().catch(() => {});
-                        if (currentArtPlayer.notice) {
-                            currentArtPlayer.notice.show = '🔊 Click anywhere to unmute';
-                        }
-                        const unmute = () => {
-                            currentArtPlayer.muted = false;
-                            if (currentArtPlayer.video) currentArtPlayer.video.muted = false;
-                            if (lockstepController && lockstepController.audio) {
-                                lockstepController.audio.muted = false;
-                            }
-                            if (currentArtPlayer.notice) {
-                                currentArtPlayer.notice.show = '🔊 Sound Unmuted';
-                            }
-                            ['click', 'touchstart', 'keydown'].forEach(evt => {
-                                window.removeEventListener(evt, unmute, true);
-                            });
-                        };
-                        ['click', 'touchstart', 'keydown'].forEach(evt => {
-                            window.addEventListener(evt, unmute, { once: true, capture: true });
-                        });
-                    });
-                }
             });
             currentArtPlayer.on('video:canplay', cinemaReady);
             currentArtPlayer.on('error', () => cinemaFail(job));
