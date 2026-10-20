@@ -46,6 +46,20 @@
 - Added `ValidateToolName` in `pkg/tools/cmds.go` enforcing a strict allow-list (`aria2c`, `ffmpeg`, `rclone`, and presets).
 - Added comments in `pkg/web/auth.go` explaining why `isDirectLoopback` rejects requests with reverse-proxy headers to protect against local proxy bypass.
 
+### Task 7: Autonomous Cluster Upgrade & Version Telemetry (`v2.8.0`)
+- Bumped `telemetry.CurrentVersion` to `v2.8.0` in `pkg/telemetry/telemetry.go`.
+- Self-upgrade engine automatically verified and hot-swapped binaries on both `vps-02` and `VPS-01` (`104.244.76.154`).
+- Updated dashboard nodes UI (`web/static/js/nodes.js`, `web/static/css/nodes.css`) to display running version badges on node cards, drawer, paths row, and edit modal.
+
+### Task 8: ArtPlayer Embed Player with Zero-Redirect Playback
+- **Problem:** Browsers opening `/stream/t_...` (`play_url`) were 307-redirected to the raw worker IP and exposed the raw DB key `HELH5QjXyETgEwUW`.
+- **Solution:**
+  - `handleStreamManifest` in `pkg/web/handlers_stream.go` now serves a full-bleed, responsive HTML embed player (`renderStreamEmbed`) powered by ArtPlayer when requested by a browser or iframe (`Accept: text/html` without `?raw=1`).
+  - Zero browser redirects: the URL bar stays on `/stream/t_...`.
+  - ArtPlayer requests media via `/stream/t_...?raw=1`. The coordinator proxies byte ranges (`s.proxyStream`) directly from the worker node with `206 Partial Content`.
+  - Rich media features: Multi-track audio switcher, WebVTT subtitle switcher, playback speed, aspect ratio, PiP, screenshot, keyboard shortcuts, auto playback memory, lock, fast forward, and custom context menu ("Copy Embed Code", "Copy Stream Link", "Video Info / Stats").
+  - `X-Frame-Options: ALLOWALL` allows embedding in any third-party web app via `<iframe>`.
+
 ---
 
 ## 2. Verification & Status
@@ -53,3 +67,5 @@
 - `go vet ./...`: PASS
 - `go test ./...`: ALL PASS across all packages (0 failures)
 - `gofmt -l .`: Clean
+- Production Deploy: Successfully deployed to NextDeploy (`stream-a050`). Live verified with 200 OK HTML and 206 Partial Content stream proxying.
+
