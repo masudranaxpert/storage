@@ -891,9 +891,6 @@ const embedPlayerHTML = `<!DOCTYPE html>
             },
             settings: customSettings,
             controls: [],
-            plugins: [
-                artplayerPluginAutoThumbnail({ width: 160, number: 60 })
-            ],
             customType: {
                 m3u8: function (video, url, art) {
                     if (window.Hls && Hls.isSupported()) {
@@ -941,105 +938,6 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
         if (defaultSubtitle) {
             artOptions.subtitle = defaultSubtitle;
-        }
-
-        function artplayerPluginAutoThumbnail(option) {
-            return function (art) {
-                var destroyed = false;
-                var blobUrl = null;
-                var offscreenVideo = null;
-
-                art.on('destroy', function () {
-                    destroyed = true;
-                    if (blobUrl) {
-                        URL.revokeObjectURL(blobUrl);
-                        blobUrl = null;
-                    }
-                    if (offscreenVideo) {
-                        offscreenVideo.src = '';
-                        offscreenVideo = null;
-                    }
-                });
-
-                art.on('video:loadedmetadata', function () {
-                    var url = (option && option.url) || art.option.url;
-                    if (!url || url.indexOf('.m3u8') !== -1) return;
-                    var width = (option && option.width) || 160;
-                    var number = (option && option.number) || 60;
-                    var scale = (option && option.scale) || 1;
-                    var columns = 10;
-
-                    offscreenVideo = document.createElement('video');
-                    offscreenVideo.crossOrigin = 'anonymous';
-                    offscreenVideo.src = url;
-
-                    offscreenVideo.onloadedmetadata = function () {
-                        if (destroyed) return;
-                        var duration = offscreenVideo.duration;
-                        if (!duration || !isFinite(duration) || duration <= 0) return;
-
-                        var canvas = document.createElement('canvas');
-                        var ctx = canvas.getContext('2d');
-                        var height = Math.floor(width * offscreenVideo.videoHeight / offscreenVideo.videoWidth) || 90;
-                        canvas.width = width * columns;
-                        canvas.height = height * Math.ceil(number / columns);
-
-                        function updateThumbnails() {
-                            try {
-                                canvas.toBlob(function (blob) {
-                                    if (destroyed || !blob) return;
-                                    if (blobUrl) URL.revokeObjectURL(blobUrl);
-                                    blobUrl = URL.createObjectURL(blob);
-                                    art.thumbnails = {
-                                        url: blobUrl,
-                                        height: height,
-                                        width: width,
-                                        column: columns,
-                                        number: number,
-                                        scale: scale
-                                    };
-                                }, 'image/jpeg', 0.7);
-                            } catch (e) {}
-                        }
-
-                        function seekAndDraw(index) {
-                            if (destroyed) return;
-                            if (index >= number) {
-                                updateThumbnails();
-                                if (offscreenVideo) {
-                                    offscreenVideo.src = '';
-                                    offscreenVideo = null;
-                                }
-                                return;
-                            }
-
-                            if (index > 0 && index % 10 === 0) {
-                                updateThumbnails();
-                            }
-
-                            offscreenVideo.currentTime = (duration * index) / number;
-                            offscreenVideo.onseeked = function () {
-                                if (destroyed) return;
-                                var col = index % columns;
-                                var row = Math.floor(index / columns);
-                                try {
-                                    ctx.drawImage(offscreenVideo, col * width, row * height, width, height);
-                                } catch (e) {}
-                                seekAndDraw(index + 1);
-                            };
-                            offscreenVideo.onerror = function () {
-                                if (index > 0) updateThumbnails();
-                            };
-                        }
-
-                        seekAndDraw(0);
-                    };
-                });
-
-                return {
-                    name: 'artplayerPluginAutoThumbnail'
-                };
-            };
         }
 
         var ArtClass = window.Artplayer || window.ArtPlayer;
