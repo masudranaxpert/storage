@@ -833,96 +833,188 @@ const embedPlayerHTML = `<!DOCTYPE html>
             this.audio = null;
             this.syncTimer = null;
             this.userPaused = this.video.paused;
-            this.systemPausing = false;
+            this.internalPauseExpected = 0;
+            this.switchSeq = 0;
+            this.isSwitchingTrack = false;
+            this.bindVideoEvents();
         }
-        LockstepAudio.prototype.switchAudio = function (audioUrl) {
-            if (this.audio) {
-                this.audio.pause();
-                this.audio.src = '';
-                this.audio = null;
-                if (this.syncTimer) clearInterval(this.syncTimer);
-            }
-            if (!audioUrl) {
-                this.video.muted = false;
-                return;
-            }
-            var v = this.video;
-            var wasPlaying = !v.paused && !this.userPaused;
 
-            this.systemPausing = true;
-            v.pause();
-            this.systemPausing = false;
-
-            v.muted = true;
-            this.audio = new Audio();
-            this.audio.crossOrigin = 'anonymous';
-            this.audio.src = audioUrl;
-            this.audio.volume = v.volume;
-
+        LockstepAudio.prototype.bindVideoEvents = function () {
             var self = this;
-            var onReady = function () {
-                self.audio.removeEventListener('canplay', onReady);
-                var targetTime = v.currentTime;
-                self.audio.currentTime = targetTime;
-
-                var onSeeked = function () {
-                    self.audio.removeEventListener('seeked', onSeeked);
-                    if (wasPlaying && !self.userPaused) {
-                        v.play().catch(function () {});
-                    }
-                };
-                if (Math.abs(self.audio.currentTime - targetTime) < 0.05) {
-                    if (wasPlaying && !self.userPaused) {
-                        v.play().catch(function () {});
-                    }
-                } else {
-                    self.audio.addEventListener('seeked', onSeeked);
-                }
-            };
-            this.audio.addEventListener('canplay', onReady);
-            this.audio.load();
+            var v = this.video;
 
             var playAudio = function () {
                 self.userPaused = false;
-                if (self.audio && !v.paused && !self.userPaused) {
-                    self.audio.currentTime = v.currentTime;
+                self.internalPauseExpected = 0;
+                if (!self.audio || !self.audio.src || self.isSwitchingTrack) return;
+
+                var startA = function () {
+                    if (!self.audio || v.paused || self.userPaused || self.isSwitchingTrack) return;
+                    if (Math.abs(v.currentTime - self.audio.currentTime) > 0.03) {
+                        self.audio.currentTime = v.currentTime;
+                    }
                     self.audio.playbackRate = v.playbackRate;
                     self.audio.play().catch(function () {});
+                };
+
+                if (self.audio.readyState >= 2) {
+                    startA();
+                } else {
+                    self.audio.addEventListener('canplay', startA, { once: true });
                 }
             };
+
             v.addEventListener('play', playAudio);
             v.addEventListener('playing', playAudio);
+
             v.addEventListener('pause', function () {
-                if (!self.systemPausing) {
-                    self.userPaused = true;
+                if (self.internalPauseExpected > 0) {
+                    self.internalPauseExpected--;
+                    if (self.audio) self.audio.pause();
+                    return;
                 }
+                self.userPaused = true;
                 if (self.audio) self.audio.pause();
             });
-            v.addEventListener('seeking', function () { if (self.audio) self.audio.currentTime = v.currentTime; });
-            v.addEventListener('ratechange', function () { if (self.audio) self.audio.playbackRate = v.playbackRate; });
-            v.addEventListener('volumechange', function () { if (self.audio) { self.audio.volume = v.volume; self.audio.muted = v.muted; } });
 
-            this.audio.addEventListener('waiting', function () {
-                if (v.paused || self.userPaused) return;
-                self.systemPausing = true;
+            v.addEventListener('seeking', function () {
+                if (self.audio) {
+                    self.audio.pause();
+                    self.audio.currentTime = v.currentTime;
+                }
+            });
+
+            v.addEventListener('seeked', function () {
+                if (self.audio) self.audio.currentTime = v.currentTime;
+            });
+
+            v.addEventListener('ratechange', function () {
+                if (self.audio) self.audio.playbackRate = v.playbackRate;
+            });
+
+            v.addEventListener('volumechange', function () {
+                if (self.audio) {
+                    self.audio.volume = v.volume;
+                    self.audio.muted = v.muted;
+                }
+            });
+        };
+
+        LockstepAudio.prototype.switchAudio = function (audioUrl) {
+            this.switchSeq = (this.switchSeq || 0) + 1;
+            var seq = this.switchSeq;
+            this.isSwitchingTrack = true;
+
+            if (this.syncTimer) {
+                clearInterval(this.syncTimer);
+                this.syncTimer = null;
+            }
+
+            if (this.audio) {
+                this.audio.pause();
+                this.audio.removeAttribute('src');
+                this.audio.load();
+                this.audio = null;
+            }
+
+            if (!audioUrl) {
+                this.isSwitchingTrack = false;
+                this.video.muted = false;
+                return;
+            }
+
+            var v = this.video;
+            var wasPlaying = !v.paused && !this.userPaused;
+
+            if (!v.paused) {
+                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
                 v.pause();
-                self.systemPausing = false;
+            }
+
+            v.muted = true;
+            var a = new Audio();
+            this.audio = a;
+            a.crossOrigin = 'anonymous';
+            a.preload = 'auto';
+            a.volume = v.volume;
+            a.muted = v.muted;
+
+            var self = this;
+
+            var resumePlayback = function () {
+                if (self.switchSeq !== seq || !self.audio) return;
+                self.isSwitchingTrack = false;
+                if (wasPlaying && !self.userPaused) {
+                    v.play().catch(function () {});
+                }
+            };
+
+            var onMetadataOrCanPlay = function () {
+                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', onMetadataOrCanPlay);
+                if (self.switchSeq !== seq || !self.audio) return;
+
+                var targetTime = v.currentTime;
+                if (targetTime < 0.05) {
+                    if (a.readyState >= 3) {
+                        resumePlayback();
+                    } else {
+                        a.addEventListener('canplay', resumePlayback, { once: true });
+                    }
+                    return;
+                }
+
+                var onSeeked = function () {
+                    a.removeEventListener('seeked', onSeeked);
+                    if (self.switchSeq !== seq || !self.audio) return;
+                    if (a.readyState >= 3) {
+                        resumePlayback();
+                    } else {
+                        a.addEventListener('canplay', resumePlayback, { once: true });
+                    }
+                };
+
+                a.addEventListener('seeked', onSeeked, { once: true });
+                a.currentTime = targetTime;
+            };
+
+            a.addEventListener('loadedmetadata', onMetadataOrCanPlay, { once: true });
+            a.addEventListener('canplay', onMetadataOrCanPlay, { once: true });
+
+            a.addEventListener('waiting', function () {
+                if (v.paused || self.userPaused || self.isSwitchingTrack) return;
+                self.internalPauseExpected = (self.internalPauseExpected || 0) + 1;
+                v.pause();
                 var onAudioResume = function () {
-                    self.audio.removeEventListener('canplay', onAudioResume);
-                    if (!self.userPaused) {
+                    a.removeEventListener('canplay', onAudioResume);
+                    if (!self.userPaused && !self.isSwitchingTrack) {
                         v.play().catch(function () {});
                     }
                 };
-                self.audio.addEventListener('canplay', onAudioResume);
+                a.addEventListener('canplay', onAudioResume, { once: true });
             });
 
             this.syncTimer = setInterval(function () {
-                if (self.audio && !v.paused && !self.userPaused) {
-                    if (Math.abs(self.audio.currentTime - v.currentTime) > 0.25) {
+                if (self.audio && !v.paused && !self.userPaused && !self.isSwitchingTrack && !self.audio.paused) {
+                    var diff = v.currentTime - self.audio.currentTime;
+                    var absDiff = Math.abs(diff);
+                    if (absDiff > 0.3) {
                         self.audio.currentTime = v.currentTime;
+                        self.audio.playbackRate = v.playbackRate;
+                    } else if (diff > 0.03) {
+                        self.audio.playbackRate = v.playbackRate * 1.03;
+                    } else if (diff < -0.03) {
+                        self.audio.playbackRate = v.playbackRate * 0.97;
+                    } else {
+                        if (self.audio.playbackRate !== v.playbackRate) {
+                            self.audio.playbackRate = v.playbackRate;
+                        }
                     }
                 }
-            }, 500);
+            }, 200);
+
+            a.src = audioUrl;
+            a.load();
         };
 
         window.artAudioCtrl = new LockstepAudio(art);

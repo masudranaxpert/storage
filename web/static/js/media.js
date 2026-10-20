@@ -1548,7 +1548,9 @@
             this.active = true;
             this.isSeeking = false;
             this.userPaused = this.video.paused;
-            this.systemPausing = false;
+            this.internalPauseExpected = 0;
+            this.switchSeq = 0;
+            this.isSwitchingTrack = false;
             this.syncInterval = null;
 
             this.audio.src = initialAudioUrl;
@@ -1588,20 +1590,24 @@
             });
 
             art.on('video:pause', () => {
-                if (!this.systemPausing) {
-                    this.userPaused = true;
+                if (this.internalPauseExpected > 0) {
+                    this.internalPauseExpected--;
+                    if (this.active && this.audio) a.pause();
+                    return;
                 }
+                this.userPaused = true;
                 if (!this.active || !this.audio) return;
                 a.pause();
             });
 
             const onPlayHandler = () => {
                 this.userPaused = false;
-                if (!this.active || !this.audio || !this.audio.src) return;
+                this.internalPauseExpected = 0;
+                if (!this.active || !this.audio || !this.audio.src || this.isSwitchingTrack) return;
                 this.isSeeking = false;
 
                 const startAudio = () => {
-                    if (!this.active || !this.audio || v.paused || this.userPaused) return;
+                    if (!this.active || !this.audio || v.paused || this.userPaused || this.isSwitchingTrack) return;
                     const diff = Math.abs(v.currentTime - a.currentTime);
                     if (diff > 0.03) {
                         a.currentTime = v.currentTime;
@@ -1629,13 +1635,12 @@
             });
 
             a.addEventListener('waiting', () => {
-                if (!this.active || !this.video || v.paused || this.userPaused) return;
-                this.systemPausing = true;
+                if (!this.active || !this.video || v.paused || this.userPaused || this.isSwitchingTrack) return;
+                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
                 v.pause();
-                this.systemPausing = false;
                 const onAudioResume = () => {
                     a.removeEventListener('canplay', onAudioResume);
-                    if (this.active && this.video && !this.userPaused) {
+                    if (this.active && this.video && !this.userPaused && !this.isSwitchingTrack) {
                         v.play().catch(() => {});
                     }
                 };
@@ -1643,7 +1648,7 @@
             });
 
             this.syncInterval = setInterval(() => {
-                if (!this.active || !this.audio || v.paused || v.seeking || this.isSeeking || a.paused) return;
+                if (!this.active || !this.audio || v.paused || v.seeking || this.isSeeking || a.paused || this.isSwitchingTrack) return;
 
                 const diff = v.currentTime - a.currentTime;
                 const absDiff = Math.abs(diff);
@@ -1669,43 +1674,65 @@
             const a = this.audio;
             const wasPlaying = !v.paused && !this.userPaused;
 
-            this.systemPausing = true;
-            v.pause();
+            this.switchSeq = (this.switchSeq || 0) + 1;
+            const seq = this.switchSeq;
+            this.isSwitchingTrack = true;
+
+            if (!v.paused) {
+                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
+                v.pause();
+            }
             a.pause();
-            this.systemPausing = false;
 
             a.src = newUrl;
             a.volume = v.volume;
             a.muted = v.muted;
 
-            const onReady = () => {
-                a.removeEventListener('canplay', onReady);
-                if (!this.active || !this.audio) return;
+            const resumePlayback = () => {
+                if (this.switchSeq !== seq || !this.active || !this.audio) return;
+                this.isSwitchingTrack = false;
+                if (wasPlaying && !this.userPaused) {
+                    v.play().catch(() => {});
+                }
+            };
+
+            const onMetadataOrCanPlay = () => {
+                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', onMetadataOrCanPlay);
+                if (this.switchSeq !== seq || !this.active || !this.audio) return;
+
                 const targetTime = v.currentTime;
-                a.currentTime = targetTime;
+                if (targetTime < 0.05) {
+                    if (a.readyState >= 3) {
+                        resumePlayback();
+                    } else {
+                        a.addEventListener('canplay', resumePlayback, { once: true });
+                    }
+                    return;
+                }
 
                 const onSeeked = () => {
                     a.removeEventListener('seeked', onSeeked);
-                    if (!this.active || !this.audio) return;
-                    if (wasPlaying && !this.userPaused) {
-                        v.play().catch(() => {});
+                    if (this.switchSeq !== seq || !this.active || !this.audio) return;
+                    if (a.readyState >= 3) {
+                        resumePlayback();
+                    } else {
+                        a.addEventListener('canplay', resumePlayback, { once: true });
                     }
                 };
 
-                if (Math.abs(a.currentTime - targetTime) < 0.05) {
-                    if (wasPlaying && !this.userPaused) {
-                        v.play().catch(() => {});
-                    }
-                } else {
-                    a.addEventListener('seeked', onSeeked, { once: true });
-                }
+                a.addEventListener('seeked', onSeeked, { once: true });
+                a.currentTime = targetTime;
             };
-            a.addEventListener('canplay', onReady, { once: true });
+
+            a.addEventListener('loadedmetadata', onMetadataOrCanPlay, { once: true });
+            a.addEventListener('canplay', onMetadataOrCanPlay, { once: true });
             a.load();
         }
 
         destroy() {
             this.active = false;
+            this.switchSeq = (this.switchSeq || 0) + 1;
             if (this.syncInterval) {
                 clearInterval(this.syncInterval);
                 this.syncInterval = null;
