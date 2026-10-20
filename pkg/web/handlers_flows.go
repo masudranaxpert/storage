@@ -468,6 +468,9 @@ func (s *Server) handleRecordHit(w http.ResponseWriter, r *http.Request) {
 			s.engine.RecordHit(payload.Key)
 		}
 	}
+	if s.engine != nil {
+		s.engine.RecordViewerHeartbeat(payload.Key, clientIP)
+	}
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
 
