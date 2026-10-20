@@ -126,6 +126,23 @@
         return fallbackDefault;
     }
 
+    // Helper: determine the base directory URL for sub-tracks (audio, subtitles, HLS)
+    // preserving signed tickets (t_...) and host/ports to prevent 403 Forbidden errors.
+    function resolveBaseDirUrl(activeUrl, job) {
+        const candidate = activeUrl || job?.stream_url;
+        if (candidate && typeof candidate === 'string') {
+            try {
+                let clean = candidate.split('?')[0].replace(/\/+$/, '');
+                if (/\.[a-z0-9]{2,5}$/i.test(clean)) {
+                    clean = clean.substring(0, clean.lastIndexOf('/'));
+                }
+                return clean;
+            } catch (_) {}
+        }
+        const key = job?.key || '';
+        return `${window.location.origin}/stream/${encodeURIComponent(key)}`;
+    }
+
     // Helper: clean text with ISO timestamps (e.g., "pinned to tier0 until 2026-10-12T13:08:03Z") into relative time
     function cleanReasonText(str) {
         if (!str || typeof str !== 'string') return '';
@@ -1173,16 +1190,7 @@
         }
 
         let activeStreamUrl = streamUrl;
-        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(mediaID)}`;
-        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
-            try {
-                const u = new URL(job.stream_url);
-                const pathParts = u.pathname.split('/').filter(Boolean);
-                if (pathParts.length > 0) {
-                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
-                }
-            } catch (_) {}
-        }
+        let baseDirUrl = resolveBaseDirUrl(activeStreamUrl, job);
         if (meta && (meta.master_m3u8 || (meta.audio_tracks && meta.audio_tracks.length > 1))) {
             const candidateHlsUrl = `${baseDirUrl}/${meta.master_m3u8 || 'master.m3u8'}`;
             try {
@@ -1199,24 +1207,14 @@
         initArtPlayer(activeStreamUrl, job, meta);
     }
 
-    function renderMediaModalDrawers(job, meta) {
+    function renderMediaModalDrawers(job, meta, activeStreamUrl) {
         const tracksInfo = document.getElementById('stream-modal-tracks-info');
         const audioDrawer = document.getElementById('stream-modal-audio-drawer');
         const audioList = document.getElementById('stream-modal-audio-list');
         const subDrawer = document.getElementById('stream-modal-sub-drawer');
         const subList = document.getElementById('stream-modal-sub-list');
 
-        const key = job.key;
-        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(key)}`;
-        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
-            try {
-                const u = new URL(job.stream_url);
-                const pathParts = u.pathname.split('/').filter(Boolean);
-                if (pathParts.length > 0) {
-                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
-                }
-            } catch (_) {}
-        }
+        let baseDirUrl = resolveBaseDirUrl(activeStreamUrl, job);
 
         if (meta && meta.audio_tracks && meta.audio_tracks.length > 1) {
             if (tracksInfo) {
@@ -1339,16 +1337,7 @@
         }
 
         const filename = job.filename || job.key;
-        let baseDirUrl = `${window.location.origin}/stream/${encodeURIComponent(job.key)}`;
-        if (job.stream_url && (job.stream_url.startsWith('https://') || job.placement?.node_id?.startsWith('bucket:'))) {
-            try {
-                const u = new URL(job.stream_url);
-                const pathParts = u.pathname.split('/').filter(Boolean);
-                if (pathParts.length > 0) {
-                    baseDirUrl = `${u.origin}/${pathParts[0]}`;
-                }
-            } catch (_) {}
-        }
+        let baseDirUrl = resolveBaseDirUrl(streamUrl, job);
         const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
 
         let subtitleOption = undefined;
@@ -1598,7 +1587,7 @@
                 a.pause();
             });
 
-            art.on('video:playing', () => {
+            const onPlayHandler = () => {
                 if (!this.active || !this.audio || !this.audio.src) return;
                 this.isSeeking = false;
 
@@ -1609,7 +1598,7 @@
                         a.currentTime = v.currentTime;
                     }
                     a.playbackRate = v.playbackRate;
-                    a.play().catch(() => {});
+                    a.play().catch(err => console.warn('Lockstep audio play warning:', err));
                 };
 
                 if (a.readyState >= 2) {
@@ -1617,7 +1606,13 @@
                 } else {
                     a.addEventListener('canplay', startAudio, { once: true });
                 }
-            });
+            };
+
+            art.on('video:play', onPlayHandler);
+            art.on('video:playing', onPlayHandler);
+            if (!v.paused) {
+                onPlayHandler();
+            }
 
             art.on('video:ratechange', () => {
                 if (!this.active || !this.audio) return;

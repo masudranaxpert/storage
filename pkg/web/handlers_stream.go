@@ -845,27 +845,41 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 return;
             }
             this.video.muted = true;
-            this.audio = new Audio(audioUrl);
+            this.audio = new Audio();
+            this.audio.crossOrigin = 'anonymous';
+            this.audio.src = audioUrl;
             this.audio.currentTime = this.video.currentTime;
             this.audio.volume = this.video.volume;
-            if (!this.video.paused) {
-                this.audio.play().catch(function () {});
-            }
             var self = this;
-            this.video.addEventListener('play', function () { if (self.audio) self.audio.play().catch(function () {}); });
+            var playAudio = function () {
+                if (self.audio && !self.video.paused) {
+                    self.audio.currentTime = self.video.currentTime;
+                    self.audio.playbackRate = self.video.playbackRate;
+                    self.audio.play().catch(function () {});
+                }
+            };
+            if (!this.video.paused) {
+                playAudio();
+            }
+            this.video.addEventListener('play', playAudio);
+            this.video.addEventListener('playing', playAudio);
             this.video.addEventListener('pause', function () { if (self.audio) self.audio.pause(); });
             this.video.addEventListener('seeking', function () { if (self.audio) self.audio.currentTime = self.video.currentTime; });
             this.video.addEventListener('ratechange', function () { if (self.audio) self.audio.playbackRate = self.video.playbackRate; });
+            this.video.addEventListener('volumechange', function () { if (self.audio) { self.audio.volume = self.video.volume; self.audio.muted = self.video.muted; } });
             this.syncTimer = setInterval(function () {
                 if (self.audio && !self.video.paused) {
                     if (Math.abs(self.audio.currentTime - self.video.currentTime) > 0.25) {
                         self.audio.currentTime = self.video.currentTime;
                     }
                 }
-            }, 1000);
+            }, 500);
         };
 
         window.artAudioCtrl = new LockstepAudio(art);
+        if (AUDIO_TRACKS && AUDIO_TRACKS.length > 0) {
+            window.artAudioCtrl.switchAudio(AUDIO_TRACKS[0].url);
+        }
     })();
     </script>
 </body>

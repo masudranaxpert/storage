@@ -120,7 +120,7 @@ func TestHandleTokenMultiTrack(t *testing.T) {
 		t.Fatalf("expected 2 audio tracks, got %d", len(resp.AudioTracks))
 	}
 	for _, a := range resp.AudioTracks {
-		if a.URL == "" || a.PlayURL == "" {
+		if a.URL == "" {
 			t.Fatalf("missing audio URL for track %d (%s)", a.Index, a.Language)
 		}
 	}
@@ -130,7 +130,7 @@ func TestHandleTokenMultiTrack(t *testing.T) {
 		t.Fatalf("expected 2 subtitles, got %d", len(resp.Subtitles))
 	}
 	for _, s := range resp.Subtitles {
-		if s.URL == "" || s.PlayURL == "" {
+		if s.URL == "" {
 			t.Fatalf("missing subtitle URL for subtitle %d (%s)", s.Index, s.Language)
 		}
 	}

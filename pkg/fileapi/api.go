@@ -624,7 +624,6 @@ type StreamAudioTrack struct {
 	ChannelLayout string `json:"channel_layout,omitempty"`
 	BitrateBps    int64  `json:"bitrate_bps,omitempty"`
 	URL           string `json:"url"`
-	PlayURL       string `json:"play_url"`
 	Embedded      bool   `json:"embedded"`
 }
 
@@ -634,7 +633,6 @@ type StreamSubtitleTrack struct {
 	Title    string `json:"title,omitempty"`
 	Codec    string `json:"codec,omitempty"`
 	URL      string `json:"url"`
-	PlayURL  string `json:"play_url"`
 }
 
 // handleToken generates an HMAC-SHA256 signed playback token and multi-track URLs for anti-leech protection.
@@ -702,7 +700,6 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 					numAudios := len(meta.AudioTracks)
 					for i, aTrack := range meta.AudioTracks {
 						trackURL := playURL
-						trackPlayURL := playURL
 						embedded := true
 
 						if numAudios > 1 || aTrack.File != "" {
@@ -715,18 +712,16 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 								file = fmt.Sprintf("audio_%d_%s.m4a", i+1, lang)
 							}
 							if identifier != key {
-								trackPlayURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
 								if directBase != "" {
 									trackURL = fmt.Sprintf("%s/%s", directBase, file)
 								} else {
-									trackURL = trackPlayURL
+									trackURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
 								}
 							} else {
-								trackPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
 								if directBase != "" {
 									trackURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
 								} else {
-									trackURL = trackPlayURL
+									trackURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
 								}
 							}
 							embedded = false
@@ -743,7 +738,6 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 							ChannelLayout: aTrack.ChannelLayout,
 							BitrateBps:    aTrack.BitrateBps,
 							URL:           trackURL,
-							PlayURL:       trackPlayURL,
 							Embedded:      embedded,
 						})
 					}
@@ -757,17 +751,15 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 							}
 							file = fmt.Sprintf("subtitle_%d_%s.vtt", i+1, lang)
 						}
-						var subPlayURL, subURL string
+						var subURL string
 						if identifier != key {
-							subPlayURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
 							if directBase != "" {
 								subURL = fmt.Sprintf("%s/%s", directBase, file)
 							} else {
-								subURL = subPlayURL
+								subURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
 							}
 						} else {
-							subPlayURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
-							subURL = subPlayURL
+							subURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
 							if directBase != "" {
 								subURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
 							}
@@ -778,7 +770,6 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 							Title:    sTrack.Title,
 							Codec:    sTrack.Codec,
 							URL:      subURL,
-							PlayURL:  subPlayURL,
 						})
 					}
 				}
