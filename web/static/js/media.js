@@ -1311,8 +1311,9 @@
 
     function retryArtPlayer() {
         if (!cinemaRetryCtx) return;
+        const ctx = cinemaRetryCtx;
         closeArtPlayer();
-        initArtPlayer(cinemaRetryCtx.streamUrl, cinemaRetryCtx.job, cinemaRetryCtx.meta);
+        initArtPlayer(ctx.streamUrl, ctx.job, ctx.meta);
     }
 
     function mountFallbackVideo(container, streamUrl, job) {
@@ -1339,6 +1340,8 @@
         const filename = job.filename || job.key;
         let baseDirUrl = resolveBaseDirUrl(streamUrl, job);
         const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
+        const hasExternalAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 0 &&
+            (meta.audio_tracks.length > 1 || meta.audio_tracks[0].embedded === false || !!meta.audio_tracks[0].file);
 
         let subtitleOption = undefined;
         if (meta && meta.subtitles && meta.subtitles.length > 0) {
@@ -1526,7 +1529,7 @@
             cinemaLoadTimer = setTimeout(() => cinemaFail(job, 'Timed out while connecting to the storage node.'), 25000);
 
             const isHLS = streamUrl.includes('.m3u8');
-            if (hasMultiAudio && !isHLS) {
+            if (hasExternalAudio && !isHLS) {
                 setupExternalAudioSync(currentArtPlayer, meta.audio_tracks, baseDirUrl);
             }
         } catch (err) {
@@ -1544,6 +1547,8 @@
             this.audio.preload = 'auto';
             this.active = true;
             this.isSeeking = false;
+            this.userPaused = this.video.paused;
+            this.systemPausing = false;
             this.syncInterval = null;
 
             this.audio.src = initialAudioUrl;
@@ -1583,16 +1588,20 @@
             });
 
             art.on('video:pause', () => {
+                if (!this.systemPausing) {
+                    this.userPaused = true;
+                }
                 if (!this.active || !this.audio) return;
                 a.pause();
             });
 
             const onPlayHandler = () => {
+                this.userPaused = false;
                 if (!this.active || !this.audio || !this.audio.src) return;
                 this.isSeeking = false;
 
                 const startAudio = () => {
-                    if (!this.active || !this.audio || v.paused) return;
+                    if (!this.active || !this.audio || v.paused || this.userPaused) return;
                     const diff = Math.abs(v.currentTime - a.currentTime);
                     if (diff > 0.03) {
                         a.currentTime = v.currentTime;
@@ -1620,15 +1629,17 @@
             });
 
             a.addEventListener('waiting', () => {
-                if (!this.active || !this.video || v.paused) return;
+                if (!this.active || !this.video || v.paused || this.userPaused) return;
+                this.systemPausing = true;
                 v.pause();
+                this.systemPausing = false;
                 const onAudioResume = () => {
                     a.removeEventListener('canplay', onAudioResume);
-                    if (this.active && this.video && v.paused) {
+                    if (this.active && this.video && !this.userPaused) {
                         v.play().catch(() => {});
                     }
                 };
-                a.addEventListener('canplay', onAudioResume);
+                a.addEventListener('canplay', onAudioResume, { once: true });
             });
 
             this.syncInterval = setInterval(() => {
@@ -1656,10 +1667,12 @@
             if (!this.active || !this.audio) return;
             const v = this.video;
             const a = this.audio;
-            const wasPlaying = !v.paused;
+            const wasPlaying = !v.paused && !this.userPaused;
 
+            this.systemPausing = true;
             v.pause();
             a.pause();
+            this.systemPausing = false;
 
             a.src = newUrl;
             a.volume = v.volume;
@@ -1668,9 +1681,23 @@
             const onReady = () => {
                 a.removeEventListener('canplay', onReady);
                 if (!this.active || !this.audio) return;
-                a.currentTime = v.currentTime;
-                if (wasPlaying) {
-                    v.play().catch(() => {});
+                const targetTime = v.currentTime;
+                a.currentTime = targetTime;
+
+                const onSeeked = () => {
+                    a.removeEventListener('seeked', onSeeked);
+                    if (!this.active || !this.audio) return;
+                    if (wasPlaying && !this.userPaused) {
+                        v.play().catch(() => {});
+                    }
+                };
+
+                if (Math.abs(a.currentTime - targetTime) < 0.05) {
+                    if (wasPlaying && !this.userPaused) {
+                        v.play().catch(() => {});
+                    }
+                } else {
+                    a.addEventListener('seeked', onSeeked, { once: true });
                 }
             };
             a.addEventListener('canplay', onReady, { once: true });

@@ -832,6 +832,8 @@ const embedPlayerHTML = `<!DOCTYPE html>
             this.video = artInstance.video;
             this.audio = null;
             this.syncTimer = null;
+            this.userPaused = this.video.paused;
+            this.systemPausing = false;
         }
         LockstepAudio.prototype.switchAudio = function (audioUrl) {
             if (this.audio) {
@@ -844,33 +846,80 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 this.video.muted = false;
                 return;
             }
-            this.video.muted = true;
+            var v = this.video;
+            var wasPlaying = !v.paused && !this.userPaused;
+
+            this.systemPausing = true;
+            v.pause();
+            this.systemPausing = false;
+
+            v.muted = true;
             this.audio = new Audio();
             this.audio.crossOrigin = 'anonymous';
             this.audio.src = audioUrl;
-            this.audio.currentTime = this.video.currentTime;
-            this.audio.volume = this.video.volume;
+            this.audio.volume = v.volume;
+
             var self = this;
+            var onReady = function () {
+                self.audio.removeEventListener('canplay', onReady);
+                var targetTime = v.currentTime;
+                self.audio.currentTime = targetTime;
+
+                var onSeeked = function () {
+                    self.audio.removeEventListener('seeked', onSeeked);
+                    if (wasPlaying && !self.userPaused) {
+                        v.play().catch(function () {});
+                    }
+                };
+                if (Math.abs(self.audio.currentTime - targetTime) < 0.05) {
+                    if (wasPlaying && !self.userPaused) {
+                        v.play().catch(function () {});
+                    }
+                } else {
+                    self.audio.addEventListener('seeked', onSeeked);
+                }
+            };
+            this.audio.addEventListener('canplay', onReady);
+            this.audio.load();
+
             var playAudio = function () {
-                if (self.audio && !self.video.paused) {
-                    self.audio.currentTime = self.video.currentTime;
-                    self.audio.playbackRate = self.video.playbackRate;
+                self.userPaused = false;
+                if (self.audio && !v.paused && !self.userPaused) {
+                    self.audio.currentTime = v.currentTime;
+                    self.audio.playbackRate = v.playbackRate;
                     self.audio.play().catch(function () {});
                 }
             };
-            if (!this.video.paused) {
-                playAudio();
-            }
-            this.video.addEventListener('play', playAudio);
-            this.video.addEventListener('playing', playAudio);
-            this.video.addEventListener('pause', function () { if (self.audio) self.audio.pause(); });
-            this.video.addEventListener('seeking', function () { if (self.audio) self.audio.currentTime = self.video.currentTime; });
-            this.video.addEventListener('ratechange', function () { if (self.audio) self.audio.playbackRate = self.video.playbackRate; });
-            this.video.addEventListener('volumechange', function () { if (self.audio) { self.audio.volume = self.video.volume; self.audio.muted = self.video.muted; } });
+            v.addEventListener('play', playAudio);
+            v.addEventListener('playing', playAudio);
+            v.addEventListener('pause', function () {
+                if (!self.systemPausing) {
+                    self.userPaused = true;
+                }
+                if (self.audio) self.audio.pause();
+            });
+            v.addEventListener('seeking', function () { if (self.audio) self.audio.currentTime = v.currentTime; });
+            v.addEventListener('ratechange', function () { if (self.audio) self.audio.playbackRate = v.playbackRate; });
+            v.addEventListener('volumechange', function () { if (self.audio) { self.audio.volume = v.volume; self.audio.muted = v.muted; } });
+
+            this.audio.addEventListener('waiting', function () {
+                if (v.paused || self.userPaused) return;
+                self.systemPausing = true;
+                v.pause();
+                self.systemPausing = false;
+                var onAudioResume = function () {
+                    self.audio.removeEventListener('canplay', onAudioResume);
+                    if (!self.userPaused) {
+                        v.play().catch(function () {});
+                    }
+                };
+                self.audio.addEventListener('canplay', onAudioResume);
+            });
+
             this.syncTimer = setInterval(function () {
-                if (self.audio && !self.video.paused) {
-                    if (Math.abs(self.audio.currentTime - self.video.currentTime) > 0.25) {
-                        self.audio.currentTime = self.video.currentTime;
+                if (self.audio && !v.paused && !self.userPaused) {
+                    if (Math.abs(self.audio.currentTime - v.currentTime) > 0.25) {
+                        self.audio.currentTime = v.currentTime;
                     }
                 }
             }, 500);
