@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -441,6 +442,37 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 	if hits := srv.Engine().Hits().Pending(testKey); hits != 1 {
 		t.Fatalf("sub-track .vtt should not be counted as a hit, got pending %d", hits)
+	}
+
+	// 7. Test ArtPlayer embed: browser requesting stream with Accept: text/html must receive 200 OK HTML
+	ticket, err := cluster.GeneratePlaybackTicket(testKey, exp, "test-secret")
+	if err != nil {
+		t.Fatalf("generate ticket: %v", err)
+	}
+	embedReq := httptest.NewRequest(http.MethodGet, "/stream/"+ticket, nil)
+	embedReq.Header.Set("Accept", "text/html,application/xhtml+xml")
+	embedRec := httptest.NewRecorder()
+	handler.ServeHTTP(embedRec, embedReq)
+	if embedRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK on embed player HTML, got %d", embedRec.Code)
+	}
+	if !strings.Contains(embedRec.Body.String(), "artplayer") {
+		t.Fatalf("expected embed HTML to contain artplayer, got: %s", embedRec.Body.String()[:200])
+	}
+
+	// 8. Test ticket stream URL retention: non-HTML stream request with ticket must preserve ticket
+	rawReq := httptest.NewRequest(http.MethodGet, "/stream/"+ticket, nil)
+	rawRec := httptest.NewRecorder()
+	handler.ServeHTTP(rawRec, rawReq)
+	if rawRec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 redirect on raw ticket request, got %d", rawRec.Code)
+	}
+	loc := rawRec.Header().Get("Location")
+	if !strings.Contains(loc, ticket) {
+		t.Fatalf("expected redirect to preserve ticket %s, got: %s", ticket, loc)
+	}
+	if strings.Contains(loc, testKey) {
+		t.Fatalf("redirect leaked real DB key %s: %s", testKey, loc)
 	}
 }
 

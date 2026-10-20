@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html/template"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -167,14 +168,16 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
+	rawKeyOrTicket := parts[0]
 	mediaID := parts[0]
+	isTicket := strings.HasPrefix(rawKeyOrTicket, "t_")
 
 	secret := adminSecret(s)
 
 	// Ticket or Token verification (Fail Closed)
 	if !s.isCallerAuthenticated(r) {
-		if strings.HasPrefix(mediaID, "t_") {
-			resolvedKey, _, err := cluster.ResolvePlaybackTicket(mediaID, secret)
+		if isTicket {
+			resolvedKey, _, err := cluster.ResolvePlaybackTicket(rawKeyOrTicket, secret)
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
@@ -203,11 +206,34 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	} else if strings.HasPrefix(mediaID, "t_") {
-		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(mediaID, secret); err == nil {
+	} else if isTicket {
+		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(rawKeyOrTicket, secret); err == nil {
 			parts[0] = resolvedKey
 			cleanSubPath = filepath.Join(parts...)
 			mediaID = resolvedKey
+		}
+	}
+
+	// Embed Player: When a single file or ticket is requested by a browser or iframe
+	// without ?raw=1 and without Range header, render the standalone ArtPlayer embed page.
+	wantsHTML := len(parts) == 1 &&
+		(strings.Contains(r.Header.Get("Accept"), "text/html") || r.URL.Query().Get("embed") == "1" || r.URL.Query().Get("player") == "1") &&
+		r.URL.Query().Get("raw") != "1" &&
+		r.Header.Get("Range") == ""
+
+	if wantsHTML && s.store != nil {
+		if job, _ := s.store.GetFileJob(mediaID); job != nil {
+			if s.engine != nil && s.deduper != nil {
+				clientIP := r.RemoteAddr
+				if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+					clientIP = host
+				}
+				if s.deduper.ShouldCount(clientIP, mediaID, time.Now()) {
+					s.engine.RecordHit(mediaID)
+				}
+			}
+			s.renderStreamEmbed(w, r, job, rawKeyOrTicket)
+			return
 		}
 	}
 
@@ -255,6 +281,10 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 					}
+					// Preserve the opaque playback ticket on worker URL: never leak raw DB key.
+					if isTicket && strings.Contains(targetURL, "/stream/"+job.Key) {
+						targetURL = strings.Replace(targetURL, "/stream/"+job.Key, "/stream/"+rawKeyOrTicket, 1)
+					}
 					if len(parts) > 1 {
 						targetURL += "/" + strings.Join(parts[1:], "/")
 					}
@@ -284,10 +314,11 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 						strings.Contains(r.Header.Get("CF-Visitor"), "https")
 
 					// Proxy is only required when HTTPS clients access unencrypted HTTP nodes to prevent mixed-content blocks,
-					// or when explicitly requested via ?proxy=1. External HTTPS CDN / R2 targets are redirected directly.
+					// or when explicitly requested via ?proxy=1 / ?raw=1. External HTTPS CDN / R2 targets are redirected directly.
 					isProxy := (isHTTPS && !strings.HasPrefix(targetURL, "https://")) ||
 						r.URL.Query().Get("proxy") == "true" ||
 						r.URL.Query().Get("proxy") == "1" ||
+						r.URL.Query().Get("raw") == "1" ||
 						strings.EqualFold(r.Header.Get("X-Stream-Proxy"), "true")
 
 					if isProxy {
@@ -401,3 +432,372 @@ func (s *Server) proxyStream(w http.ResponseWriter, r *http.Request, targetURL s
 
 	proxy.ServeHTTP(w, r)
 }
+
+type embedTrackInfo struct {
+	Index    int    `json:"index"`
+	Language string `json:"language"`
+	Title    string `json:"title"`
+	URL      string `json:"url"`
+}
+
+var embedPlayerTmpl = template.Must(template.New("embedPlayer").Parse(embedPlayerHTML))
+
+func (s *Server) renderStreamEmbed(w http.ResponseWriter, r *http.Request, job *fileapi.FileJob, keyOrTicket string) {
+	title := job.Key
+	if s.store != nil {
+		if rec, _ := s.store.GetFileRecord(job.Key); rec != nil && rec.Filename != "" {
+			title = rec.Filename
+		}
+	}
+	if len(job.MetadataJSON) > 0 {
+		var m struct {
+			Filename string `json:"filename"`
+		}
+		if json.Unmarshal(job.MetadataJSON, &m) == nil && m.Filename != "" {
+			title = m.Filename
+		}
+	}
+
+	streamBase := fmt.Sprintf("/stream/%s", keyOrTicket)
+	videoURL := fmt.Sprintf("%s?raw=1", streamBase)
+
+	var subs []embedTrackInfo
+	var audios []embedTrackInfo
+
+	if len(job.MetadataJSON) > 0 {
+		var meta struct {
+			DurationSec float64 `json:"duration_sec"`
+			AudioTracks []struct {
+				Index    int    `json:"index"`
+				Language string `json:"language"`
+				Title    string `json:"title"`
+				File     string `json:"file"`
+			} `json:"audio_tracks"`
+			Subtitles []struct {
+				Index    int    `json:"index"`
+				Language string `json:"language"`
+				Title    string `json:"title"`
+				File     string `json:"file"`
+			} `json:"subtitles"`
+		}
+		if err := json.Unmarshal(job.MetadataJSON, &meta); err == nil {
+			for _, sub := range meta.Subtitles {
+				file := sub.File
+				if file == "" {
+					file = fmt.Sprintf("subtitle_%d_%s.vtt", sub.Index, sub.Language)
+				}
+				subTitle := sub.Title
+				if subTitle == "" {
+					if sub.Language != "" {
+						subTitle = strings.ToUpper(sub.Language)
+					} else {
+						subTitle = fmt.Sprintf("Subtitle %d", sub.Index)
+					}
+				}
+				subs = append(subs, embedTrackInfo{
+					Index:    sub.Index,
+					Language: sub.Language,
+					Title:    subTitle,
+					URL:      fmt.Sprintf("%s/%s?raw=1", streamBase, file),
+				})
+			}
+
+			for _, a := range meta.AudioTracks {
+				file := a.File
+				if file == "" {
+					file = fmt.Sprintf("audio_%d_%s.m4a", a.Index, a.Language)
+				}
+				audioTitle := a.Title
+				if audioTitle == "" {
+					if a.Language != "" {
+						audioTitle = strings.ToUpper(a.Language)
+					} else {
+						audioTitle = fmt.Sprintf("Track %d", a.Index)
+					}
+				}
+				audios = append(audios, embedTrackInfo{
+					Index:    a.Index,
+					Language: a.Language,
+					Title:    audioTitle,
+					URL:      fmt.Sprintf("%s/%s?raw=1", streamBase, file),
+				})
+			}
+		}
+	}
+
+	subsJSON, _ := json.Marshal(subs)
+	audiosJSON, _ := json.Marshal(audios)
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("X-Frame-Options", "ALLOWALL")
+
+	data := map[string]interface{}{
+		"Title":           title,
+		"StreamBase":      streamBase,
+		"VideoURL":        videoURL,
+		"SubtitlesJSON":   template.JS(string(subsJSON)),
+		"AudioTracksJSON": template.JS(string(audiosJSON)),
+	}
+
+	_ = embedPlayerTmpl.Execute(w, data)
+}
+
+const embedPlayerHTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{.Title}}</title>
+    <style>
+        * { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #000;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        #artplayer {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            inset: 0;
+        }
+    </style>
+    <script src="/static/js/vendor/artplayer.js?v=2"></script>
+    <script>if (typeof Artplayer === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/artplayer@5.2.3/dist/artplayer.js"><\/script>'); }</script>
+    <script src="/static/js/vendor/hls.min.js?v=2"></script>
+    <script>if (typeof Hls === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"><\/script>'); }</script>
+</head>
+<body>
+    <div id="artplayer"></div>
+    <script>
+    (function () {
+        const TITLE = {{.Title}};
+        const VIDEO_URL = {{.VideoURL}};
+        const SUBTITLES = {{.SubtitlesJSON}};
+        const AUDIO_TRACKS = {{.AudioTracksJSON}};
+
+        const customSettings = [];
+
+        // 1. Multi-Audio Selector
+        if (AUDIO_TRACKS && AUDIO_TRACKS.length > 1) {
+            const audioItems = AUDIO_TRACKS.map(function (t, idx) {
+                return {
+                    default: idx === 0,
+                    html: '🎵 ' + (t.title || ('Audio Track ' + (idx + 1))) + (t.language ? ' (' + t.language.toUpperCase() + ')' : ''),
+                    url: t.url,
+                    index: idx,
+                    displayTitle: t.title || ('Track ' + (idx + 1))
+                };
+            });
+
+            customSettings.push({
+                icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
+                width: 240,
+                html: 'Audio Track',
+                name: 'audio_track',
+                tooltip: audioItems[0] ? audioItems[0].displayTitle : 'Default',
+                selector: audioItems,
+                onSelect: function (item) {
+                    if (window.artAudioCtrl) {
+                        window.artAudioCtrl.switchAudio(item.url);
+                    }
+                    return item.displayTitle;
+                }
+            });
+        }
+
+        // 2. Subtitles Selector
+        var defaultSubtitle = undefined;
+        if (SUBTITLES && SUBTITLES.length > 0) {
+            var firstSub = SUBTITLES[0];
+            defaultSubtitle = {
+                url: firstSub.url,
+                type: 'vtt',
+                style: {
+                    color: '#ffffff',
+                    fontSize: '22px',
+                    textShadow: '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95)',
+                    fontWeight: '600'
+                },
+                encoding: 'utf-8'
+            };
+
+            var subItems = SUBTITLES.map(function (s, idx) {
+                return {
+                    default: idx === 0,
+                    html: '💬 ' + (s.title || ('Subtitle ' + (idx + 1))) + (s.language ? ' [' + s.language.toUpperCase() + ']' : ''),
+                    url: s.url,
+                    displayTitle: s.title || (s.language ? s.language.toUpperCase() : ('Sub ' + (idx + 1)))
+                };
+            });
+            subItems.push({
+                default: false,
+                html: '❌ Off',
+                url: '',
+                displayTitle: 'Off'
+            });
+
+            customSettings.push({
+                icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2m-9 5H5V7h6zm8 8H5v-2h14zm-4-4H5v-2h10zm4 0h-2v-2h2z"/></svg>',
+                width: 240,
+                html: 'Subtitles',
+                name: 'subtitles',
+                tooltip: subItems[0] ? subItems[0].displayTitle : 'Default',
+                selector: subItems,
+                onSelect: function (item) {
+                    if (window.art && window.art.subtitle) {
+                        if (item.url) {
+                            window.art.subtitle.show = true;
+                            window.art.subtitle.switch(item.url, { name: item.displayTitle });
+                        } else {
+                            window.art.subtitle.show = false;
+                        }
+                    }
+                    return item.displayTitle;
+                }
+            });
+        }
+
+        var isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        var artOptions = {
+            container: '#artplayer',
+            url: VIDEO_URL,
+            title: TITLE,
+            type: VIDEO_URL.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4',
+            volume: 0.8,
+            isLive: false,
+            muted: false,
+            autoplay: !isMobile,
+            pip: true,
+            autoSize: false,
+            autoMini: false,
+            screenshot: true,
+            setting: true,
+            loop: false,
+            flip: true,
+            playbackRate: true,
+            aspectRatio: true,
+            fullscreen: true,
+            fullscreenWeb: true,
+            subtitleOffset: true,
+            miniProgressBar: true,
+            theme: '#ff7a18',
+            playsInline: true,
+            autoPlayback: true,
+            airplay: true,
+            hotkey: true,
+            fastForward: true,
+            lock: true,
+            moreVideoAttr: {
+                'playsinline': 'true',
+                'webkit-playsinline': 'true'
+            },
+            settings: customSettings,
+            customType: {
+                m3u8: function (video, url, art) {
+                    if (window.Hls && Hls.isSupported()) {
+                        if (art.hls) art.hls.destroy();
+                        var hls = new Hls({ enableWorker: true, backBufferLength: 90 });
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+                        art.hls = hls;
+                        art.on('destroy', function () { hls.destroy(); });
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = url;
+                    }
+                }
+            },
+            contextmenu: [
+                {
+                    html: 'Video Info / Stats',
+                    click: function (c) {
+                        var dur = window.art ? Math.round(window.art.duration) : 0;
+                        if (window.art) window.art.notice.show = TITLE + ' (' + dur + 's)';
+                        c.show = false;
+                    }
+                },
+                {
+                    html: 'Copy Embed Code',
+                    click: function (c) {
+                        var embedCode = '<iframe src="' + window.location.href + '" width="100%" height="100%" frameborder="0" allowfullscreen><\/iframe>';
+                        navigator.clipboard.writeText(embedCode).then(function () {
+                            if (window.art) window.art.notice.show = 'Embed code copied to clipboard!';
+                        }).catch(function () {});
+                        c.show = false;
+                    }
+                },
+                {
+                    html: 'Copy Stream Link',
+                    click: function (c) {
+                        navigator.clipboard.writeText(window.location.href).then(function () {
+                            if (window.art) window.art.notice.show = 'Stream link copied to clipboard!';
+                        }).catch(function () {});
+                        c.show = false;
+                    }
+                }
+            ]
+        };
+
+        if (defaultSubtitle) {
+            artOptions.subtitle = defaultSubtitle;
+        }
+
+        var ArtClass = window.Artplayer || window.ArtPlayer;
+        if (!ArtClass) {
+            document.getElementById('artplayer').innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#fff;"><video src="' + VIDEO_URL + '" controls style="max-width:100%;max-height:100%;"></video></div>';
+            return;
+        }
+
+        var art = new ArtClass(artOptions);
+        window.art = art;
+
+        function LockstepAudio(artInstance) {
+            this.art = artInstance;
+            this.video = artInstance.video;
+            this.audio = null;
+            this.syncTimer = null;
+        }
+        LockstepAudio.prototype.switchAudio = function (audioUrl) {
+            if (this.audio) {
+                this.audio.pause();
+                this.audio.src = '';
+                this.audio = null;
+                if (this.syncTimer) clearInterval(this.syncTimer);
+            }
+            if (!audioUrl) {
+                this.video.muted = false;
+                return;
+            }
+            this.video.muted = true;
+            this.audio = new Audio(audioUrl);
+            this.audio.currentTime = this.video.currentTime;
+            this.audio.volume = this.video.volume;
+            if (!this.video.paused) {
+                this.audio.play().catch(function () {});
+            }
+            var self = this;
+            this.video.addEventListener('play', function () { if (self.audio) self.audio.play().catch(function () {}); });
+            this.video.addEventListener('pause', function () { if (self.audio) self.audio.pause(); });
+            this.video.addEventListener('seeking', function () { if (self.audio) self.audio.currentTime = self.video.currentTime; });
+            this.video.addEventListener('ratechange', function () { if (self.audio) self.audio.playbackRate = self.video.playbackRate; });
+            this.syncTimer = setInterval(function () {
+                if (self.audio && !self.video.paused) {
+                    if (Math.abs(self.audio.currentTime - self.video.currentTime) > 0.25) {
+                        self.audio.currentTime = self.video.currentTime;
+                    }
+                }
+            }, 1000);
+        };
+
+        window.artAudioCtrl = new LockstepAudio(art);
+    })();
+    </script>
+</body>
+</html>`
+
