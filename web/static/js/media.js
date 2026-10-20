@@ -1672,7 +1672,6 @@
             if (!this.active || !this.audio) return;
             const v = this.video;
             const a = this.audio;
-            const wasPlaying = !v.paused && !this.userPaused;
 
             this.switchSeq = (this.switchSeq || 0) + 1;
             const seq = this.switchSeq;
@@ -1684,14 +1683,46 @@
             }
             a.pause();
 
-            a.src = newUrl;
-            a.volume = v.volume;
-            a.muted = v.muted;
+            let switchTimeout = setTimeout(() => {
+                onSwitchError('Audio track load timed out');
+            }, 8000);
+
+            const cleanup = () => {
+                if (switchTimeout) {
+                    clearTimeout(switchTimeout);
+                    switchTimeout = null;
+                }
+                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', resumePlayback);
+                a.removeEventListener('error', onAudioError);
+            };
+
+            const onAudioError = (e) => {
+                if (this.switchSeq !== seq || !this.active) return;
+                cleanup();
+                this.isSwitchingTrack = false;
+                console.warn('Audio track load failed (403/404 or network):', e);
+                if (this.art && this.art.notice) {
+                    this.art.notice.show = 'Failed to load audio track';
+                }
+            };
+
+            const onSwitchError = (msg) => {
+                if (this.switchSeq !== seq || !this.active) return;
+                cleanup();
+                this.isSwitchingTrack = false;
+                console.warn(msg);
+                if (this.art && this.art.notice) {
+                    this.art.notice.show = msg;
+                }
+            };
 
             const resumePlayback = () => {
                 if (this.switchSeq !== seq || !this.active || !this.audio) return;
+                cleanup();
                 this.isSwitchingTrack = false;
-                if (wasPlaying && !this.userPaused) {
+                if (!this.userPaused) {
                     v.play().catch(() => {});
                 }
             };
@@ -1727,6 +1758,11 @@
 
             a.addEventListener('loadedmetadata', onMetadataOrCanPlay, { once: true });
             a.addEventListener('canplay', onMetadataOrCanPlay, { once: true });
+            a.addEventListener('error', onAudioError, { once: true });
+
+            a.src = newUrl;
+            a.volume = v.volume;
+            a.muted = v.muted;
             a.load();
         }
 

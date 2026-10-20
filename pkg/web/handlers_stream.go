@@ -924,7 +924,6 @@ const embedPlayerHTML = `<!DOCTYPE html>
             }
 
             var v = this.video;
-            var wasPlaying = !v.paused && !this.userPaused;
 
             if (!v.paused) {
                 this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
@@ -941,10 +940,46 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
             var self = this;
 
+            var switchTimeout = setTimeout(function () {
+                onSwitchError('Audio track load timed out');
+            }, 8000);
+
+            var cleanup = function () {
+                if (switchTimeout) {
+                    clearTimeout(switchTimeout);
+                    switchTimeout = null;
+                }
+                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', onMetadataOrCanPlay);
+                a.removeEventListener('canplay', resumePlayback);
+                a.removeEventListener('error', onAudioError);
+            };
+
+            var onAudioError = function (e) {
+                if (self.switchSeq !== seq || !self.audio) return;
+                cleanup();
+                self.isSwitchingTrack = false;
+                console.warn('Audio track load failed (403/404 or network):', e);
+                if (self.art && self.art.notice) {
+                    self.art.notice.show = 'Failed to load audio track';
+                }
+            };
+
+            var onSwitchError = function (msg) {
+                if (self.switchSeq !== seq || !self.audio) return;
+                cleanup();
+                self.isSwitchingTrack = false;
+                console.warn(msg);
+                if (self.art && self.art.notice) {
+                    self.art.notice.show = msg;
+                }
+            };
+
             var resumePlayback = function () {
                 if (self.switchSeq !== seq || !self.audio) return;
+                cleanup();
                 self.isSwitchingTrack = false;
-                if (wasPlaying && !self.userPaused) {
+                if (!self.userPaused) {
                     v.play().catch(function () {});
                 }
             };
@@ -980,6 +1015,7 @@ const embedPlayerHTML = `<!DOCTYPE html>
 
             a.addEventListener('loadedmetadata', onMetadataOrCanPlay, { once: true });
             a.addEventListener('canplay', onMetadataOrCanPlay, { once: true });
+            a.addEventListener('error', onAudioError, { once: true });
 
             a.addEventListener('waiting', function () {
                 if (v.paused || self.userPaused || self.isSwitchingTrack) return;
