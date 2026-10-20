@@ -59,27 +59,33 @@ func (s *Server) handleStorageFolders(w http.ResponseWriter, r *http.Request) {
 			}
 
 			baseURL := fileapi.AgentBaseURL(node)
-			resp, err := client.Get(baseURL + "/api/v1/storage-folders")
-			if err == nil {
-				if resp.StatusCode == http.StatusOK {
-					var folderStats struct {
-						Drives              []cluster.StreamDriveStat `json:"drives"`
-						MediaSizeBytes      uint64                    `json:"media_size_bytes"`
-						MediaFileCount      int                       `json:"media_file_count"`
-						ProcessingSizeBytes uint64                    `json:"processing_size_bytes"`
-						ProcessingFileCount int                       `json:"processing_file_count"`
-						TotalStreamBytes    uint64                    `json:"total_stream_bytes"`
-					}
-					if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
-						item.Drives = folderStats.Drives
-						item.MediaSizeBytes = folderStats.MediaSizeBytes
-						item.MediaFileCount = folderStats.MediaFileCount
-						item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
-						item.ProcessingFileCount = folderStats.ProcessingFileCount
-						item.TotalStreamBytes = folderStats.TotalStreamBytes
-					}
+			agentReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodGet, baseURL+"/api/v1/storage-folders", nil)
+			if reqErr == nil {
+				if s.hub != nil && s.hub.Secret() != "" {
+					agentReq.Header.Set("X-Cluster-Secret", s.hub.Secret())
 				}
-				resp.Body.Close()
+				resp, err := client.Do(agentReq)
+				if err == nil {
+					if resp.StatusCode == http.StatusOK {
+						var folderStats struct {
+							Drives              []cluster.StreamDriveStat `json:"drives"`
+							MediaSizeBytes      uint64                    `json:"media_size_bytes"`
+							MediaFileCount      int                       `json:"media_file_count"`
+							ProcessingSizeBytes uint64                    `json:"processing_size_bytes"`
+							ProcessingFileCount int                       `json:"processing_file_count"`
+							TotalStreamBytes    uint64                    `json:"total_stream_bytes"`
+						}
+						if err := json.NewDecoder(resp.Body).Decode(&folderStats); err == nil {
+							item.Drives = folderStats.Drives
+							item.MediaSizeBytes = folderStats.MediaSizeBytes
+							item.MediaFileCount = folderStats.MediaFileCount
+							item.ProcessingSizeBytes = folderStats.ProcessingSizeBytes
+							item.ProcessingFileCount = folderStats.ProcessingFileCount
+							item.TotalStreamBytes = folderStats.TotalStreamBytes
+						}
+					}
+					resp.Body.Close()
+				}
 			}
 			mu.Lock()
 			results = append(results, item)
@@ -162,19 +168,25 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			baseURL := fileapi.AgentBaseURL(n)
-			resp, err := client.Post(baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), "application/json", nil)
-			if err == nil {
-				if resp.StatusCode == http.StatusOK {
-					var res struct {
-						FreedBytes uint64 `json:"freed_bytes"`
-						FreedItems int    `json:"freed_items"`
-					}
-					if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
-						totalFreedBytes += res.FreedBytes
-						totalFreedItems += res.FreedItems
-					}
+			cleanReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodPost, baseURL+"/api/v1/storage-clean?target="+url.QueryEscape(req.Target), nil)
+			if reqErr == nil {
+				if s.hub != nil && s.hub.Secret() != "" {
+					cleanReq.Header.Set("X-Cluster-Secret", s.hub.Secret())
 				}
-				resp.Body.Close()
+				resp, err := client.Do(cleanReq)
+				if err == nil {
+					if resp.StatusCode == http.StatusOK {
+						var res struct {
+							FreedBytes uint64 `json:"freed_bytes"`
+							FreedItems int    `json:"freed_items"`
+						}
+						if err := json.NewDecoder(resp.Body).Decode(&res); err == nil {
+							totalFreedBytes += res.FreedBytes
+							totalFreedItems += res.FreedItems
+						}
+					}
+					resp.Body.Close()
+				}
 			}
 		}
 
@@ -319,7 +331,15 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		cleanURL += "&dir=" + url.QueryEscape(req.Dir)
 	}
 
-	resp, err := client.Post(cleanURL, "application/json", nil)
+	cleanReq, reqErr := http.NewRequestWithContext(r.Context(), http.MethodPost, cleanURL, nil)
+	if reqErr != nil {
+		http.Error(w, "failed to create request: "+reqErr.Error(), http.StatusInternalServerError)
+		return
+	}
+	if s.hub != nil && s.hub.Secret() != "" {
+		cleanReq.Header.Set("X-Cluster-Secret", s.hub.Secret())
+	}
+	resp, err := client.Do(cleanReq)
 	if err != nil {
 		http.Error(w, "failed to dial agent: "+err.Error(), http.StatusBadGateway)
 		return
@@ -349,6 +369,9 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleProcessing(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !s.requireAdmin(w, r) {
+		return
+	}
 
 	if r.Method == http.MethodPost {
 		var req struct {

@@ -25,11 +25,9 @@ func (s *Server) handleDBAdmin(w http.ResponseWriter, r *http.Request) {
 
 	action := strings.TrimPrefix(r.URL.Path, "/api/dbadmin/")
 
-	// Require admin authorization for all mutations.
-	if action == "truncate" || action == "batch-delete" || r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodDelete {
-		if !s.requireAdmin(w, r) {
-			return
-		}
+	// All database studio endpoints require full administrator authorization.
+	if !s.requireAdmin(w, r) {
+		return
 	}
 
 	switch {

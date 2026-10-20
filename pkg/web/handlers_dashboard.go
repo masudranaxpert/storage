@@ -36,6 +36,9 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		if err == nil && !hasUsers {
 			// No users created yet: initial setup screen is required
 			needsAuth = true
+			if r.Method == http.MethodGet {
+				s.setAdminCookie(w)
+			}
 		} else {
 			// Users exist: valid user session is required
 			sess, sessErr := s.getSessionFromRequest(r)
@@ -44,9 +47,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if r.Method == http.MethodGet {
-		s.setAdminCookie(w)
-	}
+
 
 
 

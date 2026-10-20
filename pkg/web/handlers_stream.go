@@ -56,6 +56,9 @@ func (s *Server) mediaUsagePerNode() map[string]uint64 {
 				if err != nil {
 					return
 				}
+				if s.hub != nil && s.hub.Secret() != "" {
+					req.Header.Set("X-Cluster-Secret", s.hub.Secret())
+				}
 				resp, err := client.Do(req)
 				if err != nil {
 					return

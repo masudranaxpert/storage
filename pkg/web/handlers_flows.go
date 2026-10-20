@@ -409,6 +409,9 @@ func (s *Server) handleFileDemand(w http.ResponseWriter, r *http.Request, key st
 
 func (s *Server) handleLifecycleAudit(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if !s.requireAdmin(w, r) {
+		return
+	}
 	if r.Method != http.MethodGet {
 		writeJSONErr(w, http.StatusMethodNotAllowed, "method not allowed")
 		return

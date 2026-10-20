@@ -1144,6 +1144,10 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 	// GET /api/v1/storage-folders: inspect all stream drives and their media/processing directories.
 	mux.HandleFunc("/api/v1/storage-folders", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if !a.verifySecret(r) {
+			http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
+			return
+		}
 		drives := a.getStreamDrives()
 
 		var totalMediaBytes, totalProcBytes uint64

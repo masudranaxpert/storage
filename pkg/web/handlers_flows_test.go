@@ -437,11 +437,21 @@ func TestLifecycleAuditEndpoint(t *testing.T) {
 	}
 	defer store.Close()
 
-	srv := NewServer("127.0.0.1:0", nil, nil, store, nil, "", "")
+	hub := cluster.NewGRPCHub(nil, nil, "audit-secret")
+	srv := NewServer("127.0.0.1:0", nil, hub, store, nil, "", "")
 	handler := srv.Handler()
+
+	// 0. Unauthenticated request must return 401
+	reqUnauth := httptest.NewRequest(http.MethodGet, "/api/lifecycle/audit", nil)
+	recUnauth := httptest.NewRecorder()
+	handler.ServeHTTP(recUnauth, reqUnauth)
+	if recUnauth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 on unauthenticated audit access, got %d", recUnauth.Code)
+	}
 
 	// 1. Initially empty audit list
 	req1 := httptest.NewRequest(http.MethodGet, "/api/lifecycle/audit", nil)
+	req1.Header.Set("X-Cluster-Secret", "audit-secret")
 	rec1 := httptest.NewRecorder()
 	handler.ServeHTTP(rec1, req1)
 	if rec1.Code != http.StatusOK {
@@ -483,6 +493,7 @@ func TestLifecycleAuditEndpoint(t *testing.T) {
 
 	// 3. Query audits with limit=1
 	req2 := httptest.NewRequest(http.MethodGet, "/api/lifecycle/audit?limit=1", nil)
+	req2.Header.Set("X-Cluster-Secret", "audit-secret")
 	rec2 := httptest.NewRecorder()
 	handler.ServeHTTP(rec2, req2)
 	if rec2.Code != http.StatusOK {
@@ -504,6 +515,7 @@ func TestLifecycleAuditEndpoint(t *testing.T) {
 
 	// 4. Non-GET method returns 405 Method Not Allowed
 	reqPost := httptest.NewRequest(http.MethodPost, "/api/lifecycle/audit", nil)
+	reqPost.Header.Set("X-Cluster-Secret", "audit-secret")
 	recPost := httptest.NewRecorder()
 	handler.ServeHTTP(recPost, reqPost)
 	if recPost.Code != http.StatusMethodNotAllowed {
