@@ -1293,6 +1293,26 @@ const embedPlayerHTML = `<!DOCTYPE html>
                 applyAudioBoost(savedBoost);
             }, { once: true });
         }
+
+        var hbTimer = null;
+        var viewerSessionId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+        function pingHeartbeat() {
+            fetch('/api/stream/heartbeat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ key: '{{ .Key }}', session_id: viewerSessionId })
+            }).catch(function () {});
+        }
+        art.on('video:play', function () {
+            pingHeartbeat();
+            if (!hbTimer) hbTimer = setInterval(pingHeartbeat, 25000);
+        });
+        art.on('video:pause', function () {
+            if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+        });
+        art.on('destroy', function () {
+            if (hbTimer) { clearInterval(hbTimer); hbTimer = null; }
+        });
     })();
     </script>
 </body>

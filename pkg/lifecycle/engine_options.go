@@ -71,6 +71,7 @@ type Engine struct {
 	executorOpts []ExecutorOption
 	executor     *Executor
 	hits         *HitRecorder
+	viewers      *ActiveViewerTracker
 	kickCh       chan struct{}
 	policy       FlowPolicy
 }

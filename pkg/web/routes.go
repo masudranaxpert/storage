@@ -61,6 +61,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/api/lifecycle/audit", s.handleLifecycleAudit)
 	mux.HandleFunc("/api/lifecycle/hot", s.handleLifecycleHot)
 	mux.HandleFunc("/api/lifecycle/hit", s.handleRecordHit)
+	mux.HandleFunc("/api/stream/heartbeat", s.handleStreamHeartbeat)
+	mux.HandleFunc("/api/lifecycle/heartbeat", s.handleStreamHeartbeat)
 	mux.HandleFunc("/api/processing", s.handleProcessing)
 	mux.HandleFunc("/api/processing/", s.handleProcessing)
 

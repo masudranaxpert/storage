@@ -477,10 +477,21 @@
             if (m.state === 'downloading' || m.state === 'processing' || m.state === 'transferring' || m.state === 'detected' || m.state === 'awaiting_upload') activeTasksCount++;
         });
 
+        let liveTotal = 0;
+        Object.values(mediaHotMap).forEach(h => {
+            if (h && h.active_viewers) liveTotal += Number(h.active_viewers);
+        });
+
         if (hasFetchedMediaOnce || totalCount > 0) {
             global.safeSetText('media-stat-count', totalCount);
             global.safeSetText('media-stat-size', global.formatBytes(totalBytes));
             global.safeSetText('media-stat-ready', readyCount);
+            const readySub = document.querySelector('#media-stat-ready + .bui-stat-sub');
+            if (readySub) {
+                readySub.innerHTML = liveTotal > 0
+                    ? `<span style="color:#10b981;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;box-shadow:0 0 6px #10b981;"></span> ${liveTotal} watching live</span>`
+                    : `Available for HTTP playback`;
+            }
             global.safeSetText('media-stat-tasks', activeTasksCount);
         }
 
@@ -657,13 +668,20 @@
             const hotInfo = mediaHotMap[item.key];
             const heatScoreVal = hotInfo ? (Number(hotInfo.score) || 0).toFixed(1) : (isReady ? '0.0' : '—');
             const totalHitsVal = hotInfo && hotInfo.total_hits ? Number(hotInfo.total_hits) : 0;
+            const activeViewersVal = hotInfo && hotInfo.active_viewers ? Number(hotInfo.active_viewers) : 0;
             const isPinned = hotInfo && hotInfo.pinned_tier !== undefined && hotInfo.pinned_tier !== null;
             const lastHitRel = hotInfo && hotInfo.last_hit_at ? formatRelativeTime(hotInfo.last_hit_at) : '—';
 
             const heatHtml = `
                 <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
-                    <div style="display:inline-flex;align-items:center;gap:6px;">
+                    <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         <span class="fl-score-pill tabular-num" style="font-size:12.5px;padding:2px 8px;" title="Real-time decayed heat score">${heatScoreVal}</span>
+                        ${activeViewersVal > 0 ? `
+                            <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#10b981;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);padding:1px 7px;border-radius:9999px;" title="${activeViewersVal} live viewer(s) actively watching right now">
+                                <span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;box-shadow:0 0 6px #10b981;"></span>
+                                ${activeViewersVal} live
+                            </span>
+                        ` : ''}
                         ${isPinned ? `<span class="badge-tier orange" style="font-size:9.5px;padding:1px 5px;" title="Pinned to Tier ${hotInfo.pinned_tier}">PINNED</span>` : ''}
                     </div>
                     <div style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">

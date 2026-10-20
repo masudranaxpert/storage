@@ -50,17 +50,18 @@ type PreviewResult struct {
 
 // HotFile represents a file with elevated heat score or explicit pin.
 type HotFile struct {
-	Key        string     `json:"key"`
-	Filename   string     `json:"filename"`
-	Score      float64    `json:"score"`
-	TotalHits  int64      `json:"total_hits"`
-	TierID     int        `json:"tier_id"`
-	NodeID     string     `json:"node_id"`
-	Path       string     `json:"path"`
-	PinnedTier *int       `json:"pinned_tier,omitempty"`
-	PinUntil   *time.Time `json:"pin_until,omitempty"`
-	LastHitAt  time.Time  `json:"last_hit_at"`
-	SizeBytes  int64      `json:"size_bytes"`
+	Key           string     `json:"key"`
+	Filename      string     `json:"filename"`
+	Score         float64    `json:"score"`
+	TotalHits     int64      `json:"total_hits"`
+	ActiveViewers int        `json:"active_viewers"`
+	TierID        int        `json:"tier_id"`
+	NodeID        string     `json:"node_id"`
+	Path          string     `json:"path"`
+	PinnedTier    *int       `json:"pinned_tier,omitempty"`
+	PinUntil      *time.Time `json:"pin_until,omitempty"`
+	LastHitAt     time.Time  `json:"last_hit_at"`
+	SizeBytes     int64      `json:"size_bytes"`
 }
 
 // NextAction describes the next scheduled or projected lifecycle transition for a single file.
@@ -114,6 +115,7 @@ func New(store Store, tiers *storage.Manager, coord *cluster.Coordinator, files 
 	}
 
 	e.hits = NewHitRecorder(store, 10*time.Second)
+	e.viewers = NewActiveViewerTracker(60 * time.Second)
 
 	exOpts := []ExecutorOption{
 		WithExecutorUsageFunc(e.usage),
@@ -164,6 +166,19 @@ func (e *Engine) RecordHit(key string) {
 	if e.hits != nil {
 		e.hits.RecordHit(key)
 	}
+}
+
+// Viewers returns the active viewer tracker.
+func (e *Engine) Viewers() *ActiveViewerTracker {
+	return e.viewers
+}
+
+// RecordViewerHeartbeat registers a live viewer session for key.
+func (e *Engine) RecordViewerHeartbeat(key, sessionID string) int {
+	if e.viewers != nil {
+		return e.viewers.Heartbeat(key, sessionID)
+	}
+	return 0
 }
 
 // FlushHits flushes any buffered play counts into Store using the current clock and half-life.
@@ -354,19 +369,24 @@ func (e *Engine) ListHotFiles(limit int) ([]HotFile, error) {
 			continue
 		}
 		score := st.Decayed(now, policy.HalfLifeHours)
-		if score <= 0.05 && st.PinTierID == nil {
+		activeCount := 0
+		if e.viewers != nil {
+			activeCount = e.viewers.Count(st.Key)
+		}
+		if score <= 0.05 && st.PinTierID == nil && activeCount == 0 {
 			continue
 		}
 		rec := recByKey[st.Key]
 		hf := HotFile{
-			Key:        st.Key,
-			Score:      score,
-			TotalHits:  st.TotalHits,
-			TierID:     job.Placement.TierID,
-			NodeID:     job.Placement.NodeID,
-			Path:       job.Placement.Path,
-			PinnedTier: st.PinTierID,
-			LastHitAt:  st.LastHitAt,
+			Key:           st.Key,
+			Score:         score,
+			TotalHits:     st.TotalHits,
+			ActiveViewers: activeCount,
+			TierID:        job.Placement.TierID,
+			NodeID:        job.Placement.NodeID,
+			Path:          job.Placement.Path,
+			PinnedTier:    st.PinTierID,
+			LastHitAt:     st.LastHitAt,
 		}
 		if !st.PinUntil.IsZero() {
 			hf.PinUntil = &st.PinUntil
@@ -376,6 +396,33 @@ func (e *Engine) ListHotFiles(limit int) ([]HotFile, error) {
 			hf.SizeBytes = rec.SizeBytes
 		}
 		hot = append(hot, hf)
+	}
+
+	if e.viewers != nil {
+		seenKeys := make(map[string]bool, len(hot))
+		for _, h := range hot {
+			seenKeys[h.Key] = true
+		}
+		for key, count := range e.viewers.AllCounts() {
+			if !seenKeys[key] && count > 0 {
+				job := jobByKey[key]
+				if job != nil && job.State == fileapi.StateCompleted {
+					rec := recByKey[key]
+					hf := HotFile{
+						Key:           key,
+						ActiveViewers: count,
+						TierID:        job.Placement.TierID,
+						NodeID:        job.Placement.NodeID,
+						Path:          job.Placement.Path,
+					}
+					if rec != nil {
+						hf.Filename = rec.Filename
+						hf.SizeBytes = rec.SizeBytes
+					}
+					hot = append(hot, hf)
+				}
+			}
+		}
 	}
 
 	sort.Slice(hot, func(i, j int) bool {

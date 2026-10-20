@@ -992,6 +992,7 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 			clientIP = host
 		}
 		a.recordPlayHit(mediaID, clientIP)
+		a.recordViewerHeartbeat(mediaID, clientIP)
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -1012,9 +1013,58 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 var (
-	agentDedupeMu sync.Mutex
-	agentDedupe   = make(map[string]time.Time)
+	agentDedupeMu      sync.Mutex
+	agentDedupe        = make(map[string]time.Time)
+	agentHeartbeatMu   sync.Mutex
+	agentHeartbeats    = make(map[string]time.Time)
 )
+
+func (a *Agent) recordViewerHeartbeat(key, clientIP string) {
+	if a.CoordinatorURL == "" || key == "" {
+		return
+	}
+	dedupeKey := clientIP + ":" + key
+	agentHeartbeatMu.Lock()
+	last, seen := agentHeartbeats[dedupeKey]
+	now := time.Now()
+	if seen && now.Sub(last) < 25*time.Second {
+		agentHeartbeatMu.Unlock()
+		return
+	}
+	agentHeartbeats[dedupeKey] = now
+	if len(agentHeartbeats) > 10000 {
+		for k, t := range agentHeartbeats {
+			if now.Sub(t) > 60*time.Second {
+				delete(agentHeartbeats, k)
+			}
+		}
+	}
+	agentHeartbeatMu.Unlock()
+
+	go func() {
+		payload, err := json.Marshal(map[string]string{
+			"key":        key,
+			"session_id": clientIP,
+		})
+		if err != nil {
+			return
+		}
+		coord := strings.TrimRight(a.CoordinatorURL, "/")
+		req, err := http.NewRequest(http.MethodPost, coord+"/api/stream/heartbeat", bytes.NewReader(payload))
+		if err != nil {
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		if a.Secret != "" {
+			req.Header.Set("X-Cluster-Secret", a.Secret)
+		}
+		client := &http.Client{Timeout: 3 * time.Second}
+		resp, err := client.Do(req)
+		if err == nil && resp != nil {
+			_ = resp.Body.Close()
+		}
+	}()
+}
 
 func (a *Agent) recordPlayHit(key, clientIP string) {
 	if a.CoordinatorURL == "" || key == "" {
