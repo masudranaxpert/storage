@@ -2,7 +2,7 @@
 #
 # Quickstart (Coordinator):
 #   docker compose up -d --build
-#   Dashboard: http://localhost:1212
+#   Dashboard: http://localhost:1213
 
 services:
   coordinator:
@@ -12,8 +12,8 @@ services:
     container_name: stream-coordinator
     command: ["coordinator", "--port=1212", "--grpc-port=9090"]
     ports:
-      - "1212:1212"
-      - "9090:9090"
+      - "${STREAM_PORT:-1213}:1212"
+      - "${STREAM_GRPC_PORT:-9091}:9090"
     volumes:
       - coord-data:/app/data
     networks:
