@@ -104,4 +104,15 @@ func TestHandleMediaTicket(t *testing.T) {
 	if got := serveMedia(a, "/stream/"+wrong+"/movie.mp4", nil); got != http.StatusForbidden {
 		t.Fatalf("ticket from another secret: want 403, got %d", got)
 	}
+
+	// Test direct .mp4 extension on ticket: /stream/<ticket>.mp4
+	if got := serveMedia(a, "/stream/"+ticket+".mp4", nil); got != http.StatusOK {
+		t.Fatalf("ticket with .mp4 extension: want 200, got %d", got)
+	}
+
+	// Test direct .mp4 extension on raw key with token: /stream/<key>.mp4?token=...
+	keyWithExt := fmt.Sprintf("/stream/abc123.mp4?token=%s&exp=%d", GenerateStreamToken("abc123", exp, secret), exp)
+	if got := serveMedia(a, keyWithExt, nil); got != http.StatusOK {
+		t.Fatalf("key with .mp4 extension and token: want 200, got %d", got)
+	}
 }

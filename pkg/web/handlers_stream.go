@@ -169,15 +169,17 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	rawKeyOrTicket := parts[0]
-	mediaID := parts[0]
-	isTicket := strings.HasPrefix(rawKeyOrTicket, "t_")
+	hasMP4Suffix := strings.HasSuffix(rawKeyOrTicket, ".mp4")
+	baseKeyOrTicket := strings.TrimSuffix(rawKeyOrTicket, ".mp4")
+	mediaID := baseKeyOrTicket
+	isTicket := strings.HasPrefix(baseKeyOrTicket, "t_")
 
 	secret := adminSecret(s)
 
 	// Ticket or Token verification (Fail Closed)
 	if !s.isCallerAuthenticated(r) {
 		if isTicket {
-			resolvedKey, _, err := cluster.ResolvePlaybackTicket(rawKeyOrTicket, secret)
+			resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseKeyOrTicket, secret)
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
@@ -186,6 +188,9 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 			}
 			parts[0] = resolvedKey
 			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
 			mediaID = resolvedKey
 		} else {
 			if secret == "" {
@@ -199,24 +204,40 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 			if expStr == "" {
 				expStr = r.URL.Query().Get("expires")
 			}
-			if !fileapi.ValidateStreamToken(mediaID, token, expStr, secret) {
+			if !fileapi.ValidateStreamToken(baseKeyOrTicket, token, expStr, secret) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
 				return
 			}
+			parts[0] = baseKeyOrTicket
+			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
+			mediaID = baseKeyOrTicket
 		}
 	} else if isTicket {
-		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(rawKeyOrTicket, secret); err == nil {
+		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseKeyOrTicket, secret); err == nil {
 			parts[0] = resolvedKey
 			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
 			mediaID = resolvedKey
 		}
+	} else if hasMP4Suffix {
+		parts[0] = baseKeyOrTicket
+		cleanSubPath = filepath.Join(parts...)
+		if len(parts) == 1 {
+			cleanSubPath += ".mp4"
+		}
+		mediaID = baseKeyOrTicket
 	}
 
 	// Embed Player: When a single file or ticket is requested by a browser or iframe
-	// without ?raw=1 and without Range header, render the standalone ArtPlayer embed page.
-	wantsHTML := len(parts) == 1 &&
+	// without ?raw=1, without .mp4 suffix, and without Range header, render the standalone ArtPlayer embed page.
+	wantsHTML := len(parts) == 1 && !hasMP4Suffix &&
 		(strings.Contains(r.Header.Get("Accept"), "text/html") || r.URL.Query().Get("embed") == "1" || r.URL.Query().Get("player") == "1") &&
 		r.URL.Query().Get("raw") != "1" &&
 		r.Header.Get("Range") == ""
@@ -267,6 +288,31 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	stat, err := os.Stat(filePath)
+	if err == nil && stat.IsDir() {
+		if entries, rErr := os.ReadDir(filePath); rErr == nil {
+			for _, e := range entries {
+				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp4") || strings.HasSuffix(e.Name(), ".mkv")) {
+					filePath = filepath.Join(filePath, e.Name())
+					stat, err = os.Stat(filePath)
+					break
+				}
+			}
+		}
+	} else if err != nil && hasMP4Suffix && len(parts) == 1 {
+		dirPath := filepath.Join("data", "media", mediaID)
+		if dStat, dErr := os.Stat(dirPath); dErr == nil && dStat.IsDir() {
+			if entries, rErr := os.ReadDir(dirPath); rErr == nil {
+				for _, e := range entries {
+					if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp4") || strings.HasSuffix(e.Name(), ".mkv")) {
+						filePath = filepath.Join(dirPath, e.Name())
+						stat, err = os.Stat(filePath)
+						break
+					}
+				}
+			}
+		}
+	}
+
 	if err != nil {
 		if s.files != nil && s.store != nil {
 			if job, _ := s.store.GetFileJob(mediaID); job != nil && job.Placement.NodeID != "" {
@@ -297,7 +343,10 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 					}
 					// Preserve the opaque playback ticket on worker URL: never leak raw DB key.
 					if isTicket && strings.Contains(targetURL, "/stream/"+job.Key) {
-						targetURL = strings.Replace(targetURL, "/stream/"+job.Key, "/stream/"+rawKeyOrTicket, 1)
+						targetURL = strings.Replace(targetURL, "/stream/"+job.Key, "/stream/"+baseKeyOrTicket, 1)
+					}
+					if hasMP4Suffix && len(parts) == 1 && !strings.HasSuffix(targetURL, ".mp4") {
+						targetURL += ".mp4"
 					}
 					if len(parts) > 1 {
 						targetURL += "/" + strings.Join(parts[1:], "/")
@@ -573,7 +622,7 @@ func (s *Server) renderStreamEmbed(w http.ResponseWriter, r *http.Request, job *
 	}
 
 	streamBase := fmt.Sprintf("/stream/%s", keyOrTicket)
-	videoURL := fmt.Sprintf("%s?raw=1", streamBase)
+	videoURL := fmt.Sprintf("%s.mp4?raw=1", streamBase)
 
 	var subs []embedTrackInfo
 	var audios []embedTrackInfo

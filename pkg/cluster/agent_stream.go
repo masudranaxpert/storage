@@ -887,18 +887,24 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
 	mediaID := parts[0]
+	hasMP4Suffix := strings.HasSuffix(mediaID, ".mp4")
+	baseID := strings.TrimSuffix(mediaID, ".mp4")
 
 	if !a.verifySecret(r) {
-		if strings.HasPrefix(mediaID, "t_") {
-			resolvedKey, _, err := ResolvePlaybackTicket(mediaID, a.Secret)
+		if strings.HasPrefix(baseID, "t_") {
+			resolvedKey, _, err := ResolvePlaybackTicket(baseID, a.Secret)
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream ticket"})
 				return
 			}
+			mediaID = resolvedKey
 			parts[0] = resolvedKey
 			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
 		} else {
 			if a.Secret == "" {
 				w.Header().Set("Content-Type", "application/json")
@@ -911,17 +917,34 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 			if expStr == "" {
 				expStr = r.URL.Query().Get("expires")
 			}
-			if !ValidateStreamToken(mediaID, token, expStr, a.Secret) {
+			if !ValidateStreamToken(baseID, token, expStr, a.Secret) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusForbidden)
 				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
 				return
 			}
+			mediaID = baseID
+			parts[0] = baseID
+			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
 		}
-	} else if strings.HasPrefix(mediaID, "t_") {
-		if resolvedKey, _, err := ResolvePlaybackTicket(mediaID, a.Secret); err == nil {
+	} else if strings.HasPrefix(baseID, "t_") {
+		if resolvedKey, _, err := ResolvePlaybackTicket(baseID, a.Secret); err == nil {
+			mediaID = resolvedKey
 			parts[0] = resolvedKey
 			cleanSubPath = filepath.Join(parts...)
+			if hasMP4Suffix && len(parts) == 1 {
+				cleanSubPath += ".mp4"
+			}
+		}
+	} else if hasMP4Suffix {
+		mediaID = baseID
+		parts[0] = baseID
+		cleanSubPath = filepath.Join(parts...)
+		if len(parts) == 1 {
+			cleanSubPath += ".mp4"
 		}
 	}
 

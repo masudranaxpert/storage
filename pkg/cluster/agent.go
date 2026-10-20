@@ -200,6 +200,26 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 				}
 			}
 		}
+
+		// If cleanSubPath ends with .mp4 but corresponds to a media folder on disk
+		if strings.HasSuffix(cleanSubPath, ".mp4") {
+			folderCandidate := filepath.Join(root, strings.TrimSuffix(cleanSubPath, ".mp4"))
+			if stat, err := os.Stat(folderCandidate); err == nil && stat.IsDir() {
+				entries, err := os.ReadDir(folderCandidate)
+				if err == nil {
+					for _, e := range entries {
+						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
+							return filepath.Join(folderCandidate, e.Name())
+						}
+					}
+					for _, e := range entries {
+						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
+							return filepath.Join(folderCandidate, e.Name())
+						}
+					}
+				}
+			}
+		}
 	}
 	return ""
 }

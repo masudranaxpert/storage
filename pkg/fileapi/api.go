@@ -653,8 +653,10 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 	}
 
 	playURL := fmt.Sprintf("/stream/%s", identifier)
+	videoURL := fmt.Sprintf("/stream/%s.mp4", identifier)
 	if identifier == key {
 		playURL = fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
+		videoURL = fmt.Sprintf("/stream/%s.mp4?token=%s&exp=%d", key, token, exp)
 	}
 
 	resp := StreamURLResponse{
@@ -664,7 +666,7 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		ExpiresAt:    exp,
 		ExpiresInSec: int64(duration.Seconds()),
 		PlayURL:      playURL,
-		VideoURL:     playURL,
+		VideoURL:     videoURL,
 		AudioTracks:  make([]StreamAudioTrack, 0),
 		Subtitles:    make([]StreamSubtitleTrack, 0),
 	}
@@ -682,9 +684,17 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		if directBase != "" {
 			if identifier != key {
 				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-				resp.VideoURL = directBase
+				if !strings.HasSuffix(directBase, ".mp4") {
+					resp.VideoURL = directBase + ".mp4"
+				} else {
+					resp.VideoURL = directBase
+				}
 			} else {
-				resp.VideoURL = fmt.Sprintf("%s?token=%s&exp=%d", directBase, token, exp)
+				ext := ""
+				if !strings.HasSuffix(directBase, ".mp4") {
+					ext = ".mp4"
+				}
+				resp.VideoURL = fmt.Sprintf("%s%s?token=%s&exp=%d", directBase, ext, token, exp)
 			}
 		}
 

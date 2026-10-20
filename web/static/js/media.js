@@ -1138,7 +1138,9 @@
                 const tokenRes = await fetch(`/api/v1/files/${encodeURIComponent(mediaID)}/token`);
                 if (tokenRes.ok) {
                     const tokenData = await tokenRes.json();
-                    if (tokenData && tokenData.play_url) {
+                    if (tokenData && tokenData.video_url) {
+                        streamUrl = tokenData.video_url.startsWith('http') ? tokenData.video_url : `${window.location.origin}${tokenData.video_url}`;
+                    } else if (tokenData && tokenData.play_url) {
                         streamUrl = `${window.location.origin}${tokenData.play_url}`;
                     }
                 }
