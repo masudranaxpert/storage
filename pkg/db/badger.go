@@ -26,6 +26,7 @@ type NodeConfig struct {
 	CustomLabel       string `json:"custom_label"`
 	Enabled           bool   `json:"enabled"`
 	CoordinatorURL    string `json:"coordinator_url,omitempty"`
+	CORSAllowedOrigins string `json:"cors_allowed_origins,omitempty"`
 
 	// Processing worker reservation (Kubernetes-requests style): the node only
 	// receives processing jobs while its live free resources cover the request.

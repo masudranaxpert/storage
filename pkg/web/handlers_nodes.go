@@ -85,6 +85,13 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 
 	needsUpgrade := metrics.Capabilities.Version != "" && metrics.Capabilities.Version != telemetry.CurrentVersion
 
+	corsOrigins := "*"
+	if s.store != nil {
+		if cfg, _ := s.store.GetNodeConfig(record.Metrics.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
+			corsOrigins = cfg.CORSAllowedOrigins
+		}
+	}
+
 	resp := map[string]interface{}{
 		"status":                "ok",
 		"record":                record,
@@ -93,6 +100,7 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 		"download_url":          "/download/stream-bundle-linux-amd64.tar.gz",
 		"update_available":      needsUpgrade,
 		"install_missing_tools": false,
+		"cors_allowed_origins":  corsOrigins,
 	}
 	json.NewEncoder(w).Encode(resp)
 }
@@ -472,6 +480,7 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 			SSHUser           *string `json:"ssh_user,omitempty"`
 			SSHPassword       *string `json:"ssh_password,omitempty"`
 			SSHUseSudo        *bool   `json:"ssh_use_sudo,omitempty"`
+			CORSAllowedOrigins *string `json:"cors_allowed_origins,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			http.Error(w, fmt.Sprintf("invalid payload: %v", err), http.StatusBadRequest)
@@ -488,6 +497,10 @@ func (s *Server) handleNodeAllocation(w http.ResponseWriter, r *http.Request) {
 
 		var coordChanged bool
 		var quotaChanged bool
+
+		if payload.CORSAllowedOrigins != nil {
+			cfg.CORSAllowedOrigins = strings.TrimSpace(*payload.CORSAllowedOrigins)
+		}
 
 		if payload.CustomLabel != nil {
 			cfg.CustomLabel = strings.TrimSpace(*payload.CustomLabel)

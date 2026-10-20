@@ -240,7 +240,21 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(cleanSubPath, "metadata.json") && s.store != nil {
 		if job, _ := s.store.GetFileJob(mediaID); job != nil && len(job.MetadataJSON) > 0 {
 			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
+			nodeCORS := "*"
+			if job.Placement.NodeID != "" && s.store != nil {
+				if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
+					nodeCORS = cfg.CORSAllowedOrigins
+				}
+			}
+			allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
+			if allowed != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allowed)
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				w.Header().Set("Vary", "Origin")
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 			_, _ = w.Write(job.MetadataJSON)
 			return
 		}
@@ -321,8 +335,24 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 						r.URL.Query().Get("raw") == "1" ||
 						strings.EqualFold(r.Header.Get("X-Stream-Proxy"), "true")
 
+					nodeCORS := "*"
+					if job.Placement.NodeID != "" && s.store != nil {
+						if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
+							nodeCORS = cfg.CORSAllowedOrigins
+						}
+					}
+					allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
+					if allowed != "" {
+						w.Header().Set("Access-Control-Allow-Origin", allowed)
+						w.Header().Set("Access-Control-Allow-Credentials", "true")
+						w.Header().Set("Vary", "Origin")
+					}
+					w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+					w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
+					w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+
 					if isProxy {
-						s.proxyStream(w, r, targetURL)
+						s.proxyStream(w, r, targetURL, nodeCORS)
 						return
 					}
 					http.Redirect(w, r, targetURL, http.StatusTemporaryRedirect)
@@ -362,9 +392,22 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	nodeCORS := "*"
+	if parts := strings.Split(cleanSubPath, "/"); len(parts) > 0 && s.store != nil {
+		if job, _ := s.store.GetFileJob(parts[0]); job != nil && job.Placement.NodeID != "" {
+			if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
+				nodeCORS = cfg.CORSAllowedOrigins
+			}
+		}
+	}
+	allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
+	if allowed != "" {
+		w.Header().Set("Access-Control-Allow-Origin", allowed)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Vary", "Origin")
+	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Accept-Encoding, Origin, Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Range, Accept-Encoding, Origin, Content-Type, Authorization")
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
@@ -391,7 +434,7 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, filePath)
 }
 
-func (s *Server) proxyStream(w http.ResponseWriter, r *http.Request, targetURL string) {
+func (s *Server) proxyStream(w http.ResponseWriter, r *http.Request, targetURL string, nodeCORS string) {
 	parsedURL, err := url.Parse(targetURL)
 	if err != nil {
 		http.Error(w, "invalid target stream url", http.StatusBadGateway)
@@ -419,9 +462,15 @@ func (s *Server) proxyStream(w http.ResponseWriter, r *http.Request, targetURL s
 	}
 
 	proxy.ModifyResponse = func(resp *http.Response) error {
-		resp.Header.Set("Access-Control-Allow-Origin", "*")
+		origin := r.Header.Get("Origin")
+		allowedOrigin := cluster.MatchCORSOrigin(nodeCORS, origin)
+		if allowedOrigin != "" {
+			resp.Header.Set("Access-Control-Allow-Origin", allowedOrigin)
+			resp.Header.Set("Access-Control-Allow-Credentials", "true")
+			resp.Header.Set("Vary", "Origin")
+		}
 		resp.Header.Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-		resp.Header.Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type")
+		resp.Header.Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
 		resp.Header.Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
 		return nil
 	}

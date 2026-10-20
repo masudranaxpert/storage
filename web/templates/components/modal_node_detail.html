@@ -66,6 +66,16 @@
                         </div>
                         <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Public address the remote agent dials to send heartbeats and connect to the cluster.</span>
                     </div>
+
+                    <!-- CORS Allowed Origins -->
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
+                            <label class="form-label" for="modal-edit-cors-origins" style="margin-bottom:0;font-weight:600;">CORS Allowed Origins (Cross-Origin Access)</label>
+                            <span style="font-size:11px;font-weight:600;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;background:var(--bg-subtle);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">Default: *</span>
+                        </div>
+                        <input type="text" id="modal-edit-cors-origins" class="form-input" placeholder="e.g. * or https://example.com, https://player.mydomain.com">
+                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Allow external websites and players to stream from this VPS node. Use <code>*</code> to allow all origins, or enter comma-separated domains.</span>
+                    </div>
                 </div>
 
                 <!-- Group 3: SSH Peering & Credentials -->

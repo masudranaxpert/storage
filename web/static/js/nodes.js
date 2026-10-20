@@ -998,6 +998,9 @@
                     checkEditCoordUrlSafety(coordUrlInput.value);
                 }
 
+                const corsEl = document.getElementById('modal-edit-cors-origins');
+                if (corsEl) corsEl.value = cfg.cors_allowed_origins || '*';
+
                 const labelEl = document.getElementById('modal-edit-label');
                 if (labelEl) labelEl.value = cfg.custom_label || '';
 
@@ -1065,6 +1068,7 @@
         const allocGB = parseInt(document.getElementById('modal-quota-input')?.value) || 0;
         const maxBytes = allocGB * 1024 * 1024 * 1024;
         const coordUrl = document.getElementById('modal-edit-coord-url')?.value?.trim() || '';
+        const corsOrigins = document.getElementById('modal-edit-cors-origins')?.value?.trim() || '*';
 
         const sshHost = document.getElementById('modal-edit-ssh-host')?.value?.trim() || '';
         const sshPort = parseInt(document.getElementById('modal-edit-ssh-port')?.value) || 22;
@@ -1077,6 +1081,7 @@
             enabled: enabled,
             allocated_max_bytes: maxBytes,
             coordinator_url: coordUrl,
+            cors_allowed_origins: corsOrigins,
             ssh_host: sshHost,
             ssh_port: sshPort,
             ssh_user: sshUser,

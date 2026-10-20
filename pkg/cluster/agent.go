@@ -41,11 +41,29 @@ type Agent struct {
 	transferClient *http.Client // long-timeout client for node-to-node folder pushes
 	httpServer     *http.Server
 
+	corsMu      sync.RWMutex
+	corsOrigins string
+
 	rootMu     sync.RWMutex
 	extraRoots map[string]bool // additional media roots served by the range server
 
 	relocateMu    sync.Mutex
 	relocateTasks map[string]context.CancelFunc
+}
+
+func (a *Agent) SetCORSOrigins(origins string) {
+	a.corsMu.Lock()
+	defer a.corsMu.Unlock()
+	a.corsOrigins = strings.TrimSpace(origins)
+}
+
+func (a *Agent) GetCORSOrigins() string {
+	a.corsMu.RLock()
+	defer a.corsMu.RUnlock()
+	if a.corsOrigins == "" {
+		return "*"
+	}
+	return a.corsOrigins
 }
 
 // TransferTarget names the final home of a decoupled file job: the node
@@ -324,9 +342,14 @@ func (a *Agent) SendHeartbeat() (*NodeRecord, error) {
 		DownloadURL         string      `json:"download_url"`
 		UpdateAvailable     bool        `json:"update_available"`
 		InstallMissingTools bool        `json:"install_missing_tools"`
+		CORSAllowedOrigins  string      `json:"cors_allowed_origins"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&hbResp); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	if hbResp.CORSAllowedOrigins != "" {
+		a.SetCORSOrigins(hbResp.CORSAllowedOrigins)
 	}
 
 	if hbResp.UpdateAvailable && hbResp.DownloadURL != "" {
