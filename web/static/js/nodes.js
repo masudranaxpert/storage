@@ -434,10 +434,10 @@
 
         if (selectedMode === 'cluster_only') {
             if (manualWrap) manualWrap.style.display = 'none';
-            if (submitText) submitText.innerText = 'Unregister from Cluster';
+            if (submitText) submitText.innerText = 'Unregister';
             if (submitBtn) submitBtn.style.background = '#475569';
         } else {
-            if (submitText) submitText.innerText = 'Confirm Decommission';
+            if (submitText) submitText.innerText = 'Remove Node';
             if (submitBtn) submitBtn.style.background = '#dc2626';
             if (!activeDecommissionConfig || !activeDecommissionConfig.ssh_password) {
                 if (manualWrap) {
