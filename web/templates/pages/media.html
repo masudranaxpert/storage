@@ -115,12 +115,12 @@
             </div>
 
             <!-- Node Filter Dropdown -->
-            <select id="media-node-filter" onchange="onMediaNodeFilterChange()" style="padding:7px 11px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-weight:600; font-family:inherit; color:var(--text-primary); outline:none; cursor:pointer;" title="Filter by VPS storage node">
+            <select id="media-node-filter" class="media-filter-select" onchange="onMediaNodeFilterChange()" title="Filter by VPS storage node">
                 <option value="">All VPS Nodes</option>
             </select>
 
             <!-- Tier Filter Dropdown -->
-            <select id="media-tier-filter" onchange="onMediaTierFilterChange()" style="padding:7px 11px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-weight:600; font-family:inherit; color:var(--text-primary); outline:none; cursor:pointer;" title="Filter by storage tier">
+            <select id="media-tier-filter" class="media-filter-select" onchange="onMediaTierFilterChange()" title="Filter by storage tier">
                 <option value="">All Storage Tiers</option>
                 <option value="tier0">Tier 0 (Hot)</option>
                 <option value="tier1">Tier 1 (SSD)</option>
@@ -174,7 +174,7 @@
             <!-- Items Per Page Selector -->
             <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-secondary);">
                 <span>Show:</span>
-                <select id="media-page-size" onchange="onMediaPageSizeChange()" style="padding:4px 8px; border:1px solid var(--border-light); border-radius:var(--radius-sm); background:var(--bg-inner); font-size:12px; font-family:inherit; outline:none; cursor:pointer;">
+                <select id="media-page-size" class="media-pagesize-select" onchange="onMediaPageSizeChange()">
                     <option value="10">10 / page</option>
                     <option value="25">25 / page</option>
                     <option value="50">50 / page</option>

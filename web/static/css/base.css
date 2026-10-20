@@ -15,8 +15,10 @@ html, body {
 }
 
 :root {
+    color-scheme: light;
     --bg-body: #fbfaf8;
     --bg-surface: #ffffff;
+    --bg-inner: #ffffff;
     --bg-surface-hover: #fffdfa;
     --bg-subtle: #f4efe6;
     --bg-orange-soft: #fff7ed;
@@ -60,8 +62,10 @@ html, body {
 }
 
 [data-theme="dark"] {
+    color-scheme: dark;
     --bg-body: #090a0d;
     --bg-surface: #111317;
+    --bg-inner: #111317;
     --bg-surface-hover: #17191f;
     --bg-subtle: #1a1d24;
     --bg-orange-soft: rgba(249, 115, 22, 0.12);
@@ -97,6 +101,35 @@ html, body {
     --shadow-card: 0 4px 14px -2px rgba(0,0,0,0.5), 0 2px 6px -1px rgba(0,0,0,0.3);
     --shadow-hover: 0 10px 25px -4px rgba(0,0,0,0.65), 0 4px 10px -2px rgba(0,0,0,0.4);
     --shadow-modal: 0 20px 40px -10px rgba(0,0,0,0.85);
+}
+
+/* Universal Form Controls & Dropdown Menu Theming */
+select, input, textarea {
+    font-family: inherit;
+    color: var(--text-primary);
+    background-color: var(--bg-surface);
+}
+
+select {
+    color-scheme: light;
+}
+
+select option {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] select,
+[data-theme="dark"] input,
+[data-theme="dark"] textarea {
+    color-scheme: dark;
+    color: var(--text-primary);
+    background-color: var(--bg-surface);
+}
+
+[data-theme="dark"] select option {
+    background-color: #17191f;
+    color: #f3f4f6;
 }
 
 /* Universal Modern Sleek Scrollbars (Chrome, Edge, Safari, Opera) */

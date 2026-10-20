@@ -1411,3 +1411,67 @@
     border: 1px solid rgba(249, 115, 22, 0.4);
 }
 
+/* Media Page Filter & Page Size Dropdowns */
+.media-filter-select {
+    padding: 7px 11px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-surface);
+    font-size: 12px;
+    font-weight: 600;
+    font-family: inherit;
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+    color-scheme: light;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.media-filter-select:hover,
+.media-filter-select:focus {
+    border-color: var(--border-hover);
+}
+
+.media-filter-select option {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+}
+
+.media-pagesize-select {
+    padding: 4px 8px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-surface);
+    font-size: 12px;
+    font-family: inherit;
+    color: var(--text-primary);
+    outline: none;
+    cursor: pointer;
+    color-scheme: light;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.media-pagesize-select:hover,
+.media-pagesize-select:focus {
+    border-color: var(--border-hover);
+}
+
+.media-pagesize-select option {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+}
+
+[data-theme="dark"] .media-filter-select,
+[data-theme="dark"] .media-pagesize-select {
+    color-scheme: dark;
+    background-color: #17191f;
+    border-color: #2a2e39;
+    color: #f3f4f6;
+}
+
+[data-theme="dark"] .media-filter-select option,
+[data-theme="dark"] .media-pagesize-select option {
+    background-color: #17191f;
+    color: #f3f4f6;
+}
+
