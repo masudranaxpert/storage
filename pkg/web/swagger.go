@@ -233,9 +233,11 @@ func GetOpenAPISpec() map[string]interface{} {
 			"description": "Distributed video ingest, fast-start streaming, and storage lifecycle.\n\n" +
 				"### Core Endpoints:\n" +
 				"1. **POST /api/v1/files** — Ingest video by URL. The coordinator automatically probes headers, downloads, validates codecs, remuxes to fast-start MP4/CMAF, and streams to storage.\n" +
-				"2. **GET /api/v1/files/{key}** — Check real-time progress (`downloading` → `processing` → `transferring` → `completed`), stream URLs, and video metadata.\n" +
-				"3. **DELETE /api/v1/files/{key}** — Delete a file or batch delete multiple files (single key or comma-separated `key1,key2,key3`).\n" +
-				"4. **DELETE /api/v1/files** — Batch delete multiple files with JSON body `{\"keys\": [\"key1\", \"key2\"]}` or `?keys=key1,key2`.",
+				"2. **GET /api/v1/files/{key}** — Player streaming URLs (video, multi-track audio, subtitles) masked with an opaque ticket (t_...) and anti-leech token.\n" +
+				"3. **GET /api/v1/files/{key}/info** — Live lifecycle progress (`downloading` → `processing` → `transferring` → `completed`), node placement, and transfer speed.\n" +
+				"4. **GET /api/v1/files/{key}/metadata** — Technical media metadata (codecs, bitrates, audio channels, subtitle tracks).\n" +
+				"5. **DELETE /api/v1/files/{key}** — Delete a file or batch delete multiple files (single key or comma-separated `key1,key2,key3`).\n" +
+				"6. **DELETE /api/v1/files** — Batch delete multiple files with JSON body `{\"keys\": [\"key1\", \"key2\"]}` or `?keys=key1,key2`.",
 		},
 		"servers": []map[string]interface{}{
 			{

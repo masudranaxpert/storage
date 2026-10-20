@@ -130,13 +130,13 @@
   -d '{"url": "https://cdn.example.com/video.mp4"}'</pre>
             </div>
 
-            <!-- Example 2: Query File Status & Playback -->
+            <!-- Example 2: Player Streaming URLs & Tickets -->
             <div class="curl-code-card">
                 <div class="curl-code-header">
                     <span style="display:flex;align-items:center;gap:6px;">
                         <span class="ui-badge ui-badge-blue ui-badge-rect" style="font-size:10px;padding:1px 6px;">GET</span>
                         <span style="font-weight:700;">/api/v1/files/{key}</span>
-                        <span style="color:var(--text-secondary);font-size:12px;">(Status &amp; Stream URLs)</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Player Streaming URLs &amp; Ticket)</span>
                     </span>
                     <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-get', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -149,7 +149,45 @@
   -H "X-API-Key: YOUR_API_KEY"</pre>
             </div>
 
-            <!-- Example 3: Delete File(s) -->
+            <!-- Example 3: Full File Progress & Placement Status -->
+            <div class="curl-code-card">
+                <div class="curl-code-header">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span class="ui-badge ui-badge-blue ui-badge-rect" style="font-size:10px;padding:1px 6px;">GET</span>
+                        <span style="font-weight:700;">/api/v1/files/{key}/info</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Progress &amp; Placement Status)</span>
+                    </span>
+                    <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-info', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <pre class="curl-code-content" id="curl-ex-info">curl -X GET https://inclusion-hourly-matt-tuition.trycloudflare.com/api/v1/files/{key}/info \
+  -H "X-API-Key: YOUR_API_KEY"</pre>
+            </div>
+
+            <!-- Example 4: Technical Media Metadata -->
+            <div class="curl-code-card">
+                <div class="curl-code-header">
+                    <span style="display:flex;align-items:center;gap:6px;">
+                        <span class="ui-badge ui-badge-blue ui-badge-rect" style="font-size:10px;padding:1px 6px;">GET</span>
+                        <span style="font-weight:700;">/api/v1/files/{key}/metadata</span>
+                        <span style="color:var(--text-secondary);font-size:12px;">(Codecs &amp; Audio Tracks)</span>
+                    </span>
+                    <button type="button" class="tbl-icon-btn" onclick="copyCurlExample('curl-ex-meta', this)" style="width:28px;height:28px;" title="Copy cURL command" aria-label="Copy cURL command">
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                    </button>
+                </div>
+                <pre class="curl-code-content" id="curl-ex-meta">curl -X GET https://inclusion-hourly-matt-tuition.trycloudflare.com/api/v1/files/{key}/metadata \
+  -H "X-API-Key: YOUR_API_KEY"</pre>
+            </div>
+
+            <!-- Example 5: Delete File(s) -->
             <div class="curl-code-card">
                 <div class="curl-code-header">
                     <span style="display:flex;align-items:center;gap:6px;">

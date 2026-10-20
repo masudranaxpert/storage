@@ -255,6 +255,14 @@
             if (getEl) {
                 getEl.textContent = `curl -X GET ${origin}/api/v1/files/{key} \\\n  -H "X-API-Key: YOUR_API_KEY"`;
             }
+            const infoEl = document.getElementById('curl-ex-info');
+            if (infoEl) {
+                infoEl.textContent = `curl -X GET ${origin}/api/v1/files/{key}/info \\\n  -H "X-API-Key: YOUR_API_KEY"`;
+            }
+            const metaEl = document.getElementById('curl-ex-meta');
+            if (metaEl) {
+                metaEl.textContent = `curl -X GET ${origin}/api/v1/files/{key}/metadata \\\n  -H "X-API-Key: YOUR_API_KEY"`;
+            }
             const delEl = document.getElementById('curl-ex-del');
             if (delEl) {
                 delEl.textContent = `# Single key or comma-separated batch delete:\ncurl -X DELETE "${origin}/api/v1/files/key1,key2" \\\n  -H "X-API-Key: YOUR_API_KEY"`;
