@@ -328,14 +328,45 @@
 
     function copyNodeIP(ip, el) {
         if (!ip) return;
-        navigator.clipboard.writeText(ip).then(() => {
+        const doSuccess = () => {
             if (!el) return;
             const origHTML = el.innerHTML;
             el.innerHTML = `<span style="color:#16a34a;font-weight:700;">✓ Copied</span>`;
             setTimeout(() => {
                 el.innerHTML = origHTML;
             }, 1500);
-        }).catch(() => {});
+            if (global.App && typeof global.App.showToast === 'function') {
+                global.App.showToast(`IP copied: ${ip}`, 'success');
+            }
+        };
+
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            navigator.clipboard.writeText(ip).then(doSuccess).catch(() => {
+                fallbackCopyTextSilent(ip, doSuccess);
+            });
+        } else {
+            fallbackCopyTextSilent(ip, doSuccess);
+        }
+    }
+
+    function fallbackCopyTextSilent(text, onSuccess) {
+        try {
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            ta.style.top = '-9999px';
+            document.body.appendChild(ta);
+            ta.focus();
+            ta.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(ta);
+            if (ok) {
+                if (onSuccess) onSuccess();
+                return;
+            }
+        } catch (_) {}
+        prompt('Copy IP:', text);
     }
 
     async function triggerNodeRescan(nodeId, btnElement) {
