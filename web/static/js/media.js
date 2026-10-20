@@ -195,6 +195,8 @@
                 err: f.error,
                 tb: f.transferred_bytes,
                 hs: mediaHotMap[f.key] ? mediaHotMap[f.key].score : 0,
+                av: mediaHotMap[f.key] ? mediaHotMap[f.key].active_viewers : 0,
+                th: mediaHotMap[f.key] ? mediaHotMap[f.key].total_hits : 0,
                 lct: activeLifecycleTasks[f.key] ? activeLifecycleTasks[f.key].state + activeLifecycleTasks[f.key].progress : ''
             })));
 
@@ -677,14 +679,20 @@
                     <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
                         <span class="fl-score-pill tabular-num" style="font-size:12.5px;padding:2px 8px;" title="Real-time decayed heat score">${heatScoreVal}</span>
                         ${activeViewersVal > 0 ? `
-                            <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:#10b981;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);padding:1px 7px;border-radius:9999px;" title="${activeViewersVal} live viewer(s) actively watching right now">
+                            <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4.5px;font-size:11px;font-weight:700;color:#10b981;background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);padding:1.5px 8px;border-radius:9999px;" title="${activeViewersVal} live viewer(s) actively watching right now">
                                 <span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;box-shadow:0 0 6px #10b981;"></span>
-                                ${activeViewersVal} live
+                                ${activeViewersVal} watching now
                             </span>
                         ` : ''}
                         ${isPinned ? `<span class="badge-tier orange" style="font-size:9.5px;padding:1px 5px;" title="Pinned to Tier ${hotInfo.pinned_tier}">PINNED</span>` : ''}
                     </div>
                     <div style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
+                        ${activeViewersVal > 0 ? `
+                            <span style="color:#10b981;font-weight:700;display:inline-flex;align-items:center;gap:3px;" title="${activeViewersVal} active concurrent stream(s)">
+                                <span>🟢</span> ${activeViewersVal} watching now
+                            </span>
+                            <span style="opacity:0.4;">•</span>
+                        ` : ''}
                         <span title="Total unique viewers (30m window)">👁 ${totalHitsVal} ${totalHitsVal === 1 ? 'view' : 'views'}</span>
                         ${lastHitRel !== '—' ? `<span style="opacity:0.4;">•</span><span title="Last playback">${lastHitRel}</span>` : ''}
                     </div>
