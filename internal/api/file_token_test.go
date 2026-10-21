@@ -148,7 +148,7 @@ func TestHandleTokenMultiTrack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Status error: %v", err)
 	}
-	if !strings.HasPrefix(st.PlayURL, "/stream/t_") {
+	if !strings.Contains(st.PlayURL, "/stream/t_") {
 		t.Fatalf("expected PlayURL to use masked ticket /stream/t_..., got %s", st.PlayURL)
 	}
 	if !strings.Contains(st.StreamURL, "/stream/t_") {

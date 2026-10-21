@@ -689,17 +689,26 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		if directBase != "" {
 			if identifier != key {
 				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-				if !strings.HasSuffix(directBase, ".mp4") {
-					resp.VideoURL = directBase + ".mp4"
-				} else {
-					resp.VideoURL = directBase
-				}
+				baseClean := strings.TrimSuffix(directBase, ".mp4")
+				resp.PlayURL = baseClean
+				resp.VideoURL = baseClean + ".mp4"
 			} else {
-				ext := ""
-				if !strings.HasSuffix(directBase, ".mp4") {
-					ext = ".mp4"
-				}
-				resp.VideoURL = fmt.Sprintf("%s%s?token=%s&exp=%d", directBase, ext, token, exp)
+				baseClean := strings.TrimSuffix(directBase, ".mp4")
+				resp.PlayURL = fmt.Sprintf("%s?token=%s&exp=%d", baseClean, token, exp)
+				resp.VideoURL = fmt.Sprintf("%s.mp4?token=%s&exp=%d", baseClean, token, exp)
+			}
+		} else {
+			scheme := "http"
+			if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") || r.Header.Get("CF-Ray") != "" {
+				scheme = "https"
+			}
+			coordBase := fmt.Sprintf("%s://%s", scheme, r.Host)
+			if identifier != key {
+				resp.PlayURL = fmt.Sprintf("%s/stream/%s", coordBase, identifier)
+				resp.VideoURL = fmt.Sprintf("%s/stream/%s.mp4", coordBase, identifier)
+			} else {
+				resp.PlayURL = fmt.Sprintf("%s/stream/%s?token=%s&exp=%d", coordBase, key, token, exp)
+				resp.VideoURL = fmt.Sprintf("%s/stream/%s.mp4?token=%s&exp=%d", coordBase, key, token, exp)
 			}
 		}
 

@@ -213,6 +213,9 @@ func (s *Service) Status(key string) (*StatusResponse, error) {
 			}
 		}
 	}
+	if streamURL != "" {
+		playPath = streamURL
+	}
 
 	resp := &StatusResponse{
 		Key:              key,
