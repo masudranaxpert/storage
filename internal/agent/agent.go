@@ -392,7 +392,16 @@ func (a *Agent) SendHeartbeat() (*cluster.NodeRecord, error) {
 	}
 
 	endpoint := fmt.Sprintf("%s/api/heartbeat", a.CoordinatorURL)
-	resp, err := a.client.Post(endpoint, "application/json", bytes.NewBuffer(data))
+	req, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create heartbeat request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if a.Secret != "" {
+		req.Header.Set("X-Cluster-Secret", a.Secret)
+		req.Header.Set("Authorization", "Bearer "+a.Secret)
+	}
+	resp, err := a.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("coordinator connection failed: %w", err)
 	}

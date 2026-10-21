@@ -273,11 +273,15 @@ func ProvisionVPS(ctx context.Context, req Request, linuxBinData []byte) (Result
 	}
 	grpcFlag := ""
 	if req.GRPCTarget != "" {
-		grpcFlag = fmt.Sprintf(" --grpc=%s", req.GRPCTarget)
+		target := req.GRPCTarget
+		target = strings.TrimPrefix(target, "http://")
+		target = strings.TrimPrefix(target, "https://")
+		grpcFlag = fmt.Sprintf(" --grpc=%s", target)
 	}
 	corsFlag := ""
 	if req.CORSOrigins != "" && req.CORSOrigins != "*" {
-		corsFlag = fmt.Sprintf(" --cors=%s", req.CORSOrigins)
+		cleanCORS := strings.ReplaceAll(req.CORSOrigins, " ", "")
+		corsFlag = fmt.Sprintf(" --cors=%q", cleanCORS)
 	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
@@ -569,11 +573,15 @@ func UpdateServiceOverSSH(ctx context.Context, req Request) error {
 			host = host[:i]
 		}
 		grpcTarget = fmt.Sprintf("%s:9090", host)
+	} else {
+		grpcTarget = strings.TrimPrefix(grpcTarget, "http://")
+		grpcTarget = strings.TrimPrefix(grpcTarget, "https://")
 	}
 	grpcFlag := fmt.Sprintf(" --grpc=%s", grpcTarget)
 	corsFlag := ""
 	if req.CORSOrigins != "" && req.CORSOrigins != "*" {
-		corsFlag = fmt.Sprintf(" --cors=%s", req.CORSOrigins)
+		cleanCORS := strings.ReplaceAll(req.CORSOrigins, " ", "")
+		corsFlag = fmt.Sprintf(" --cors=%q", cleanCORS)
 	}
 
 	serviceContent := fmt.Sprintf(`[Unit]
