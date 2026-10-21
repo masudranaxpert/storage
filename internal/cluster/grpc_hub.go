@@ -442,10 +442,14 @@ func DeriveGRPCTarget(coordinatorURL string, grpcPort int) string {
 	host = strings.TrimPrefix(host, "https://")
 	host = strings.TrimSuffix(host, "/")
 	if i := strings.LastIndex(host, ":"); i != -1 {
+		portPart := host[i+1:]
+		if portPart == "1213" && (grpcPort <= 0 || grpcPort == 9090) {
+			grpcPort = 9091
+		}
 		host = host[:i]
 	}
 	if grpcPort <= 0 {
-		grpcPort = 9090
+		grpcPort = 9091
 	}
 	return fmt.Sprintf("%s:%d", host, grpcPort)
 }

@@ -560,10 +560,11 @@ func UpdateServiceOverSSH(ctx context.Context, req Request) error {
 	if req.QuotaBytes > 0 {
 		quotaFlag = fmt.Sprintf(" --quota-bytes=%d", req.QuotaBytes)
 	}
-	grpcFlag := ""
-	if req.GRPCTarget != "" {
-		grpcFlag = fmt.Sprintf(" --grpc=%s", req.GRPCTarget)
+	grpcTarget := req.GRPCTarget
+	if grpcTarget == "" {
+		grpcTarget = cluster.DeriveGRPCTarget(req.CoordinatorURL, 9091)
 	}
+	grpcFlag := fmt.Sprintf(" --grpc=%s", grpcTarget)
 	corsFlag := ""
 	if req.CORSOrigins != "" && req.CORSOrigins != "*" {
 		corsFlag = fmt.Sprintf(" --cors=%s", req.CORSOrigins)
