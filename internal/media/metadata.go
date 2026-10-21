@@ -407,7 +407,7 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 		for idx, t := range tracks {
 			args = append(args, "-map", fmt.Sprintf("0:a:%d", idx))
 			args = append(args, audioFor(t.Codec)...)
-			args = append(args, "-vn", "-sn", "-dn", "-movflags", "+faststart", audioPaths[idx])
+			args = append(args, "-vn", "-sn", "-dn", "-map_chapters", "-1", "-movflags", "+faststart", audioPaths[idx])
 		}
 	} else {
 		args = append(args, "-map", "0:a:0?")
