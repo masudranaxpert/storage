@@ -29,6 +29,8 @@ const embedPlayerHTML = `<!DOCTYPE html>
     <script>if (typeof Artplayer === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/artplayer@5.2.3/dist/artplayer.js"><\/script>'); }</script>
     <script src="/static/js/vendor/hls.min.js?v=2"></script>
     <script>if (typeof Hls === 'undefined') { document.write('<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.8/dist/hls.min.js"><\/script>'); }</script>
+    <script src="https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.compiled.js"></script>
 </head>
 <body>
     <div id="artplayer"></div>
@@ -301,6 +303,35 @@ const embedPlayerHTML = `<!DOCTYPE html>
                         art.hls = hls;
                         art.on('destroy', function () { hls.destroy(); });
                     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = url;
+                    }
+                },
+                mpd: function (video, url, art) {
+                    if (window.dashjs) {
+                        if (art.dash) art.dash.reset();
+                        var player = dashjs.MediaPlayer().create();
+                        player.initialize(video, url, art.option.autoplay);
+                        art.dash = player;
+                        art.on('destroy', function () { player.reset(); });
+                    }
+                },
+                mp4: function (video, url, art) {
+                    if (window.shaka && shaka.Player.isBrowserSupported()) {
+                        if (art.shaka) {
+                            try { art.shaka.destroy(); } catch (_) {}
+                            art.shaka = null;
+                        }
+                        var player = new shaka.Player();
+                        player.attach(video).then(function() {
+                            return player.load(url, null, 'video/mp4');
+                        }).then(function() {
+                            art.shaka = player;
+                            art.on('destroy', function() { player.destroy(); });
+                        }).catch(function(err) {
+                            console.warn('Shaka player error, falling back to native video.src:', err);
+                            video.src = url;
+                        });
+                    } else {
                         video.src = url;
                     }
                 }
