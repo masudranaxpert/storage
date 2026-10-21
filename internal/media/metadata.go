@@ -306,18 +306,31 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		AudioMode:   audioMode(srcMeta.AudioTracks, forceAAC),
 	}
 
-	// Register audio tracks with their stream_{lang}.m3u8 / .m4s names
+	// Register audio tracks
 	meta.AudioTracks = make([]AudioTrackInfo, 0, len(srcMeta.AudioTracks))
-	for idx, aTrack := range srcMeta.AudioTracks {
-		lang := sanitizeStreamLang(idx, aTrack.Language)
-		m3u8Name := fmt.Sprintf("stream_%s.m3u8", lang)
-		m4sName := fmt.Sprintf("stream_%s.m4s", lang)
-		if stat, statErr := os.Stat(filepath.Join(dstDir, m4sName)); statErr == nil && stat.Size() > 0 {
-			aTrack.File = m3u8Name
-			if forceAAC || !isWebAudioCodec(aTrack.Codec) {
-				aTrack.Codec = "aac"
+	if len(srcMeta.AudioTracks) <= 1 {
+		// Single audio track is embedded directly inside stream_0
+		if len(srcMeta.AudioTracks) == 1 {
+			t := srcMeta.AudioTracks[0]
+			t.File = "" // embedded in stream_0
+			if forceAAC || !isWebAudioCodec(t.Codec) {
+				t.Codec = "aac"
 			}
-			meta.AudioTracks = append(meta.AudioTracks, aTrack)
+			meta.AudioTracks = append(meta.AudioTracks, t)
+		}
+	} else {
+		// Multi-audio: separate stream_{lang}.m3u8 files
+		for idx, aTrack := range srcMeta.AudioTracks {
+			lang := sanitizeStreamLang(idx, aTrack.Language)
+			m3u8Name := fmt.Sprintf("stream_%s.m3u8", lang)
+			m4sName := fmt.Sprintf("stream_%s.m4s", lang)
+			if stat, statErr := os.Stat(filepath.Join(dstDir, m4sName)); statErr == nil && stat.Size() > 0 {
+				aTrack.File = m3u8Name
+				if forceAAC || !isWebAudioCodec(aTrack.Codec) {
+					aTrack.Codec = "aac"
+				}
+				meta.AudioTracks = append(meta.AudioTracks, aTrack)
+			}
 		}
 	}
 
@@ -419,7 +432,7 @@ func runRemux(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []Audio
 		varMapParts = append(varMapParts, "v:0,agroup:audio")
 	}
 
-	if len(tracks) > 0 {
+	if len(tracks) > 1 {
 		seenLangCount := make(map[string]int)
 		for idx, t := range tracks {
 			args = append(args, "-map", fmt.Sprintf("0:a:%d", idx))
@@ -438,10 +451,15 @@ func runRemux(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []Audio
 			}
 			varMapParts = append(varMapParts, fmt.Sprintf("a:%d,agroup:audio,language:%s,name:%s,default:%s", idx, baseLang, streamName, defStr))
 		}
+	} else if len(tracks) == 1 {
+		// Single audio track: mux video and audio together into stream_0 (no separate audio demux)
+		args = append(args, "-map", "0:a:0")
+		args = append(args, audioFor(tracks[0].Codec)...)
+		varMapParts = []string{"v:0,a:0"}
 	} else if !probed {
 		args = append(args, "-map", "0:a:0?")
 		args = append(args, "-c:a", "aac", "-b:a", "192k")
-		varMapParts = append(varMapParts, "a:0,agroup:audio,language:und,name:audio_1,default:yes")
+		varMapParts = []string{"v:0,a:0"}
 	}
 
 	args = append(args,

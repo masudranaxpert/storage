@@ -693,11 +693,9 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		var masterURL string
 		if identifier != key {
 			directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-			baseClean := strings.TrimSuffix(directBase, ".mp4")
-			masterURL = fmt.Sprintf("%s/master.m3u8", baseClean)
+			masterURL = fmt.Sprintf("%s/master.m3u8", directBase)
 		} else {
-			baseClean := strings.TrimSuffix(directBase, ".mp4")
-			masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", baseClean, token, exp)
+			masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", directBase, token, exp)
 		}
 		resp.VideoURL = masterURL
 		resp.MasterURL = masterURL
