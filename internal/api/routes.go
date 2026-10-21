@@ -166,12 +166,17 @@ echo "[Stream Fix] Done! Node successfully upgraded."
 	// HTML Dashboard Views
 	mux.HandleFunc("/", s.handleDashboard)
 
-	// CORS and Header Middleware
+	// CORS and Header Middleware: restricted to public stream and health endpoints
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, HEAD")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, Origin, Accept, X-Cluster-Secret, X-API-Key")
-		w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+		path := r.URL.Path
+		if strings.HasPrefix(path, "/stream/") ||
+			strings.HasPrefix(path, "/api/stream/") ||
+			path == "/api/health" {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, HEAD")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Range, Origin, Accept, X-Cluster-Secret, X-API-Key")
+			w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+		}
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

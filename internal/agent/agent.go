@@ -52,6 +52,8 @@ type Agent struct {
 
 	relocateMu    sync.Mutex
 	relocateTasks map[string]context.CancelFunc
+
+	mediaCache sync.Map // in-memory cache: cleanSubPath -> resolvedFilePath
 }
 
 func (a *Agent) SetCORSOrigins(origins string) {
@@ -95,6 +97,10 @@ func (a *Agent) registerRoot(dir string) {
 	}
 	a.extraRoots[dir] = true
 	a.rootMu.Unlock()
+	a.mediaCache.Range(func(key, _ any) bool {
+		a.mediaCache.Delete(key)
+		return true
+	})
 	a.saveRoots()
 }
 
@@ -176,6 +182,15 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 	if strings.Contains(cleanSubPath, "..") {
 		return ""
 	}
+	if val, ok := a.mediaCache.Load(cleanSubPath); ok {
+		if cachedPath, ok := val.(string); ok && cachedPath != "" {
+			if _, err := os.Stat(cachedPath); err == nil {
+				return cachedPath
+			}
+			a.mediaCache.Delete(cleanSubPath)
+		}
+	}
+
 	a.rootMu.RLock()
 	roots := make([]string, 0, len(a.extraRoots)*2+2)
 	roots = append(roots, a.MediaDir)
@@ -192,6 +207,7 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 		candidate := filepath.Join(root, cleanSubPath)
 		if stat, err := os.Stat(candidate); err == nil {
 			if !stat.IsDir() {
+				a.mediaCache.Store(cleanSubPath, candidate)
 				return candidate
 			}
 			// Folder requested: auto-locate primary video (master.m3u8, .mp4, or .mkv)
@@ -199,12 +215,16 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			if err == nil {
 				for _, e := range entries {
 					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-						return filepath.Join(candidate, e.Name())
+						resolved := filepath.Join(candidate, e.Name())
+						a.mediaCache.Store(cleanSubPath, resolved)
+						return resolved
 					}
 				}
 				for _, e := range entries {
 					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
-						return filepath.Join(candidate, e.Name())
+						resolved := filepath.Join(candidate, e.Name())
+						a.mediaCache.Store(cleanSubPath, resolved)
+						return resolved
 					}
 				}
 			}
@@ -218,12 +238,16 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 				if err == nil {
 					for _, e := range entries {
 						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-							return filepath.Join(folderCandidate, e.Name())
+							resolved := filepath.Join(folderCandidate, e.Name())
+							a.mediaCache.Store(cleanSubPath, resolved)
+							return resolved
 						}
 					}
 					for _, e := range entries {
 						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
-							return filepath.Join(folderCandidate, e.Name())
+							resolved := filepath.Join(folderCandidate, e.Name())
+							a.mediaCache.Store(cleanSubPath, resolved)
+							return resolved
 						}
 					}
 				}

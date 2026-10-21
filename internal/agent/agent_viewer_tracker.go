@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -47,7 +48,10 @@ func (a *Agent) recordViewerHeartbeat(key, clientIP string) {
 			return
 		}
 		coord := strings.TrimRight(a.CoordinatorURL, "/")
-		req, err := http.NewRequest(http.MethodPost, coord+"/api/stream/heartbeat", bytes.NewReader(payload))
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, coord+"/api/stream/heartbeat", bytes.NewReader(payload))
 		if err != nil {
 			return
 		}
@@ -55,7 +59,10 @@ func (a *Agent) recordViewerHeartbeat(key, clientIP string) {
 		if a.Secret != "" {
 			req.Header.Set("X-Cluster-Secret", a.Secret)
 		}
-		client := &http.Client{Timeout: 3 * time.Second}
+		client := a.client
+		if client == nil {
+			client = http.DefaultClient
+		}
 		resp, err := client.Do(req)
 		if err == nil && resp != nil {
 			_ = resp.Body.Close()
@@ -94,7 +101,10 @@ func (a *Agent) recordPlayHit(key, clientIP string) {
 			return
 		}
 		coord := strings.TrimRight(a.CoordinatorURL, "/")
-		req, err := http.NewRequest(http.MethodPost, coord+"/api/lifecycle/hit", bytes.NewReader(payload))
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, coord+"/api/lifecycle/hit", bytes.NewReader(payload))
 		if err != nil {
 			return
 		}
@@ -102,9 +112,12 @@ func (a *Agent) recordPlayHit(key, clientIP string) {
 		if a.Secret != "" {
 			req.Header.Set("Authorization", "Bearer "+a.Secret)
 		}
-		client := &http.Client{Timeout: 3 * time.Second}
+		client := a.client
+		if client == nil {
+			client = http.DefaultClient
+		}
 		resp, err := client.Do(req)
-		if err == nil {
+		if err == nil && resp != nil {
 			_ = resp.Body.Close()
 		}
 	}()

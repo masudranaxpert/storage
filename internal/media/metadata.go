@@ -320,11 +320,23 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		}
 	}
 
-	// Subtitles: extract each text-based subtitle to WebVTT (.vtt)
+	// Subtitles: extract all text-based subtitles to WebVTT (.vtt) in a single ffmpeg pass
 	if ffmpegPath != "" && len(srcMeta.Subtitles) > 0 {
+		type subTarget struct {
+			track    SubtitleTrackInfo
+			filename string
+			path     string
+		}
+		var targets []subTarget
+		sArgs := []string{
+			"-y",
+			"-err_detect", "ignore_err",
+			"-fflags", "+genpts+discardcorrupt",
+			"-i", srcPath,
+		}
 		for idx, sTrack := range srcMeta.Subtitles {
 			if !isTextSubtitle(sTrack.Codec) {
-				continue // Skip bitmap subtitles (e.g. PGS / VobSub) which cannot be converted to WebVTT without OCR
+				continue // Skip bitmap subtitles (e.g. PGS / VobSub)
 			}
 			lang := sTrack.Language
 			if lang == "" {
@@ -332,19 +344,23 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 			}
 			vttFilename := fmt.Sprintf("subtitle_%d_%s.vtt", idx+1, lang)
 			vttOutPath := filepath.Join(dstDir, vttFilename)
+			targets = append(targets, subTarget{
+				track:    sTrack,
+				filename: vttFilename,
+				path:     vttOutPath,
+			})
+			sArgs = append(sArgs, "-map", fmt.Sprintf("0:s:%d", idx), vttOutPath)
+		}
 
-			sCmd := exec.Command(ffmpegPath,
-				"-y",
-				"-err_detect", "ignore_err",
-				"-fflags", "+genpts+discardcorrupt",
-				"-i", srcPath,
-				"-map", fmt.Sprintf("0:s:%d", idx),
-				vttOutPath,
-			)
+		if len(targets) > 0 {
+			sCmd := exec.Command(ffmpegPath, sArgs...)
 			if _, sErr := sCmd.CombinedOutput(); sErr == nil {
-				if stat, statErr := os.Stat(vttOutPath); statErr == nil && stat.Size() > 0 {
-					sTrack.File = vttFilename
-					meta.Subtitles = append(meta.Subtitles, sTrack)
+				for _, target := range targets {
+					if stat, statErr := os.Stat(target.path); statErr == nil && stat.Size() > 0 {
+						t := target.track
+						t.File = target.filename
+						meta.Subtitles = append(meta.Subtitles, t)
+					}
 				}
 			}
 		}
@@ -370,7 +386,6 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 	}
 	mp4Opts := []string{
 		"-max_muxing_queue_size", "2048",
-		"-avoid_negative_ts", "make_zero",
 		"-movflags", "+delay_moov+frag_keyframe+default_base_moof+global_sidx",
 		"-min_frag_duration", "2000000",
 	}
