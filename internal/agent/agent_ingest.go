@@ -551,7 +551,8 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 				sr := io.NewSectionReader(f, task.offset, task.length)
 
 				var uploadSuccess bool
-				for attempt := 1; attempt <= 3; attempt++ {
+				var lastErrStr string
+				for attempt := 1; attempt <= 6; attempt++ {
 					_, _ = sr.Seek(0, io.SeekStart)
 					var attemptBytes int64
 					pr := &progressCountingReader{
@@ -578,21 +579,28 @@ func (a *Agent) transferFolderParallel(ctx context.Context, key, baseDir string,
 					}
 					resp, err := a.transferClient.Do(req)
 					if err == nil {
-						resp.Body.Close()
 						if resp.StatusCode == http.StatusOK {
+							resp.Body.Close()
 							uploadSuccess = true
 							break
 						}
+						b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+						resp.Body.Close()
+						lastErrStr = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+					} else {
+						lastErrStr = err.Error()
 					}
 					// If attempt failed or rejected, rollback byte progress before retry
 					transferred.Add(-attemptBytes)
-					time.Sleep(time.Duration(attempt*200) * time.Millisecond)
+					time.Sleep(time.Duration(attempt) * time.Second)
 				}
 				f.Close()
 
 				if !uploadSuccess {
 					errMu.Lock()
-					workerErr = fmt.Errorf("failed chunk %s at offset %d after 3 retries", task.file.relPath, task.offset)
+					if workerErr == nil {
+						workerErr = fmt.Errorf("failed chunk %s at offset %d after 6 retries: %s", task.file.relPath, task.offset, lastErrStr)
+					}
 					errMu.Unlock()
 					return
 				}

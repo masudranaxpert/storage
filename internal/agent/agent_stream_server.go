@@ -436,7 +436,7 @@ func (a *Agent) startStreamingServer(ctx context.Context) {
 
 		if f == nil {
 			var err error
-			f, err = os.OpenFile(dest, os.O_WRONLY, 0644)
+			f, err = os.OpenFile(dest, os.O_CREATE|os.O_WRONLY, 0644)
 			if err != nil {
 				http.Error(w, "open file failed: "+err.Error(), http.StatusInternalServerError)
 				return
