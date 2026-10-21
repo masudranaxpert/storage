@@ -1486,10 +1486,13 @@
 
         let activeStreamUrl = streamUrl;
         let baseDirUrl = resolveBaseDirUrl(activeStreamUrl, job);
-        if (meta && (meta.master_m3u8 || meta.mime_type === 'application/vnd.apple.mpegurl')) {
-            activeStreamUrl = `${baseDirUrl}/${meta.master_m3u8 || 'master.m3u8'}`;
+        if (meta && meta.master_m3u8) {
+            activeStreamUrl = `${baseDirUrl}/${meta.master_m3u8}`;
+        } else if (meta && meta.filename && meta.filename.includes('.mp4')) {
+            // File is progressive MP4, keep original stream ticket / URL
+            activeStreamUrl = streamUrl;
         } else if (!activeStreamUrl.includes('.m3u8') && !activeStreamUrl.includes('.mp4')) {
-            // When URL is a ticket or folder (/stream/t_... or /stream/KEY), append /master.m3u8 as primary
+            // Default new packages to master.m3u8
             activeStreamUrl = `${activeStreamUrl}/master.m3u8`;
         }
 
@@ -1875,8 +1878,8 @@
                 crossOrigin: 'anonymous'
             };
 
-            const isExplicitMP4 = streamUrl.toLowerCase().endsWith('.mp4') || streamUrl.includes('.mp4?');
-            const streamType = (!isExplicitMP4 || streamUrl.includes('.m3u8')) ? 'm3u8' : 'mp4';
+            const isM3U8 = streamUrl.includes('.m3u8') || (meta && !!meta.master_m3u8);
+            const streamType = isM3U8 ? 'm3u8' : 'mp4';
 
             const artOptions = {
                 container: '#artplayer-container',
