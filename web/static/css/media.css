@@ -494,7 +494,7 @@
 }
 
 #media-data-table th.col-asset {
-    width: 36%;
+    width: 33%;
 }
 
 #media-data-table th.col-specs {
@@ -516,7 +516,8 @@
 }
 
 #media-data-table th.col-actions {
-    width: 112px;
+    width: 140px;
+    min-width: 140px;
     text-align: right;
     padding-right: 16px;
 }
@@ -538,6 +539,7 @@
 #media-data-table td.media-cell-actions {
     text-align: right;
     padding-right: 16px;
+    padding-left: 6px;
     white-space: nowrap;
     position: relative;
 }
