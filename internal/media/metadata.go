@@ -386,8 +386,7 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 	}
 	mp4Opts := []string{
 		"-max_muxing_queue_size", "2048",
-		"-movflags", "+delay_moov+default_base_moof+global_sidx",
-		"-frag_duration", "2000000",
+		"-movflags", "+faststart",
 	}
 
 	args := []string{
@@ -411,8 +410,7 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 			args = append(args,
 				"-vn", "-sn", "-dn",
 				"-map_chapters", "-1",
-				"-movflags", "+delay_moov+default_base_moof+global_sidx",
-				"-frag_duration", "2000000",
+				"-movflags", "+faststart",
 				audioPaths[idx],
 			)
 		}
