@@ -568,8 +568,8 @@
         if (!activeSelectedNode) return;
         const nodeId = activeSelectedNode.metrics.node_id;
         const btn = document.getElementById('btn-modal-redeploy-agent');
-        const textSpan = document.getElementById('btn-modal-redeploy-text');
         const coordUrl = document.getElementById('modal-edit-coord-url')?.value?.trim() || `${window.location.protocol}//${window.location.host}`;
+        const grpcTarget = document.getElementById('modal-edit-grpc-target')?.value?.trim() || '';
         const sshHost = document.getElementById('modal-edit-ssh-host')?.value?.trim();
         const sshPort = parseInt(document.getElementById('modal-edit-ssh-port')?.value, 10) || 22;
         const sshUser = document.getElementById('modal-edit-ssh-user')?.value?.trim() || 'root';
@@ -581,6 +581,7 @@
         try {
             const payload = {
                 coordinator_url: coordUrl,
+                grpc_target: grpcTarget,
                 ssh_host: sshHost,
                 ssh_port: sshPort,
                 ssh_user: sshUser
@@ -1127,6 +1128,11 @@
                     checkEditCoordUrlSafety(coordUrlInput.value);
                 }
 
+                const grpcTargetInput = document.getElementById('modal-edit-grpc-target');
+                if (grpcTargetInput) {
+                    grpcTargetInput.value = cfg.grpc_target || '';
+                }
+
                 syncNodeCorsState(cfg.cors_allowed_origins || '*');
 
                 const labelEl = document.getElementById('modal-edit-label');
@@ -1202,6 +1208,7 @@
         const allocGB = parseInt(document.getElementById('modal-quota-input')?.value) || 0;
         const maxBytes = allocGB * 1024 * 1024 * 1024;
         const coordUrl = document.getElementById('modal-edit-coord-url')?.value?.trim() || '';
+        const grpcTarget = document.getElementById('modal-edit-grpc-target')?.value?.trim() || '';
         const corsOrigins = document.getElementById('modal-edit-cors-origins')?.value?.trim() || '*';
 
         const sshHost = document.getElementById('modal-edit-ssh-host')?.value?.trim() || '';
@@ -1215,6 +1222,7 @@
             enabled: enabled,
             allocated_max_bytes: maxBytes,
             coordinator_url: coordUrl,
+            grpc_target: grpcTarget,
             cors_allowed_origins: corsOrigins,
             ssh_host: sshHost,
             ssh_port: sshPort,
@@ -1386,6 +1394,7 @@
 
         const coordUrlInput = document.getElementById('vps-input-coordinator-url')?.value?.trim();
         const coordinatorUrl = coordUrlInput || `${window.location.protocol}//${window.location.host}`;
+        const grpcTarget = document.getElementById('vps-input-grpc-target')?.value?.trim() || '';
 
         const logBox = document.getElementById('provision-log-box');
         const logContent = document.getElementById('provision-log-content');
@@ -1408,7 +1417,8 @@
             use_sudo: useSudo,
             node_name: name,
             advertise_addr: host,
-            coordinator_url: coordinatorUrl
+            coordinator_url: coordinatorUrl,
+            grpc_target: grpcTarget
         };
 
         const finishSuccess = (extraHtml = '') => {

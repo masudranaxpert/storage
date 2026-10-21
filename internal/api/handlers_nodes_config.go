@@ -38,6 +38,7 @@ func (s *Server) handleNodeConfigSave(w http.ResponseWriter, r *http.Request, no
 			SSHUser           *string `json:"ssh_user,omitempty"`
 			SSHPassword       *string `json:"ssh_password,omitempty"`
 			SSHUseSudo        *bool   `json:"ssh_use_sudo,omitempty"`
+			GRPCTarget        *string `json:"grpc_target,omitempty"`
 			CORSAllowedOrigins *string `json:"cors_allowed_origins,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -56,6 +57,15 @@ func (s *Server) handleNodeConfigSave(w http.ResponseWriter, r *http.Request, no
 		var coordChanged bool
 		var quotaChanged bool
 		var corsChanged bool
+		var grpcChanged bool
+
+		if payload.GRPCTarget != nil {
+			newGRPC := strings.TrimSpace(*payload.GRPCTarget)
+			if newGRPC != cfg.GRPCTarget {
+				cfg.GRPCTarget = newGRPC
+				grpcChanged = true
+			}
+		}
 
 		if payload.CORSAllowedOrigins != nil {
 			trimmed := strings.TrimSpace(*payload.CORSAllowedOrigins)
@@ -110,7 +120,7 @@ func (s *Server) handleNodeConfigSave(w http.ResponseWriter, r *http.Request, no
 			}
 		}
 
-		if (coordChanged || quotaChanged || corsChanged) && cfg.SSHHost != "" && cfg.SSHPassword != "" {
+		if (coordChanged || quotaChanged || corsChanged || grpcChanged) && cfg.SSHHost != "" && cfg.SSHPassword != "" {
 			go func(c database.NodeConfig) {
 				secret := ""
 				if s.hub != nil {
@@ -124,6 +134,7 @@ func (s *Server) handleNodeConfigSave(w http.ResponseWriter, r *http.Request, no
 					UseSudo:        c.SSHUseSudo,
 					NodeName:       c.NodeID,
 					CoordinatorURL: c.CoordinatorURL,
+					GRPCTarget:     c.GRPCTarget,
 					QuotaBytes:     c.AllocatedMaxBytes,
 					CORSOrigins:    c.CORSAllowedOrigins,
 					Secret:         secret,
@@ -132,7 +143,7 @@ func (s *Server) handleNodeConfigSave(w http.ResponseWriter, r *http.Request, no
 					fmt.Printf("[Config Update] Remote agent reconfiguration on '%s' (%s) failed: %v\n", c.NodeID, c.SSHHost, err)
 					return
 				}
-				fmt.Printf("[Config Update] Remote agent on '%s' reconfigured (join=%s, quota=%d, cors=%s)\n", c.NodeID, c.CoordinatorURL, c.AllocatedMaxBytes, c.CORSAllowedOrigins)
+				fmt.Printf("[Config Update] Remote agent on '%s' reconfigured (join=%s, grpc=%s, quota=%d, cors=%s)\n", c.NodeID, c.CoordinatorURL, c.GRPCTarget, c.AllocatedMaxBytes, c.CORSAllowedOrigins)
 			}(*cfg)
 		}
 

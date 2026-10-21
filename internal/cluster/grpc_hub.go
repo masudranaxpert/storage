@@ -436,20 +436,16 @@ func metricsFromProto(hb *pb.Heartbeat) telemetry.NodeMetrics {
 
 // DeriveGRPCTarget converts a coordinator HTTP URL (e.g. http://host:1212)
 // into a host:port gRPC target, so agents provisioned with only --join
-// automatically find the control plane on its standard port.
+// automatically find the control plane on its standard port (default 9090).
 func DeriveGRPCTarget(coordinatorURL string, grpcPort int) string {
 	host := strings.TrimPrefix(coordinatorURL, "http://")
 	host = strings.TrimPrefix(host, "https://")
 	host = strings.TrimSuffix(host, "/")
 	if i := strings.LastIndex(host, ":"); i != -1 {
-		portPart := host[i+1:]
-		if portPart == "1213" && (grpcPort <= 0 || grpcPort == 9090) {
-			grpcPort = 9091
-		}
 		host = host[:i]
 	}
 	if grpcPort <= 0 {
-		grpcPort = 9091
+		grpcPort = DefaultGRPCPort
 	}
 	return fmt.Sprintf("%s:%d", host, grpcPort)
 }

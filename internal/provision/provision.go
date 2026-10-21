@@ -562,7 +562,13 @@ func UpdateServiceOverSSH(ctx context.Context, req Request) error {
 	}
 	grpcTarget := req.GRPCTarget
 	if grpcTarget == "" {
-		grpcTarget = cluster.DeriveGRPCTarget(req.CoordinatorURL, 9091)
+		host := strings.TrimPrefix(req.CoordinatorURL, "http://")
+		host = strings.TrimPrefix(host, "https://")
+		host = strings.TrimSuffix(host, "/")
+		if i := strings.LastIndex(host, ":"); i != -1 {
+			host = host[:i]
+		}
+		grpcTarget = fmt.Sprintf("%s:9090", host)
 	}
 	grpcFlag := fmt.Sprintf(" --grpc=%s", grpcTarget)
 	corsFlag := ""
