@@ -113,22 +113,26 @@ func TestRemuxToStreamableMP4Codecs(t *testing.T) {
 					t.Fatalf("audio codec %q is not browser-playable", a.Codec)
 				}
 			}
-			assertFastStart(t, dst)
+			masterPath := filepath.Join(outDir, "master.m3u8")
+			if _, err := os.Stat(masterPath); err != nil {
+				t.Fatalf("expected master.m3u8 to exist: %v", err)
+			}
+			videoM4s := filepath.Join(outDir, "stream_0.m4s")
+			assertFMP4SingleFile(t, videoM4s)
 		})
 	}
 }
 
-// assertFastStart checks the moov atom precedes mdat so playback can begin
-// after the first few kilobytes.
-func assertFastStart(t *testing.T, path string) {
+// assertFMP4SingleFile checks fMP4 single-file structure containing ftyp and moov.
+func assertFMP4SingleFile(t *testing.T, path string) {
 	t.Helper()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	ftyp := bytes.Index(data, []byte("ftyp"))
 	moov := bytes.Index(data, []byte("moov"))
-	mdat := bytes.Index(data, []byte("mdat"))
-	if moov < 0 || mdat < 0 || moov > mdat {
-		t.Fatalf("not fast-start: moov at %d, mdat at %d", moov, mdat)
+	if ftyp < 0 || moov < 0 {
+		t.Fatalf("not valid fMP4: ftyp at %d, moov at %d", ftyp, moov)
 	}
 }

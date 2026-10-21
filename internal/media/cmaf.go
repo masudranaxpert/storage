@@ -57,11 +57,11 @@ func RemuxAndPackageCMAF(srcPath, outputDir, mediaID string) (*CMAFPackage, erro
 	}
 
 	plan := PlanVideo(srcMeta.Video, probed)
-	out, runErr := runRemux(ffmpegPath, srcPath, targetMP4Path, plan, tracks, nil, probed, false)
+	out, runErr := runRemux(ffmpegPath, srcPath, outputDir, plan, tracks, probed, false)
 	if runErr != nil && plan.Mode == VideoCopy {
 		_ = os.Remove(targetMP4Path)
 		plan = TranscodePlan("copy pass failed: " + lastLine(out))
-		out, runErr = runRemux(ffmpegPath, srcPath, targetMP4Path, plan, tracks, nil, probed, true)
+		out, runErr = runRemux(ffmpegPath, srcPath, outputDir, plan, tracks, probed, true)
 	}
 	if runErr != nil {
 		_ = os.Remove(targetMP4Path)

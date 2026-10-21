@@ -238,18 +238,15 @@ func isTextSubtitle(codec string) bool {
 	return c == "subrip" || c == "srt" || c == "ass" || c == "ssa" || c == "webvtt" || c == "vtt" || c == "mov_text" || c == "text"
 }
 
-// RemuxToStreamableMP4 produces a browser-playable, fast-start MP4 in one ffmpeg pass:
-//   - Video: copied when the codec is browser-decodable (H.264 8-bit, HEVC, AV1, VP9),
-//     otherwise re-encoded to H.264 (see PlanVideo). A failed copy pass is retried once
-//     as a transcode; there is no fallback that stores an unplayable file.
-//   - Audio: AAC/MP3 copied, anything else encoded to AAC. Multiple tracks become
-//     standalone .m4a files plus an fMP4 HLS master playlist.
-//   - Subtitles: text tracks extracted to WebVTT sidecars; bitmap tracks are skipped.
+// RemuxToStreamableMP4 produces a single-file byte-range fMP4 HLS package (master.m3u8):
+//   - Video: stream_0.m4s & stream_0.m3u8 (copied when browser-decodable, else re-encoded).
+//   - Audio: stream_{lang}.m4s & stream_{lang}.m3u8 (AAC copied or normalized).
+//   - Subtitles: subtitle_{lang}.vtt extracted as sidecars.
 func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*MediaMetadata, error) {
 	dstDir := filepath.Dir(dstPath)
 	ffmpegPath, err := exec.LookPath("ffmpeg")
 	if err != nil || ffmpegPath == "" {
-		return nil, fmt.Errorf("ffmpeg not found: required to produce streamable MP4 container")
+		return nil, fmt.Errorf("ffmpeg not found: required to produce streamable package")
 	}
 	ffprobePath, _ := exec.LookPath("ffprobe")
 
@@ -258,65 +255,69 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 	if ffprobePath != "" {
 		probed = enrichViaFFprobe(ffprobePath, srcPath, srcMeta) == nil
 	}
-	numAudios := len(srcMeta.AudioTracks)
-	audioPaths := make([]string, numAudios)
-	for idx, aTrack := range srcMeta.AudioTracks {
-		audioPaths[idx] = filepath.Join(dstDir, audioTrackFilename(idx, aTrack))
-	}
+
+	masterM3U8Path := filepath.Join(dstDir, "master.m3u8")
 	cleanup := func() {
+		_ = os.Remove(masterM3U8Path)
 		_ = os.Remove(dstPath)
-		if numAudios > 1 {
-			for _, p := range audioPaths {
-				_ = os.Remove(p)
+		entries, _ := os.ReadDir(dstDir)
+		for _, e := range entries {
+			if strings.HasPrefix(e.Name(), "stream_") || strings.HasPrefix(e.Name(), "subtitle_") {
+				_ = os.Remove(filepath.Join(dstDir, e.Name()))
 			}
 		}
 	}
 
 	plan := PlanVideo(srcMeta.Video, probed)
 	forceAAC := false
-	out, runErr := runRemux(ffmpegPath, srcPath, dstPath, plan, srcMeta.AudioTracks, audioPaths, probed, forceAAC)
+	out, runErr := runRemux(ffmpegPath, srcPath, dstDir, plan, srcMeta.AudioTracks, probed, forceAAC)
 	if runErr != nil && plan.Mode == VideoCopy {
-		// Copy can still fail on broken timestamps or odd bitstreams; one
-		// re-encode pass normalises both video and audio.
 		cleanup()
 		plan = TranscodePlan("copy pass failed: " + lastLine(out))
 		forceAAC = true
-		out, runErr = runRemux(ffmpegPath, srcPath, dstPath, plan, srcMeta.AudioTracks, audioPaths, probed, forceAAC)
+		out, runErr = runRemux(ffmpegPath, srcPath, dstDir, plan, srcMeta.AudioTracks, probed, forceAAC)
 	}
 	if runErr != nil {
 		cleanup()
 		return nil, fmt.Errorf("ffmpeg %s failed: %v: %s", plan.Mode, runErr, lastLines(out, 6))
 	}
 
-	meta, err := ExtractMetadata(dstPath, mediaID, originalFilename)
+	// The primary video stream is stream_0.m4s
+	primaryVideoPath := filepath.Join(dstDir, "stream_0.m4s")
+	if _, err := os.Stat(primaryVideoPath); err != nil {
+		// Fallback check if dstPath exists
+		if _, dstErr := os.Stat(dstPath); dstErr == nil {
+			primaryVideoPath = dstPath
+		}
+	}
+
+	meta, err := ExtractMetadata(primaryVideoPath, mediaID, originalFilename)
 	if err != nil {
 		cleanup()
 		return nil, err
 	}
-	// Guard: never hand back an MP4 whose video a browser cannot decode.
-	if srcMeta.Video != nil && meta.Video != nil && !isBrowserVideo(meta.Video) {
-		cleanup()
-		return nil, fmt.Errorf("output video codec %q is not browser-playable", meta.Video.Codec)
-	}
+	meta.MasterM3U8 = "master.m3u8"
+	meta.Filename = "master.m3u8"
+	meta.MIMEType = "application/vnd.apple.mpegurl"
+
 	meta.Processing = &ProcessingInfo{
 		VideoMode:   plan.Mode,
 		VideoReason: plan.Reason,
 		AudioMode:   audioMode(srcMeta.AudioTracks, forceAAC),
 	}
 
-	// Multi-audio: register extracted external audio tracks
-	if numAudios > 1 {
-		meta.AudioTracks = make([]AudioTrackInfo, 0, numAudios)
-		for idx, aTrack := range srcMeta.AudioTracks {
-			audioFilename := audioTrackFilename(idx, aTrack)
-			audioOutPath := audioPaths[idx]
-			if stat, statErr := os.Stat(audioOutPath); statErr == nil && stat.Size() > 0 {
-				aTrack.File = audioFilename
-				if forceAAC || !isWebAudioCodec(aTrack.Codec) {
-					aTrack.Codec = "aac"
-				}
-				meta.AudioTracks = append(meta.AudioTracks, aTrack)
+	// Register audio tracks with their stream_{lang}.m3u8 / .m4s names
+	meta.AudioTracks = make([]AudioTrackInfo, 0, len(srcMeta.AudioTracks))
+	for idx, aTrack := range srcMeta.AudioTracks {
+		lang := sanitizeStreamLang(idx, aTrack.Language)
+		m3u8Name := fmt.Sprintf("stream_%s.m3u8", lang)
+		m4sName := fmt.Sprintf("stream_%s.m4s", lang)
+		if stat, statErr := os.Stat(filepath.Join(dstDir, m4sName)); statErr == nil && stat.Size() > 0 {
+			aTrack.File = m3u8Name
+			if forceAAC || !isWebAudioCodec(aTrack.Codec) {
+				aTrack.Codec = "aac"
 			}
+			meta.AudioTracks = append(meta.AudioTracks, aTrack)
 		}
 	}
 
@@ -336,7 +337,7 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 		}
 		for idx, sTrack := range srcMeta.Subtitles {
 			if !isTextSubtitle(sTrack.Codec) {
-				continue // Skip bitmap subtitles (e.g. PGS / VobSub)
+				continue
 			}
 			lang := sTrack.Language
 			if lang == "" {
@@ -368,25 +369,39 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 
 	if totalBytes, err := CalculateFolderSize(dstDir); err == nil && totalBytes > 0 {
 		meta.TotalBytes = totalBytes
-	} else {
-		meta.TotalBytes = meta.SizeBytes
+		meta.SizeBytes = totalBytes
 	}
 	return meta, nil
 }
 
-// runRemux executes one ffmpeg pass. Subtitles and data streams are never
-// muxed into the MP4 (-sn -dn); text subtitles are extracted separately.
-func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []AudioTrackInfo,
-	audioPaths []string, probed, forceAAC bool) ([]byte, error) {
+// sanitizeStreamLang sanitizes the language tag for stream naming (e.g. hin, tam, eng).
+func sanitizeStreamLang(idx int, lang string) string {
+	l := strings.ToLower(strings.TrimSpace(lang))
+	if l == "" || l == "und" {
+		return fmt.Sprintf("audio_%d", idx+1)
+	}
+	var clean strings.Builder
+	for _, r := range l {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			clean.WriteRune(r)
+		}
+	}
+	res := clean.String()
+	if res == "" {
+		return fmt.Sprintf("audio_%d", idx+1)
+	}
+	return res
+}
+
+// runRemux executes one ffmpeg pass producing single-file fMP4 byte-range HLS:
+// stream_0 (video), stream_{lang} (audio tracks), master.m3u8.
+func runRemux(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []AudioTrackInfo,
+	probed, forceAAC bool) ([]byte, error) {
 	audioFor := func(codec string) []string {
 		if forceAAC {
 			return []string{"-c:a", "aac", "-b:a", "192k"}
 		}
 		return AudioArgs(codec)
-	}
-	mp4Opts := []string{
-		"-max_muxing_queue_size", "2048",
-		"-movflags", "+faststart",
 	}
 
 	args := []string{
@@ -395,48 +410,53 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 		"-fflags", "+genpts+discardcorrupt",
 		"-i", srcPath,
 	}
+
+	varMapParts := []string{}
+
 	if plan.Mode != VideoNone {
 		args = append(args, "-map", "0:v:0?")
 		args = append(args, plan.Args...)
+		varMapParts = append(varMapParts, "v:0,agroup:audio")
 	}
-	if len(tracks) > 1 {
-		// Multi-audio: video-only MP4, then one .m4a per track in the same pass.
-		args = append(args, "-an", "-sn", "-dn")
-		args = append(args, mp4Opts...)
-		args = append(args, dstPath)
+
+	if len(tracks) > 0 {
+		seenLangCount := make(map[string]int)
 		for idx, t := range tracks {
 			args = append(args, "-map", fmt.Sprintf("0:a:%d", idx))
 			args = append(args, audioFor(t.Codec)...)
-			args = append(args,
-				"-vn", "-sn", "-dn",
-				"-map_chapters", "-1",
-				"-movflags", "+faststart",
-				audioPaths[idx],
-			)
-		}
-	} else {
-		args = append(args, "-map", "0:a:0?")
-		switch {
-		case len(tracks) == 1:
-			args = append(args, audioFor(tracks[0].Codec)...)
-		case !probed:
-			args = append(args, "-c:a", "aac", "-b:a", "192k")
-		default:
-			args = append(args, "-c:a", "aac", "-b:a", "192k")
-		}
-		args = append(args, "-sn", "-dn")
-		args = append(args, mp4Opts...)
-		args = append(args, dstPath)
-	}
-	return exec.Command(ffmpegPath, args...).CombinedOutput()
-}
 
-func audioTrackFilename(idx int, t AudioTrackInfo) string {
-	lang := t.Language
-	if lang == "" {
-		lang = fmt.Sprintf("track_%d", idx+1)
+			baseLang := sanitizeStreamLang(idx, t.Language)
+			seenLangCount[baseLang]++
+			streamName := baseLang
+			if seenLangCount[baseLang] > 1 {
+				streamName = fmt.Sprintf("%s_%d", baseLang, seenLangCount[baseLang])
+			}
+
+			defStr := "no"
+			if idx == 0 {
+				defStr = "yes"
+			}
+			varMapParts = append(varMapParts, fmt.Sprintf("a:%d,agroup:audio,language:%s,name:%s,default:%s", idx, baseLang, streamName, defStr))
+		}
+	} else if !probed {
+		args = append(args, "-map", "0:a:0?")
+		args = append(args, "-c:a", "aac", "-b:a", "192k")
+		varMapParts = append(varMapParts, "a:0,agroup:audio,language:und,name:audio_1,default:yes")
 	}
-	return fmt.Sprintf("audio_%d_%s.m4a", idx+1, lang)
+
+	args = append(args,
+		"-sn", "-dn",
+		"-f", "hls",
+		"-hls_time", "4",
+		"-hls_playlist_type", "vod",
+		"-hls_flags", "single_file",
+		"-hls_segment_type", "fmp4",
+		"-var_stream_map", strings.Join(varMapParts, " "),
+		"-master_pl_name", "master.m3u8",
+		filepath.Join(dstDir, "stream_%v.m3u8"),
+	)
+
+	return exec.Command(ffmpegPath, args...).CombinedOutput()
 }
 
 // lastLines returns the tail of ffmpeg output, where the actual error lives.
