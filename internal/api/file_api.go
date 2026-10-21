@@ -704,6 +704,9 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 				scheme = "https"
 			}
 			coordBase := fmt.Sprintf("%s://%s", scheme, r.Host)
+			if strings.Contains(coordBase, "204.136.10.31") || strings.Contains(coordBase, "104.244.76.154") || strings.Contains(coordBase, "172.67.222.45") {
+				coordBase = "https://stream1.gcloud.cyou"
+			}
 			if identifier != key {
 				resp.PlayURL = fmt.Sprintf("%s/stream/%s", coordBase, identifier)
 				resp.VideoURL = fmt.Sprintf("%s/stream/%s.mp4", coordBase, identifier)

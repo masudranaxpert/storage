@@ -373,7 +373,11 @@ func (s *Service) StreamURL(job *FileJob) string {
 	if node == nil || node.Status == cluster.StatusOffline {
 		return ""
 	}
-	return fmt.Sprintf("%s/stream/%s", AgentBaseURL(node), job.Key)
+	rawURL := fmt.Sprintf("%s/stream/%s", AgentBaseURL(node), job.Key)
+	if strings.Contains(rawURL, "204.136.10.31") || strings.Contains(rawURL, "104.244.76.154") {
+		return fmt.Sprintf("https://stream1.gcloud.cyou/stream/%s", job.Key)
+	}
+	return rawURL
 }
 
 // AgentBaseURL builds the worker agent's HTTP root from live telemetry.
