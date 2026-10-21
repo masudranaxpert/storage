@@ -391,6 +391,10 @@ func (s *Service) logProgress(job *FileJob, up *ProgressUpdate) {
 
 // Status assembles the public status view for a key.
 func (s *Service) Retry(key string) (*FileJob, error) {
+	return s.RetryOpt(key, false)
+}
+
+func (s *Service) RetryOpt(key string, force bool) (*FileJob, error) {
 	job, err := s.store.GetFileJob(key)
 	if err != nil || job == nil {
 		return nil, fmt.Errorf("job not found for key %s", key)
@@ -399,7 +403,7 @@ func (s *Service) Retry(key string) (*FileJob, error) {
 	if err != nil || rec == nil {
 		return nil, fmt.Errorf("file record not found for key %s", key)
 	}
-	if job.State == StateCompleted {
+	if job.State == StateCompleted && !force {
 		return nil, fmt.Errorf("job '%s' is already completed and ready", key)
 	}
 	job.State = StateDownloading

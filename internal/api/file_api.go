@@ -335,7 +335,8 @@ func (s *Service) handleRetry(w http.ResponseWriter, r *http.Request, key string
 		writeErr(w, http.StatusMethodNotAllowed, fmt.Errorf("method not allowed"))
 		return
 	}
-	job, err := s.Retry(key)
+	force := r.URL.Query().Get("force") == "1" || r.URL.Query().Get("force") == "true"
+	job, err := s.RetryOpt(key, force)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
