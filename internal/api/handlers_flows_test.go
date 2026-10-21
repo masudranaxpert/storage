@@ -396,7 +396,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// 6. Streaming redirect: unauthenticated request without token must return 403 Forbidden
-	unauthReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey, nil)
+	unauthReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8", nil)
 	unauthReq.RemoteAddr = "203.0.113.50:54321"
 	unauthRec := httptest.NewRecorder()
 	handler.ServeHTTP(unauthRec, unauthReq)
@@ -409,7 +409,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	tok := cluster.GenerateStreamToken(testKey, exp, "test-secret")
 	tokenQuery := fmt.Sprintf("?token=%s&exp=%d", tok, exp)
 
-	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+tokenQuery, nil)
+	playReq1 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
 	playReq1.RemoteAddr = "203.0.113.50:54321"
 	playRec1 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec1, playReq1)
@@ -421,7 +421,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 	}
 
 	// Second play from same client IP within 30m -> deduped, pending hits stays 1
-	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+tokenQuery, nil)
+	playReq2 := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/master.m3u8"+tokenQuery, nil)
 	playReq2.RemoteAddr = "203.0.113.50:54322" // same IP host
 	playRec2 := httptest.NewRecorder()
 	handler.ServeHTTP(playRec2, playReq2)
@@ -432,7 +432,7 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 		t.Fatalf("expected hits to remain 1 due to 30m IP deduplication, got %d", hits)
 	}
 
-	// Sub-track request (.vtt) -> must NOT count as a primary play
+	// Segment and sub-track requests -> must NOT count as a primary play
 	subReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/subtitle_1_eng.vtt"+tokenQuery, nil)
 	subReq.RemoteAddr = "203.0.113.99:12345" // new IP
 	subRec := httptest.NewRecorder()
@@ -444,24 +444,31 @@ func TestDemandPlacementAndPreviewEndpoints(t *testing.T) {
 		t.Fatalf("sub-track .vtt should not be counted as a hit, got pending %d", hits)
 	}
 
-	// 7. Test ArtPlayer embed: browser requesting stream with Accept: text/html must receive 200 OK HTML
+	segReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+"/stream_0.m4s"+tokenQuery, nil)
+	segReq.RemoteAddr = "203.0.113.98:12345" // new IP
+	segRec := httptest.NewRecorder()
+	handler.ServeHTTP(segRec, segReq)
+	if segRec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 on segment redirect, got %d", segRec.Code)
+	}
+	if hits := srv.Engine().Hits().Pending(testKey); hits != 1 {
+		t.Fatalf("segment request should not be counted as a hit, got pending %d", hits)
+	}
+
+	// A bare /stream/<key> (no file) is not a playable resource anymore.
+	bareReq := httptest.NewRequest(http.MethodGet, "/stream/"+testKey+tokenQuery, nil)
+	bareRec := httptest.NewRecorder()
+	handler.ServeHTTP(bareRec, bareReq)
+	if bareRec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 for a stream URL without a file, got %d", bareRec.Code)
+	}
+
+	// 7. Ticket stream URL retention: a ticket request must preserve the ticket and never leak the key
 	ticket, err := cluster.GeneratePlaybackTicket(testKey, exp, "test-secret")
 	if err != nil {
 		t.Fatalf("generate ticket: %v", err)
 	}
-	embedReq := httptest.NewRequest(http.MethodGet, "/stream/"+ticket, nil)
-	embedReq.Header.Set("Accept", "text/html,application/xhtml+xml")
-	embedRec := httptest.NewRecorder()
-	handler.ServeHTTP(embedRec, embedReq)
-	if embedRec.Code != http.StatusOK {
-		t.Fatalf("expected 200 OK on embed player HTML, got %d", embedRec.Code)
-	}
-	if !strings.Contains(embedRec.Body.String(), "artplayer") {
-		t.Fatalf("expected embed HTML to contain artplayer, got: %s", embedRec.Body.String()[:200])
-	}
-
-	// 8. Test ticket stream URL retention: non-HTML stream request with ticket must preserve ticket
-	rawReq := httptest.NewRequest(http.MethodGet, "/stream/"+ticket, nil)
+	rawReq := httptest.NewRequest(http.MethodGet, "/stream/"+ticket+"/master.m3u8", nil)
 	rawRec := httptest.NewRecorder()
 	handler.ServeHTTP(rawRec, rawReq)
 	if rawRec.Code != http.StatusTemporaryRedirect {

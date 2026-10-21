@@ -45,7 +45,7 @@ func newTransferHTTPClient() *http.Client {
 	}
 }
 
-// RunIngestJob downloads a source media file and packages it into CMAF on this
+// RunIngestJob downloads a source media file and packages it into byte-range HLS on this
 // node, streaming live progress back to the coordinator through the given
 // reporter (persistent gRPC mesh stream, or legacy HTTP POST fallback).
 func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
@@ -75,7 +75,7 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 	}
 
 	report("packaging", "Processing streamable media", 90.0, "", nil)
-	meta, err := media.RemuxToStreamableMP4(folder.RawFilePath, folder.VideoFilePath, jobID, filename)
+	meta, err := media.PackageHLS(folder.RawFilePath, folder.BaseDir, jobID, filename)
 	if err != nil {
 		report("failed", "0 B/s", 0.0, fmt.Sprintf("remux failed: %v", err), nil)
 		return
@@ -86,8 +86,7 @@ func (a *Agent) RunIngestJob(jobID, srcURL string, report ProgressReporter) {
 		_ = folder.CleanRaw()
 	}
 
-	cmafPkg := meta.ToCMAFPackage()
-	report("completed", "Ready", 100.0, "", cmafPkg)
+	report("completed", "Ready", 100.0, "", meta)
 }
 
 // fileProgressReporter posts file-job state transitions to the master's
@@ -138,7 +137,7 @@ func (a *Agent) fileProgressReporter(key string) ProgressReporterFunc {
 }
 
 // RunFileJob is the worker half of the v1 file API: optionally download the
-// source (URL mode), validate magic bytes, package to CMAF, and report every
+// source (URL mode), validate magic bytes, package to HLS, and report every
 // transition to the master. Direct mode (final == nil): everything happens
 // in targetDir, a tier block this node owns. Decoupled mode (final != nil):
 // the job runs in this node's scratch, the finished folder is streamed to
@@ -211,12 +210,12 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		return
 	}
 
-	report("processing", 100, "Fast-Start CMAF & AAC Audio Normalization...", "", nil, map[string]interface{}{
+	report("processing", 100, "HLS Packaging & AAC Audio Normalization...", "", nil, map[string]interface{}{
 		"stage":         "process",
-		"stage_name":    "CMAF Remuxing & Audio Normalization",
+		"stage_name":    "HLS Packaging & Audio Normalization",
 		"stage_percent": 65.0,
 	})
-	meta, err := media.RemuxToStreamableMP4(folder.RawFilePath, folder.VideoFilePath, key, filename)
+	meta, err := media.PackageHLS(folder.RawFilePath, folder.BaseDir, key, filename)
 	if err != nil {
 		report("failed", 0, "0 B/s", fmt.Sprintf("remux failed: %v", err), nil, map[string]interface{}{
 			"stage": "failed",

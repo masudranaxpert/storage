@@ -1,6 +1,9 @@
 package media
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Copy versus re-encode is decided by what browsers can decode, not by what
 // ffmpeg can mux: MP4 happily accepts MPEG-2, MPEG-4 Part 2 (Xvid/DivX) or
@@ -35,6 +38,8 @@ type VideoPlan struct {
 var transcodeH264 = []string{
 	"-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
 	"-pix_fmt", "yuv420p", "-profile:v", "high",
+	// A keyframe at every segment boundary keeps HLS segments short and seeks fast.
+	"-force_key_frames", "expr:gte(t,n_forced*" + strconv.Itoa(hlsSegmentSeconds) + ")",
 }
 
 // PlanVideo picks copy or transcode for the source's primary video stream.

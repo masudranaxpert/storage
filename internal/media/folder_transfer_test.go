@@ -19,10 +19,10 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(folder.VideoFilePath, []byte("fmp4-bytes-here"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(folder.BaseDir, "master.m3u8"), []byte("#EXTM3U"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := folder.SaveMetadata(&media.MediaMetadata{Key: key, Filename: folder.TargetFilename}); err != nil {
+	if err := folder.SaveMetadata(&media.MediaMetadata{Key: key, Filename: "master.m3u8"}); err != nil {
 		t.Fatal(err)
 	}
 	// A nested deeper file plus an empty dir must survive the trip.
@@ -54,7 +54,7 @@ func TestPackUnpackRoundTrip(t *testing.T) {
 	}
 
 	for _, rel := range []string{
-		folder.TargetFilename,
+		"master.m3u8",
 		"metadata.json",
 		filepath.Join("audio", "en", "a.m4s"),
 	} {

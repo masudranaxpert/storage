@@ -32,7 +32,7 @@ var (
 // ProgressReporter streams live job status back to the coordinator. It is
 // implemented per transport: over the gRPC mesh the report rides the
 // persistent stream; in legacy HTTP mode it POSTs to the job endpoint.
-type ProgressReporter func(statusStr, speed string, pct float64, errMsg string, cmaf *media.CMAFPackage)
+type ProgressReporter func(statusStr, speed string, pct float64, errMsg string, meta *media.MediaMetadata)
 
 // runControlPlaneLoop owns the agent's coordinator connection for its whole
 // lifetime: it keeps a persistent bidirectional gRPC stream open, reconnects
@@ -181,10 +181,10 @@ func (a *Agent) runMeshConnection(ctx context.Context) error {
 
 // streamReporter builds a ProgressReporter that rides the live mesh stream.
 func streamReporter(sendMsg func(*pb.NodeMessage) error, jobID string) ProgressReporter {
-	return func(statusStr, speed string, pct float64, errMsg string, cmaf *media.CMAFPackage) {
-		var cmafJSON []byte
-		if cmaf != nil {
-			cmafJSON, _ = json.Marshal(cmaf)
+	return func(statusStr, speed string, pct float64, errMsg string, meta *media.MediaMetadata) {
+		var metaJSON []byte
+		if meta != nil {
+			metaJSON, _ = json.Marshal(meta)
 		}
 		_ = sendMsg(&pb.NodeMessage{
 			Kind: &pb.NodeMessage_Progress{
@@ -194,7 +194,7 @@ func streamReporter(sendMsg func(*pb.NodeMessage) error, jobID string) ProgressR
 					ProgressPercent: pct,
 					DownloadSpeed:   speed,
 					ErrorMsg:        errMsg,
-					CmafJson:        cmafJSON,
+					CmafJson:        metaJSON,
 				},
 			},
 		})

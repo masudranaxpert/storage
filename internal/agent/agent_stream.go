@@ -9,7 +9,9 @@ import (
 
 	"stream/internal/cluster"
 )
-// handleMedia serves media files over HTTP; callers need the cluster secret, a signed token or a playback ticket.
+
+// handleMedia serves the files of an HLS package (/stream/<key|ticket>/<file>) with Range support;
+// callers need the cluster secret, a signed token or a playback ticket.
 func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 	subPath := strings.TrimPrefix(r.URL.Path, "/media/")
 	subPath = strings.TrimPrefix(subPath, "/stream/")
@@ -37,113 +39,114 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
-	mediaID := parts[0]
-	hasMP4Suffix := strings.HasSuffix(mediaID, ".mp4")
-	baseID := strings.TrimSuffix(mediaID, ".mp4")
-
-	if !a.verifySecret(r) {
-		if strings.HasPrefix(baseID, "t_") {
-			resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseID, a.Secret)
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream ticket"})
-				return
-			}
-			mediaID = resolvedKey
-			parts[0] = resolvedKey
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-		} else {
-			if a.Secret == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: authentication required"})
-				return
-			}
-			token := r.URL.Query().Get("token")
-			expStr := r.URL.Query().Get("exp")
-			if expStr == "" {
-				expStr = r.URL.Query().Get("expires")
-			}
-			if !cluster.ValidateStreamToken(baseID, token, expStr, a.Secret) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
-				return
-			}
-			mediaID = baseID
-			parts[0] = baseID
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-		}
-	} else if strings.HasPrefix(baseID, "t_") {
-		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseID, a.Secret); err == nil {
-			mediaID = resolvedKey
-			parts[0] = resolvedKey
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-		}
-	} else if hasMP4Suffix {
-		mediaID = baseID
-		parts[0] = baseID
-		cleanSubPath = filepath.Join(parts...)
-		if len(parts) == 1 {
-			cleanSubPath += ".mp4"
-		}
+	if len(parts) < 2 {
+		http.NotFound(w, r)
+		return
 	}
+	mediaID, ok := a.authorizeMedia(w, r, parts[0])
+	if !ok {
+		return
+	}
+	parts[0] = mediaID
 
-	targetFilePath := a.resolveMediaPath(cleanSubPath)
+	targetFilePath := a.resolveMediaPath(filepath.Join(parts...))
 	if targetFilePath == "" {
 		http.NotFound(w, r)
 		return
 	}
 
-	isPlay := (len(parts) == 1 || hasMP4Suffix) &&
-		!strings.Contains(cleanSubPath, "audio_") &&
-		!strings.Contains(cleanSubPath, "sub_") &&
-		!strings.HasSuffix(cleanSubPath, ".vtt") &&
-		!strings.HasSuffix(cleanSubPath, ".m4a")
-
-	if isPlay && mediaID != "" {
-		clientIP := r.Header.Get("CF-Connecting-IP")
-		if clientIP == "" {
-			clientIP = r.Header.Get("X-Forwarded-For")
-		}
-		if clientIP == "" {
-			clientIP = r.RemoteAddr
-		}
-		if idx := strings.Index(clientIP, ","); idx != -1 {
-			clientIP = strings.TrimSpace(clientIP[:idx])
-		}
-		if host, _, err := net.SplitHostPort(clientIP); err == nil {
-			clientIP = host
-		}
-		a.recordPlayHit(mediaID, clientIP)
-		a.recordViewerHeartbeat(mediaID, clientIP)
-	}
+	a.recordPlayback(r, mediaID, parts[1:])
 
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-
-	if strings.HasSuffix(targetFilePath, ".mp4") {
-		w.Header().Set("Content-Type", "video/mp4")
-	} else if strings.HasSuffix(targetFilePath, ".m3u8") {
-		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	} else if strings.HasSuffix(targetFilePath, ".json") {
-		w.Header().Set("Content-Type", "application/json")
-	} else if strings.HasSuffix(targetFilePath, ".vtt") {
-		w.Header().Set("Content-Type", "text/vtt")
-	} else if strings.HasSuffix(targetFilePath, ".m4a") {
-		w.Header().Set("Content-Type", "audio/mp4")
-	} else if strings.HasSuffix(targetFilePath, ".m4s") {
-		w.Header().Set("Content-Type", "video/iso.segment")
+	if ct := mediaContentType(targetFilePath); ct != "" {
+		w.Header().Set("Content-Type", ct)
 	}
-
 	http.ServeFile(w, r, targetFilePath)
+}
+
+// authorizeMedia maps the first path element (raw key, playback ticket or token-signed key) to
+// the media key. On failure it writes the 403 response itself and returns false.
+func (a *Agent) authorizeMedia(w http.ResponseWriter, r *http.Request, first string) (string, bool) {
+	deny := func(msg string) (string, bool) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		return "", false
+	}
+	isTicket := strings.HasPrefix(first, "t_")
+
+	if a.verifySecret(r) {
+		if isTicket {
+			if key, _, err := cluster.ResolvePlaybackTicket(first, a.Secret); err == nil {
+				return key, true
+			}
+		}
+		return first, true
+	}
+	if isTicket {
+		key, _, err := cluster.ResolvePlaybackTicket(first, a.Secret)
+		if err != nil {
+			return deny("forbidden: invalid or expired stream ticket")
+		}
+		return key, true
+	}
+	if a.Secret == "" {
+		return deny("forbidden: authentication required")
+	}
+	expStr := r.URL.Query().Get("exp")
+	if expStr == "" {
+		expStr = r.URL.Query().Get("expires")
+	}
+	if !cluster.ValidateStreamToken(first, r.URL.Query().Get("token"), expStr, a.Secret) {
+		return deny("forbidden: invalid or expired stream token")
+	}
+	return first, true
+}
+
+// recordPlayback feeds the heat and live-viewer trackers. Fetching master.m3u8 starts a play;
+// every media segment keeps the viewer alive. Both trackers dedupe per client internally.
+func (a *Agent) recordPlayback(r *http.Request, mediaID string, rest []string) {
+	file := rest[len(rest)-1]
+	isMaster := len(rest) == 1 && file == "master.m3u8"
+	if !isMaster && !strings.HasSuffix(file, ".m4s") {
+		return
+	}
+	ip := requestClientIP(r)
+	if isMaster {
+		a.recordPlayHit(mediaID, ip)
+	}
+	a.recordViewerHeartbeat(mediaID, ip)
+}
+
+// requestClientIP returns the viewer address, preferring the Cloudflare and proxy headers.
+func requestClientIP(r *http.Request) string {
+	ip := r.Header.Get("CF-Connecting-IP")
+	if ip == "" {
+		ip = r.Header.Get("X-Forwarded-For")
+	}
+	if ip == "" {
+		ip = r.RemoteAddr
+	}
+	if idx := strings.Index(ip, ","); idx != -1 {
+		ip = strings.TrimSpace(ip[:idx])
+	}
+	if host, _, err := net.SplitHostPort(ip); err == nil {
+		ip = host
+	}
+	return ip
+}
+
+// mediaContentType maps the files of an HLS package to their MIME types.
+func mediaContentType(path string) string {
+	switch {
+	case strings.HasSuffix(path, ".m3u8"):
+		return "application/vnd.apple.mpegurl"
+	case strings.HasSuffix(path, ".m4s"):
+		return "video/iso.segment"
+	case strings.HasSuffix(path, ".vtt"):
+		return "text/vtt"
+	case strings.HasSuffix(path, ".json"):
+		return "application/json"
+	}
+	return ""
 }

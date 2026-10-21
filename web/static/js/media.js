@@ -40,7 +40,6 @@
     } catch (_) {}
 
     let currentArtPlayer = null;
-    let lockstepController = null;
     let cinemaRetryCtx = null;
     let cinemaLoadTimer = null;
 
@@ -133,6 +132,14 @@
             return langName;
         }
         return fallbackDefault;
+    }
+
+    // Helper: "Hindi · 5.1" style label for an audio track from its metadata.
+    function audioTrackLabel(track, fallback) {
+        const title = formatTrackTitle(track, fallback);
+        const layouts = { 1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1' };
+        const layout = track && layouts[track.channels];
+        return layout ? `${title} · ${layout}` : title;
     }
 
     // Helper: determine the base directory URL for sub-tracks (audio, subtitles, HLS)
@@ -1431,10 +1438,8 @@
                 const tokenRes = await fetch(`/api/v1/files/${encodeURIComponent(mediaID)}/token`);
                 if (tokenRes.ok) {
                     const tokenData = await tokenRes.json();
-                    if (tokenData && tokenData.video_url) {
-                        streamUrl = tokenData.video_url.startsWith('http') ? tokenData.video_url : `${window.location.origin}${tokenData.video_url}`;
-                    } else if (tokenData && tokenData.play_url) {
-                        streamUrl = `${window.location.origin}${tokenData.play_url}`;
+                    if (tokenData && tokenData.master_url) {
+                        streamUrl = tokenData.master_url.startsWith('http') ? tokenData.master_url : `${window.location.origin}${tokenData.master_url}`;
                     }
                 }
             } catch (_) {}
@@ -1521,7 +1526,7 @@
             if (audioDrawer && audioList) {
                 audioDrawer.style.display = 'block';
                 audioList.innerHTML = meta.audio_tracks.map((t, idx) => {
-                    const trackUrl = `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`;
+                    const trackUrl = `${baseDirUrl}/${t.file}`;
                     const title = formatTrackTitle(t, `Track ${idx + 1}`);
                     return `
                         <div class="track-row">
@@ -1546,7 +1551,7 @@
                 subDrawer.style.display = 'block';
                 const seenSubCount = {};
                 subList.innerHTML = meta.subtitles.map((s, idx) => {
-                    const subUrl = `${baseDirUrl}/${s.file || `subtitle_${s.index}_${s.language}.vtt`}`;
+                    const subUrl = `${baseDirUrl}/${s.file}`;
                     let title = formatTrackTitle(s, `Subtitle ${idx + 1}`);
                     seenSubCount[title] = (seenSubCount[title] || 0) + 1;
                     if (seenSubCount[title] > 1) {
@@ -1678,10 +1683,7 @@
         if (!globalAudioBooster) {
             globalAudioBooster = new AudioBooster();
         }
-        const targetElement = (lockstepController && lockstepController.active && lockstepController.audio)
-            ? lockstepController.audio
-            : (currentArtPlayer ? currentArtPlayer.video : null);
-        globalAudioBooster.setBoost(level, targetElement);
+        globalAudioBooster.setBoost(level, currentArtPlayer ? currentArtPlayer.video : null);
     }
 
     function initArtPlayer(streamUrl, job, meta) {
@@ -1698,16 +1700,13 @@
 
         const filename = job.filename || job.key;
         let baseDirUrl = resolveBaseDirUrl(streamUrl, job);
-        const hasMultiAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 1;
-        const hasExternalAudio = meta && meta.audio_tracks && meta.audio_tracks.length > 0 &&
-            (meta.audio_tracks.length > 1 || meta.audio_tracks[0].embedded === false || !!meta.audio_tracks[0].file);
 
         let subtitleOption = undefined;
         if (meta && meta.subtitles && meta.subtitles.length > 0) {
             const firstSub = meta.subtitles[0];
-            if (firstSub && (firstSub.file || firstSub.language)) {
+            if (firstSub && firstSub.file) {
                 subtitleOption = {
-                    url: `${baseDirUrl}/${firstSub.file || `subtitle_${firstSub.index}_${firstSub.language}.vtt`}`,
+                    url: `${baseDirUrl}/${firstSub.file}`,
                     type: 'vtt',
                     style: {
                         color: '#ffffff',
@@ -1721,34 +1720,6 @@
 
         const customSettings = [];
 
-        if (hasMultiAudio) {
-            const activeTrackTitle = formatTrackTitle(meta.audio_tracks[0], 'Default');
-            const audioSelectorItems = meta.audio_tracks.map((t, idx) => {
-                const title = formatTrackTitle(t, `Track ${idx + 1}`);
-                return {
-                    default: idx === 0,
-                    html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${global.escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(${global.escapeHtml(t.codec || 'aac')}, ${t.channels || 2}ch)</span></span>`,
-                    url: `${baseDirUrl}/${t.file || `audio_${t.index}_${t.language}.m4a`}`,
-                    track: t,
-                    index: idx,
-                    displayTitle: title
-                };
-            });
-
-            customSettings.push({
-                icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
-                width: 240,
-                html: 'Audio Track',
-                name: 'audio_track',
-                tooltip: activeTrackTitle,
-                selector: audioSelectorItems,
-                onSelect: function (item) {
-                    switchArtPlayerAudio(item.index, item.url);
-                    return item.displayTitle;
-                }
-            });
-        }
-
         if (meta && meta.subtitles && meta.subtitles.length > 0) {
             const seenSubCount = {};
             const subItems = meta.subtitles.map((s, idx) => {
@@ -1760,7 +1731,7 @@
                 return {
                     default: idx === 0,
                     html: `<span style="display:inline-flex;align-items:center;gap:6px;">💬 ${global.escapeHtml(title)} <span style="font-size:10px;opacity:0.6;">(VTT)</span></span>`,
-                    url: `${baseDirUrl}/${s.file || `subtitle_${s.index}_${s.language}.vtt`}`,
+                    url: `${baseDirUrl}/${s.file}`,
                     sub: s,
                     displayTitle: title
                 };
@@ -1913,31 +1884,30 @@
                             art.on('destroy', () => hls.destroy());
 
                             function syncHlsAudioTracks() {
-                                if (!hls.audioTracks || hls.audioTracks.length === 0) return;
+                                if (!hls.audioTracks || hls.audioTracks.length < 2) return;
+                                const metaTracks = (meta && meta.audio_tracks) || [];
                                 const audioSelector = hls.audioTracks.map((track, index) => {
-                                    const langLabel = track.lang === 'hin' ? 'Hindi (5.1)' :
-                                                      track.lang === 'tam' ? 'Tamil (5.1)' :
-                                                      track.lang === 'eng' ? 'English' :
-                                                      (track.name || `Audio ${index + 1}`);
+                                    const label = audioTrackLabel(metaTracks[index], track.name || `Audio ${index + 1}`);
                                     return {
-                                        default: track.default || index === 0,
-                                        html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${global.escapeHtml(langLabel)}</span>`,
+                                        default: index === hls.audioTrack,
+                                        html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${global.escapeHtml(label)}</span>`,
                                         index: index,
-                                        displayTitle: langLabel
+                                        displayTitle: label
                                     };
                                 });
-
-                                if (art.setting) {
-                                    art.setting.update({
-                                        name: 'audio_track',
-                                        tooltip: audioSelector.find(t => t.default)?.displayTitle || audioSelector[0].displayTitle,
-                                        selector: audioSelector,
-                                        onSelect: function (item) {
-                                            hls.audioTrack = item.index;
-                                            return item.displayTitle;
-                                        }
-                                    });
-                                }
+                                const active = audioSelector.find(t => t.default) || audioSelector[0];
+                                art.setting.update({
+                                    icon: '<svg width="20" height="20" viewBox="0 0 24 24"><path fill="#fff" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>',
+                                    width: 240,
+                                    html: 'Audio Track',
+                                    name: 'audio_track',
+                                    tooltip: active.displayTitle,
+                                    selector: audioSelector,
+                                    onSelect: function (item) {
+                                        hls.audioTrack = item.index;
+                                        return item.displayTitle;
+                                    }
+                                });
                             }
 
                             hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -1995,288 +1965,7 @@
         }
     }
 
-    class LockstepAudioController {
-        constructor(art, initialAudioUrl) {
-            this.art = art;
-            this.video = art.video;
-            this.audio = new Audio();
-            this.audio.crossOrigin = 'anonymous';
-            this.audio.preload = 'auto';
-            this.active = true;
-            this.isSeeking = false;
-            this.userPaused = this.video.paused;
-            this.internalPauseExpected = 0;
-            this.switchSeq = 0;
-            this.isSwitchingTrack = false;
-            this.syncInterval = null;
-
-            this.video.muted = false;
-            this.audio.muted = false;
-            this.audio.volume = this.video.volume > 0 ? this.video.volume : 0.8;
-            this.audio.src = initialAudioUrl;
-            this.audio.load();
-
-            this.bindEvents();
-        }
-
-        bindEvents() {
-            const v = this.video;
-            const a = this.audio;
-            const art = this.art;
-
-            art.on('video:volumechange', () => {
-                if (!this.active || !this.audio) return;
-                a.volume = v.volume;
-                a.muted = v.muted;
-            });
-
-            art.on('video:seeking', () => {
-                if (!this.active || !this.audio) return;
-                this.isSeeking = true;
-                a.pause();
-                a.currentTime = v.currentTime;
-            });
-
-            art.on('video:seeked', () => {
-                if (!this.active || !this.audio) return;
-                a.currentTime = v.currentTime;
-            });
-
-            art.on('video:waiting', () => {
-                if (!this.active || !this.audio) return;
-                a.pause();
-            });
-
-            art.on('video:pause', () => {
-                if (this.internalPauseExpected > 0) {
-                    this.internalPauseExpected--;
-                    if (this.active && this.audio) a.pause();
-                    return;
-                }
-                this.userPaused = true;
-                if (!this.active || !this.audio) return;
-                a.pause();
-            });
-
-            const onPlayHandler = () => {
-                this.userPaused = false;
-                this.internalPauseExpected = 0;
-                if (!this.active || !this.audio || !this.audio.src || this.isSwitchingTrack) return;
-                this.isSeeking = false;
-
-                const startAudio = () => {
-                    if (!this.active || !this.audio || v.paused || this.userPaused || this.isSwitchingTrack) return;
-                    const diff = Math.abs(v.currentTime - a.currentTime);
-                    if (diff > 0.03) {
-                        a.currentTime = v.currentTime;
-                    }
-                    a.playbackRate = v.playbackRate;
-                    a.play().catch(err => console.warn('Lockstep audio play warning:', err));
-                };
-
-                if (a.readyState >= 2) {
-                    startAudio();
-                } else {
-                    a.addEventListener('canplay', startAudio, { once: true });
-                }
-            };
-
-            art.on('video:play', onPlayHandler);
-            art.on('video:playing', onPlayHandler);
-            if (!v.paused) {
-                onPlayHandler();
-            }
-
-            art.on('video:ratechange', () => {
-                if (!this.active || !this.audio) return;
-                a.playbackRate = v.playbackRate;
-            });
-
-            a.addEventListener('waiting', () => {
-                if (!this.active || !this.video || v.paused || this.userPaused || this.isSwitchingTrack) return;
-                this.internalPauseExpected = (this.internalPauseExpected || 0) + 1;
-                v.pause();
-                const onAudioResume = () => {
-                    a.removeEventListener('canplay', onAudioResume);
-                    if (this.active && this.video && !this.userPaused && !this.isSwitchingTrack) {
-                        v.play().catch(() => {});
-                    }
-                };
-                a.addEventListener('canplay', onAudioResume, { once: true });
-            });
-
-            this.syncInterval = setInterval(() => {
-                if (!this.active || !this.audio || v.paused || v.seeking || this.isSeeking || a.paused || this.isSwitchingTrack) return;
-
-                const diff = v.currentTime - a.currentTime;
-                const absDiff = Math.abs(diff);
-
-                if (absDiff > 0.3) {
-                    a.currentTime = v.currentTime;
-                    a.playbackRate = v.playbackRate;
-                } else if (diff > 0.03) {
-                    a.playbackRate = v.playbackRate * 1.03;
-                } else if (diff < -0.03) {
-                    a.playbackRate = v.playbackRate * 0.97;
-                } else {
-                    if (a.playbackRate !== v.playbackRate) {
-                        a.playbackRate = v.playbackRate;
-                    }
-                }
-            }, 200);
-        }
-
-        switchTrack(newUrl) {
-            if (!this.active || !this.audio) return;
-            const v = this.video;
-            const a = this.audio;
-
-            this.switchSeq = (this.switchSeq || 0) + 1;
-            const seq = this.switchSeq;
-            this.isSwitchingTrack = true;
-
-            // Stop previous audio immediately; keep video playing smoothly without pausing
-            a.pause();
-
-            let switchTimeout = setTimeout(() => {
-                onSwitchError('Audio track load timed out');
-            }, 8000);
-
-            const cleanup = () => {
-                if (switchTimeout) {
-                    clearTimeout(switchTimeout);
-                    switchTimeout = null;
-                }
-                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
-                a.removeEventListener('canplay', onMetadataOrCanPlay);
-                a.removeEventListener('canplay', resumePlayback);
-                a.removeEventListener('error', onAudioError);
-            };
-
-            const onAudioError = (e) => {
-                if (this.switchSeq !== seq || !this.active) return;
-                cleanup();
-                this.isSwitchingTrack = false;
-                console.warn('Audio track load failed (403/404 or network):', e);
-                if (this.art && this.art.notice) {
-                    this.art.notice.show = 'Failed to load audio track';
-                }
-            };
-
-            const onSwitchError = (msg) => {
-                if (this.switchSeq !== seq || !this.active) return;
-                cleanup();
-                this.isSwitchingTrack = false;
-                console.warn(msg);
-                if (this.art && this.art.notice) {
-                    this.art.notice.show = msg;
-                }
-            };
-
-            const resumePlayback = () => {
-                if (this.switchSeq !== seq || !this.active || !this.audio) return;
-                cleanup();
-                this.isSwitchingTrack = false;
-
-                // Live alignment to exact video frame as video kept playing
-                const liveTime = v.currentTime;
-                if (Math.abs(liveTime - a.currentTime) > 0.03) {
-                    a.currentTime = liveTime;
-                }
-                a.playbackRate = v.playbackRate;
-
-                // Play audio seamlessly if video is active
-                if (!this.userPaused && !v.paused) {
-                    a.play().catch(() => {});
-                }
-            };
-
-            const onMetadataOrCanPlay = () => {
-                a.removeEventListener('loadedmetadata', onMetadataOrCanPlay);
-                a.removeEventListener('canplay', onMetadataOrCanPlay);
-                if (this.switchSeq !== seq || !this.active || !this.audio) return;
-
-                const targetTime = v.currentTime;
-                if (targetTime < 0.05) {
-                    if (a.readyState >= 3) {
-                        resumePlayback();
-                    } else {
-                        a.addEventListener('canplay', resumePlayback, { once: true });
-                    }
-                    return;
-                }
-
-                const onSeeked = () => {
-                    a.removeEventListener('seeked', onSeeked);
-                    if (this.switchSeq !== seq || !this.active || !this.audio) return;
-                    if (a.readyState >= 3) {
-                        resumePlayback();
-                    } else {
-                        a.addEventListener('canplay', resumePlayback, { once: true });
-                    }
-                };
-
-                a.addEventListener('seeked', onSeeked, { once: true });
-                a.currentTime = targetTime;
-            };
-
-            a.addEventListener('loadedmetadata', onMetadataOrCanPlay, { once: true });
-            a.addEventListener('canplay', onMetadataOrCanPlay, { once: true });
-            a.addEventListener('error', onAudioError, { once: true });
-
-            a.src = newUrl;
-            a.volume = v.volume > 0 ? v.volume : 0.8;
-            a.muted = false;
-            v.muted = false;
-            a.load();
-        }
-
-        destroy() {
-            this.active = false;
-            this.switchSeq = (this.switchSeq || 0) + 1;
-            if (this.syncInterval) {
-                clearInterval(this.syncInterval);
-                this.syncInterval = null;
-            }
-            if (this.audio) {
-                this.audio.pause();
-                this.audio.removeAttribute('src');
-                this.audio.load();
-                this.audio = null;
-            }
-        }
-    }
-
-    function setupExternalAudioSync(art, audioTracks, baseDirUrl) {
-        if (!audioTracks || audioTracks.length === 0) return;
-        if (lockstepController) {
-            lockstepController.destroy();
-            lockstepController = null;
-        }
-        const firstTrack = audioTracks[0];
-        const firstUrl = `${baseDirUrl}/${firstTrack.file || `audio_${firstTrack.index}_${firstTrack.language}.m4a`}`;
-        lockstepController = new LockstepAudioController(art, firstUrl);
-
-        if (globalAudioBooster && globalAudioBooster.boostLevel > 1.0) {
-            art.on('video:play', () => {
-                applyAudioBoost(globalAudioBooster.boostLevel);
-            }, { once: true });
-        }
-    }
-
-    function switchArtPlayerAudio(trackIndex, url) {
-        if (currentArtPlayer && currentArtPlayer.hls) {
-            currentArtPlayer.hls.audioTrack = trackIndex;
-        } else if (lockstepController) {
-            lockstepController.switchTrack(url);
-        }
-    }
-
     function closeArtPlayer() {
-        if (lockstepController) {
-            lockstepController.destroy();
-            lockstepController = null;
-        }
         if (currentArtPlayer) {
             if (currentArtPlayer.hls) {
                 try { currentArtPlayer.hls.destroy(); } catch (_) {}
@@ -2763,7 +2452,7 @@
     function copyMediaStreamUrl(key) {
         const job = mediaList.find(m => m.key === key);
         const baseUrl = resolveBaseDirUrl(job ? job.stream_url : '', job || { key });
-        const url = `${baseUrl}/video.mp4`;
+        const url = `${baseUrl}/master.m3u8`;
         if (typeof global.copyToClipboard === 'function') {
             global.copyToClipboard(url, 'Stream URL copied!');
         }
@@ -2809,7 +2498,6 @@
     global.cinemaFail = cinemaFail;
     global.retryArtPlayer = retryArtPlayer;
     global.initArtPlayer = initArtPlayer;
-    global.switchArtPlayerAudio = switchArtPlayerAudio;
     global.closeArtPlayer = closeArtPlayer;
     global.closeStreamDetailsModal = closeStreamDetailsModal;
     global.copyDirectStreamURL = copyDirectStreamURL;

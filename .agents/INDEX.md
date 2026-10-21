@@ -12,6 +12,7 @@
 - [Open-Source Alternatives & Modern System Redesign](research/open-source-alternatives-and-redesign.md): Comparative analysis of Garage S3, SeaweedFS, JuiceFS, PeerTube Runner, and Temporal.
 
 ## Sessions
+- [HLS Pipeline Cleanup](sessions/2026-10-21-hls-cleanup/HANDOFF.md): Legacy MP4/embed removal, audio-only and duplicate-language fixes, keyframe-aware packaging, HLS play counting.
 - [Large God-Files Decomposition](sessions/2026-10-21-large-files-decomposition/HANDOFF.md): Deconstructed the 4 largest files (>1,000 lines each) into single-responsibility, cohesive Go modules with 100% test pass rate.
 - [Standard Go Layout Migration (`internal/` Architecture)](sessions/2026-10-20-internal-layout-migration/HANDOFF.md): Reorganized codebase into clean standard Go project structure with `internal/` packages, acyclic dependency DAG, and 100% test pass rate.
 - [Node CORS Allowed Origins Configuration](sessions/2026-10-20-node-cors-origins/HANDOFF.md): Per-node configurable CORS (`*` or whitelisted domains) for stream delivery, proxy streaming, agent heartbeat sync, and `/nodes` UI.

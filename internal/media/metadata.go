@@ -1,8 +1,8 @@
 package media
 
 import (
+	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,23 +61,6 @@ type MediaMetadata struct {
 	MasterM3U8       string              `json:"master_m3u8,omitempty"`
 	Processing       *ProcessingInfo     `json:"processing,omitempty"`
 	CreatedAt        time.Time           `json:"created_at"`
-}
-
-// ToCMAFPackage provides backwards-compatibility for components expecting legacy CMAFPackage objects.
-func (m *MediaMetadata) ToCMAFPackage() *CMAFPackage {
-	return &CMAFPackage{
-		MediaID:     m.Key,
-		TotalBytes:  m.SizeBytes,
-		DurationSec: m.DurationSec,
-		CreatedAt:   m.CreatedAt,
-		InitChunk: &MediaChunk{
-			Index:     0,
-			Filename:  m.Filename,
-			SizeBytes: m.SizeBytes,
-			TrackType: "video_mp4",
-			Tier:      2,
-		},
-	}
 }
 
 type ffprobeStream struct {
@@ -142,7 +125,9 @@ func ExtractMetadata(filePath, key, originalFilename string) (*MediaMetadata, er
 }
 
 func enrichViaFFprobe(ffprobePath, filePath string, meta *MediaMetadata) error {
-	cmd := exec.Command(ffprobePath,
+	ctx, cancel := context.WithTimeout(context.Background(), ffprobeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, ffprobePath,
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_format",
@@ -236,268 +221,6 @@ func isWebAudioCodec(codec string) bool {
 func isTextSubtitle(codec string) bool {
 	c := strings.ToLower(strings.TrimSpace(codec))
 	return c == "subrip" || c == "srt" || c == "ass" || c == "ssa" || c == "webvtt" || c == "vtt" || c == "mov_text" || c == "text"
-}
-
-// RemuxToStreamableMP4 produces a single-file byte-range fMP4 HLS package (master.m3u8):
-//   - Video: stream_0.m4s & stream_0.m3u8 (copied when browser-decodable, else re-encoded).
-//   - Audio: stream_{lang}.m4s & stream_{lang}.m3u8 (AAC copied or normalized).
-//   - Subtitles: subtitle_{lang}.vtt extracted as sidecars.
-func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*MediaMetadata, error) {
-	dstDir := filepath.Dir(dstPath)
-	ffmpegPath, err := exec.LookPath("ffmpeg")
-	if err != nil || ffmpegPath == "" {
-		return nil, fmt.Errorf("ffmpeg not found: required to produce streamable package")
-	}
-	ffprobePath, _ := exec.LookPath("ffprobe")
-
-	srcMeta := &MediaMetadata{}
-	probed := false
-	if ffprobePath != "" {
-		probed = enrichViaFFprobe(ffprobePath, srcPath, srcMeta) == nil
-	}
-
-	masterM3U8Path := filepath.Join(dstDir, "master.m3u8")
-	cleanup := func() {
-		_ = os.Remove(masterM3U8Path)
-		_ = os.Remove(dstPath)
-		entries, _ := os.ReadDir(dstDir)
-		for _, e := range entries {
-			if strings.HasPrefix(e.Name(), "stream_") || strings.HasPrefix(e.Name(), "subtitle_") {
-				_ = os.Remove(filepath.Join(dstDir, e.Name()))
-			}
-		}
-	}
-
-	plan := PlanVideo(srcMeta.Video, probed)
-	forceAAC := false
-	out, runErr := runRemux(ffmpegPath, srcPath, dstDir, plan, srcMeta.AudioTracks, probed, forceAAC)
-	if runErr != nil && plan.Mode == VideoCopy {
-		cleanup()
-		plan = TranscodePlan("copy pass failed: " + lastLine(out))
-		forceAAC = true
-		out, runErr = runRemux(ffmpegPath, srcPath, dstDir, plan, srcMeta.AudioTracks, probed, forceAAC)
-	}
-	if runErr != nil {
-		cleanup()
-		return nil, fmt.Errorf("ffmpeg %s failed: %v: %s", plan.Mode, runErr, lastLines(out, 6))
-	}
-
-	// The primary video stream is stream_0.m4s
-	primaryVideoPath := filepath.Join(dstDir, "stream_0.m4s")
-	if _, err := os.Stat(primaryVideoPath); err != nil {
-		// Fallback check if dstPath exists
-		if _, dstErr := os.Stat(dstPath); dstErr == nil {
-			primaryVideoPath = dstPath
-		}
-	}
-
-	meta, err := ExtractMetadata(primaryVideoPath, mediaID, originalFilename)
-	if err != nil {
-		cleanup()
-		return nil, err
-	}
-	meta.MasterM3U8 = "master.m3u8"
-	meta.Filename = "master.m3u8"
-	meta.MIMEType = "application/vnd.apple.mpegurl"
-
-	meta.Processing = &ProcessingInfo{
-		VideoMode:   plan.Mode,
-		VideoReason: plan.Reason,
-		AudioMode:   audioMode(srcMeta.AudioTracks, forceAAC),
-	}
-
-	// Register audio tracks
-	meta.AudioTracks = make([]AudioTrackInfo, 0, len(srcMeta.AudioTracks))
-	if len(srcMeta.AudioTracks) <= 1 {
-		// Single audio track is embedded directly inside stream_0
-		if len(srcMeta.AudioTracks) == 1 {
-			t := srcMeta.AudioTracks[0]
-			t.File = "" // embedded in stream_0
-			if forceAAC || !isWebAudioCodec(t.Codec) {
-				t.Codec = "aac"
-			}
-			meta.AudioTracks = append(meta.AudioTracks, t)
-		}
-	} else {
-		// Multi-audio: separate stream_{lang}.m3u8 files
-		for idx, aTrack := range srcMeta.AudioTracks {
-			lang := sanitizeStreamLang(idx, aTrack.Language)
-			m3u8Name := fmt.Sprintf("stream_%s.m3u8", lang)
-			m4sName := fmt.Sprintf("stream_%s.m4s", lang)
-			if stat, statErr := os.Stat(filepath.Join(dstDir, m4sName)); statErr == nil && stat.Size() > 0 {
-				aTrack.File = m3u8Name
-				if forceAAC || !isWebAudioCodec(aTrack.Codec) {
-					aTrack.Codec = "aac"
-				}
-				meta.AudioTracks = append(meta.AudioTracks, aTrack)
-			}
-		}
-	}
-
-	// Subtitles: extract all text-based subtitles to WebVTT (.vtt) in a single ffmpeg pass
-	if ffmpegPath != "" && len(srcMeta.Subtitles) > 0 {
-		type subTarget struct {
-			track    SubtitleTrackInfo
-			filename string
-			path     string
-		}
-		var targets []subTarget
-		sArgs := []string{
-			"-y",
-			"-err_detect", "ignore_err",
-			"-fflags", "+genpts+discardcorrupt",
-			"-i", srcPath,
-		}
-		for idx, sTrack := range srcMeta.Subtitles {
-			if !isTextSubtitle(sTrack.Codec) {
-				continue
-			}
-			lang := sTrack.Language
-			if lang == "" {
-				lang = fmt.Sprintf("sub_%d", idx+1)
-			}
-			vttFilename := fmt.Sprintf("subtitle_%d_%s.vtt", idx+1, lang)
-			vttOutPath := filepath.Join(dstDir, vttFilename)
-			targets = append(targets, subTarget{
-				track:    sTrack,
-				filename: vttFilename,
-				path:     vttOutPath,
-			})
-			sArgs = append(sArgs, "-map", fmt.Sprintf("0:s:%d", idx), vttOutPath)
-		}
-
-		if len(targets) > 0 {
-			sCmd := exec.Command(ffmpegPath, sArgs...)
-			if _, sErr := sCmd.CombinedOutput(); sErr == nil {
-				for _, target := range targets {
-					if stat, statErr := os.Stat(target.path); statErr == nil && stat.Size() > 0 {
-						t := target.track
-						t.File = target.filename
-						meta.Subtitles = append(meta.Subtitles, t)
-					}
-				}
-			}
-		}
-	}
-
-	if totalBytes, err := CalculateFolderSize(dstDir); err == nil && totalBytes > 0 {
-		meta.TotalBytes = totalBytes
-		meta.SizeBytes = totalBytes
-	}
-	return meta, nil
-}
-
-// sanitizeStreamLang sanitizes the language tag for stream naming (e.g. hin, tam, eng).
-func sanitizeStreamLang(idx int, lang string) string {
-	l := strings.ToLower(strings.TrimSpace(lang))
-	if l == "" || l == "und" {
-		return fmt.Sprintf("audio_%d", idx+1)
-	}
-	var clean strings.Builder
-	for _, r := range l {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			clean.WriteRune(r)
-		}
-	}
-	res := clean.String()
-	if res == "" {
-		return fmt.Sprintf("audio_%d", idx+1)
-	}
-	return res
-}
-
-// runRemux executes one ffmpeg pass producing single-file fMP4 byte-range HLS:
-// stream_0 (video), stream_{lang} (audio tracks), master.m3u8.
-func runRemux(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []AudioTrackInfo,
-	probed, forceAAC bool) ([]byte, error) {
-	audioFor := func(codec string) []string {
-		if forceAAC {
-			return []string{"-c:a", "aac", "-b:a", "192k"}
-		}
-		return AudioArgs(codec)
-	}
-
-	args := []string{
-		"-y",
-		"-err_detect", "ignore_err",
-		"-fflags", "+genpts+discardcorrupt",
-		"-i", srcPath,
-	}
-
-	varMapParts := []string{}
-
-	if plan.Mode != VideoNone {
-		args = append(args, "-map", "0:v:0?")
-		args = append(args, plan.Args...)
-		varMapParts = append(varMapParts, "v:0,agroup:audio")
-	}
-
-	if len(tracks) > 1 {
-		seenLangCount := make(map[string]int)
-		for idx, t := range tracks {
-			args = append(args, "-map", fmt.Sprintf("0:a:%d", idx))
-			args = append(args, audioFor(t.Codec)...)
-
-			baseLang := sanitizeStreamLang(idx, t.Language)
-			seenLangCount[baseLang]++
-			streamName := baseLang
-			if seenLangCount[baseLang] > 1 {
-				streamName = fmt.Sprintf("%s_%d", baseLang, seenLangCount[baseLang])
-			}
-
-			defStr := "no"
-			if idx == 0 {
-				defStr = "yes"
-			}
-			varMapParts = append(varMapParts, fmt.Sprintf("a:%d,agroup:audio,language:%s,name:%s,default:%s", idx, baseLang, streamName, defStr))
-		}
-	} else if len(tracks) == 1 {
-		// Single audio track: mux video and audio together into stream_0 (no separate audio demux)
-		args = append(args, "-map", "0:a:0")
-		args = append(args, audioFor(tracks[0].Codec)...)
-		varMapParts = []string{"v:0,a:0"}
-	} else if !probed {
-		args = append(args, "-map", "0:a:0?")
-		args = append(args, "-c:a", "aac", "-b:a", "192k")
-		varMapParts = []string{"v:0,a:0"}
-	}
-
-	args = append(args,
-		"-sn", "-dn",
-		"-f", "hls",
-		"-hls_time", "4",
-		"-hls_playlist_type", "vod",
-		"-hls_flags", "single_file",
-		"-hls_segment_type", "fmp4",
-		"-var_stream_map", strings.Join(varMapParts, " "),
-		"-master_pl_name", "master.m3u8",
-		filepath.Join(dstDir, "stream_%v.m3u8"),
-	)
-
-	out, err := exec.Command(ffmpegPath, args...).CombinedOutput()
-	if err != nil {
-		return out, err
-	}
-
-	// Safety check: ensure master.m3u8 explicitly includes the video playlist reference
-	masterPath := filepath.Join(dstDir, "master.m3u8")
-	if plan.Mode != VideoNone {
-		if content, rErr := os.ReadFile(masterPath); rErr == nil {
-			strContent := string(content)
-			if !strings.Contains(strContent, "stream_0.m3u8") {
-				// Inject the video stream entry if ffmpeg omitted it
-				var streamInf strings.Builder
-				streamInf.WriteString("\n#EXT-X-STREAM-INF:BANDWIDTH=1500000")
-				if len(tracks) > 0 {
-					streamInf.WriteString(`,AUDIO="group_audio"`)
-				}
-				streamInf.WriteString("\nstream_0.m3u8\n")
-				_ = os.WriteFile(masterPath, []byte(strContent+streamInf.String()), 0644)
-			}
-		}
-	}
-
-	return out, nil
 }
 
 // lastLines returns the tail of ffmpeg output, where the actual error lives.

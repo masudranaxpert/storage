@@ -55,10 +55,10 @@ func joinArgs(a []string) string {
 	return b.String()
 }
 
-// TestRemuxToStreamableMP4Codecs builds short clips in real source formats and
-// checks the output is browser-playable, fast-start, and only re-encoded when
+// TestPackageHLSCodecs builds short clips in real source formats and
+// checks the output is a browser-playable HLS package, and only re-encoded when
 // the source codec requires it.
-func TestRemuxToStreamableMP4Codecs(t *testing.T) {
+func TestPackageHLSCodecs(t *testing.T) {
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
 		t.Skip("ffmpeg not installed")
@@ -97,8 +97,7 @@ func TestRemuxToStreamableMP4Codecs(t *testing.T) {
 			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				t.Fatal(err)
 			}
-			dst := filepath.Join(outDir, "video.mp4")
-			meta, err := media.RemuxToStreamableMP4(src, dst, "key", "src.mkv")
+			meta, err := media.PackageHLS(src, outDir, "key", "src.mkv")
 			if err != nil {
 				t.Fatalf("remux: %v", err)
 			}

@@ -536,7 +536,7 @@
         const files = r.body.hot_files || [];
         list.innerHTML = files.length
             ? files.map((f, i) => F().hotRow(f, state.tiers, i + 1)).join('')
-            : F().empty('No plays recorded yet', 'Plays through play_url raise a file\'s heat score.');
+            : F().empty('No plays recorded yet', 'Plays raise a file\'s heat score.');
     }
 
     async function pin(key, btn) {

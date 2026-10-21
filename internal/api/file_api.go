@@ -690,101 +690,53 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 			return
 		}
 
-		var masterURL string
+		base := directBase
+		suffix := fmt.Sprintf("?token=%s&exp=%d", token, exp)
 		if identifier != key {
-			directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-			masterURL = fmt.Sprintf("%s/master.m3u8", directBase)
-		} else {
-			masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", directBase, token, exp)
+			base = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
+			suffix = ""
 		}
-		resp.VideoURL = masterURL
-		resp.MasterURL = masterURL
+		fileURL := func(file string) string { return base + "/" + file + suffix }
+		resp.MasterURL = fileURL("master.m3u8")
+		resp.VideoURL = resp.MasterURL
 
-			if len(job.MetadataJSON) > 0 {
-				var meta media.MediaMetadata
-				if json.Unmarshal(job.MetadataJSON, &meta) == nil {
-					if meta.Filename != "" {
-						resp.Filename = meta.Filename
-					} else if meta.OriginalFilename != "" {
-						resp.Filename = meta.OriginalFilename
-					}
-
-					numAudios := len(meta.AudioTracks)
-					for i, aTrack := range meta.AudioTracks {
-						trackURL := ""
-						embedded := true
-
-						if numAudios > 1 || aTrack.File != "" {
-							file := aTrack.File
-							if file == "" {
-								lang := aTrack.Language
-								if lang == "" {
-									lang = fmt.Sprintf("track_%d", i+1)
-								}
-								file = fmt.Sprintf("audio_%d_%s.m4a", i+1, lang)
-							}
-							if identifier != key {
-								if directBase != "" {
-									trackURL = fmt.Sprintf("%s/%s", directBase, file)
-								} else {
-									trackURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
-								}
-							} else {
-								if directBase != "" {
-									trackURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
-								} else {
-									trackURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
-								}
-							}
-							embedded = false
-						}
-
-						resp.AudioTracks = append(resp.AudioTracks, StreamAudioTrack{
-							Index:         aTrack.Index,
-							Language:      aTrack.Language,
-							Title:         aTrack.Title,
-							Codec:         aTrack.Codec,
-							Channels:      aTrack.Channels,
-							ChannelLayout: aTrack.ChannelLayout,
-							BitrateBps:    aTrack.BitrateBps,
-							URL:           trackURL,
-							Embedded:      embedded,
-						})
-					}
-
-					for i, sTrack := range meta.Subtitles {
-						file := sTrack.File
-						if file == "" {
-							lang := sTrack.Language
-							if lang == "" {
-								lang = fmt.Sprintf("sub_%d", i+1)
-							}
-							file = fmt.Sprintf("subtitle_%d_%s.vtt", i+1, lang)
-						}
-						var subURL string
-						if identifier != key {
-							if directBase != "" {
-								subURL = fmt.Sprintf("%s/%s", directBase, file)
-							} else {
-								subURL = fmt.Sprintf("/stream/%s/%s", identifier, file)
-							}
-						} else {
-							subURL = fmt.Sprintf("/stream/%s/%s?token=%s&exp=%d", key, file, token, exp)
-							if directBase != "" {
-								subURL = fmt.Sprintf("%s/%s?token=%s&exp=%d", directBase, file, token, exp)
-							}
-						}
-						resp.Subtitles = append(resp.Subtitles, StreamSubtitleTrack{
-							Index:    sTrack.Index,
-							Language: sTrack.Language,
-							Title:    sTrack.Title,
-							Codec:    sTrack.Codec,
-							URL:      subURL,
-						})
-					}
+		var meta media.MediaMetadata
+		if len(job.MetadataJSON) > 0 && json.Unmarshal(job.MetadataJSON, &meta) == nil {
+			if meta.Filename != "" {
+				resp.Filename = meta.Filename
+			} else if meta.OriginalFilename != "" {
+				resp.Filename = meta.OriginalFilename
+			}
+			for _, aTrack := range meta.AudioTracks {
+				track := StreamAudioTrack{
+					Index:         aTrack.Index,
+					Language:      aTrack.Language,
+					Title:         aTrack.Title,
+					Codec:         aTrack.Codec,
+					Channels:      aTrack.Channels,
+					ChannelLayout: aTrack.ChannelLayout,
+					BitrateBps:    aTrack.BitrateBps,
+					Embedded:      aTrack.File == "",
 				}
+				if aTrack.File != "" {
+					track.URL = fileURL(aTrack.File)
+				}
+				resp.AudioTracks = append(resp.AudioTracks, track)
+			}
+			for _, sTrack := range meta.Subtitles {
+				if sTrack.File == "" {
+					continue
+				}
+				resp.Subtitles = append(resp.Subtitles, StreamSubtitleTrack{
+					Index:    sTrack.Index,
+					Language: sTrack.Language,
+					Title:    sTrack.Title,
+					Codec:    sTrack.Codec,
+					URL:      fileURL(sTrack.File),
+				})
 			}
 		}
+	}
 
 	json.NewEncoder(w).Encode(resp)
 }

@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"stream/internal/cluster"
+	"stream/internal/model"
 )
 
+// handleStreamManifest serves /stream/<key|ticket>/<file>: files of an HLS package, either from local
+// disk or by redirecting/proxying to the storage node that holds the media.
 func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	subPath := strings.TrimPrefix(r.URL.Path, "/stream/")
 	cleanSubPath := filepath.Clean(subPath)
@@ -22,318 +25,215 @@ func (s *Server) handleStreamManifest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	parts := strings.Split(cleanSubPath, string(filepath.Separator))
-	rawKeyOrTicket := parts[0]
-	hasMP4Suffix := strings.HasSuffix(rawKeyOrTicket, ".mp4")
-	baseKeyOrTicket := strings.TrimSuffix(rawKeyOrTicket, ".mp4")
-	mediaID := baseKeyOrTicket
-	isTicket := strings.HasPrefix(baseKeyOrTicket, "t_")
-
-	secret := adminSecret(s)
-
-	// Ticket or Token verification (Fail Closed)
-	if !s.isCallerAuthenticated(r) {
-		if isTicket {
-			resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseKeyOrTicket, secret)
-			if err != nil {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream ticket"})
-				return
-			}
-			parts[0] = resolvedKey
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-			mediaID = resolvedKey
-		} else {
-			if secret == "" {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: stream authentication required"})
-				return
-			}
-			token := r.URL.Query().Get("token")
-			expStr := r.URL.Query().Get("exp")
-			if expStr == "" {
-				expStr = r.URL.Query().Get("expires")
-			}
-			if !ValidateStreamToken(baseKeyOrTicket, token, expStr, secret) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusForbidden)
-				_ = json.NewEncoder(w).Encode(map[string]string{"error": "forbidden: invalid or expired stream token"})
-				return
-			}
-			parts[0] = baseKeyOrTicket
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-			mediaID = baseKeyOrTicket
-		}
-	} else if isTicket {
-		if resolvedKey, _, err := cluster.ResolvePlaybackTicket(baseKeyOrTicket, secret); err == nil {
-			parts[0] = resolvedKey
-			cleanSubPath = filepath.Join(parts...)
-			if hasMP4Suffix && len(parts) == 1 {
-				cleanSubPath += ".mp4"
-			}
-			mediaID = resolvedKey
-		}
-	} else if hasMP4Suffix {
-		parts[0] = baseKeyOrTicket
-		cleanSubPath = filepath.Join(parts...)
-		if len(parts) == 1 {
-			cleanSubPath += ".mp4"
-		}
-		mediaID = baseKeyOrTicket
+	if len(parts) < 2 {
+		http.NotFound(w, r)
+		return
 	}
+	keyOrTicket := parts[0]
+	isTicket := strings.HasPrefix(keyOrTicket, "t_")
 
-	// Embed Player: When a single file or ticket is requested by a browser or iframe
-	// without ?raw=1, without .mp4 suffix, and without Range header, render the standalone ArtPlayer embed page.
-	wantsHTML := len(parts) == 1 && !hasMP4Suffix &&
-		(strings.Contains(r.Header.Get("Accept"), "text/html") || r.URL.Query().Get("embed") == "1" || r.URL.Query().Get("player") == "1") &&
-		r.URL.Query().Get("raw") != "1" &&
-		r.Header.Get("Range") == ""
-
-	if wantsHTML && s.store != nil {
-		if job, _ := s.store.GetFileJob(mediaID); job != nil {
-			if s.engine != nil && s.deduper != nil {
-				clientIP := r.RemoteAddr
-				if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-					clientIP = host
-				}
-				if s.deduper.ShouldCount(clientIP, mediaID, time.Now()) {
-					s.engine.RecordHit(mediaID)
-				}
-			}
-			s.renderStreamEmbed(w, r, job, rawKeyOrTicket)
-			return
-		}
+	mediaID, ok := s.authorizeStream(w, r, keyOrTicket, isTicket)
+	if !ok {
+		return
 	}
+	parts[0] = mediaID
+	rest := parts[1:]
 
-	if strings.HasSuffix(cleanSubPath, "metadata.json") && s.store != nil {
+	if rest[len(rest)-1] == "metadata.json" && s.store != nil {
 		if job, _ := s.store.GetFileJob(mediaID); job != nil && len(job.MetadataJSON) > 0 {
 			w.Header().Set("Content-Type", "application/json")
-			nodeCORS := "*"
-			if job.Placement.NodeID != "" && s.store != nil {
-				if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
-					nodeCORS = cfg.CORSAllowedOrigins
-				}
-			}
-			allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
-			if allowed != "" {
-				w.Header().Set("Access-Control-Allow-Origin", allowed)
-				w.Header().Set("Access-Control-Allow-Credentials", "true")
-				w.Header().Set("Vary", "Origin")
-			}
-			w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
-			w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+			s.setStreamCORS(w, r, s.nodeCORS(job.Placement.NodeID), "Range, Origin, Accept, Content-Type, Authorization")
 			_, _ = w.Write(job.MetadataJSON)
 			return
 		}
 	}
-	var filePath string
-	if len(parts) == 1 {
-		filePath = filepath.Join("data", "media", mediaID)
-	} else {
-		filePath = filepath.Join("data", "media", mediaID, filepath.Join(parts[1:]...))
+
+	filePath := filepath.Join("data", "media", filepath.Join(parts...))
+	if stat, err := os.Stat(filePath); err == nil && !stat.IsDir() {
+		s.countPlay(r, mediaID, rest)
+		s.serveLocalStreamFile(w, r, mediaID, filePath)
+		return
 	}
 
-	stat, err := os.Stat(filePath)
-	if err == nil && stat.IsDir() {
-		if entries, rErr := os.ReadDir(filePath); rErr == nil {
-			for _, e := range entries {
-				if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp4") || strings.HasSuffix(e.Name(), ".mkv")) {
-					filePath = filepath.Join(filePath, e.Name())
-					stat, err = os.Stat(filePath)
-					break
-				}
-			}
-		}
-	} else if err != nil && hasMP4Suffix && len(parts) == 1 {
-		dirPath := filepath.Join("data", "media", mediaID)
-		if dStat, dErr := os.Stat(dirPath); dErr == nil && dStat.IsDir() {
-			if entries, rErr := os.ReadDir(dirPath); rErr == nil {
-				for _, e := range entries {
-					if !e.IsDir() && (strings.HasSuffix(e.Name(), ".mp4") || strings.HasSuffix(e.Name(), ".mkv")) {
-						filePath = filepath.Join(dirPath, e.Name())
-						stat, err = os.Stat(filePath)
-						break
-					}
-				}
-			}
-		}
-	}
-
-	if err != nil {
-		if s.files != nil && s.store != nil {
-			if job, _ := s.store.GetFileJob(mediaID); job != nil && job.Placement.NodeID != "" {
-				targetURL := s.files.StreamURL(job)
-				if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
-					if len(parts) > 1 {
-						publicHost := job.Placement.PublicHost
-						if publicHost == "" && s.files != nil {
-							publicHost = s.files.StreamURL(job)
-						}
-						// If StreamURL is full URL, trim off the filename to append requested part
-						if idx := strings.LastIndex(targetURL, "/"); idx != -1 {
-							targetURL = targetURL[:idx] + "/" + strings.Join(parts[1:], "/")
-						} else {
-							targetURL += "/" + strings.Join(parts[1:], "/")
-						}
-					}
-				} else {
-					if targetURL == "" && s.coord != nil {
-						// Fallback: even if node status is offline due to a delayed heartbeat,
-						// attempt proxy/stream via node's recorded IP if node record exists.
-						for _, n := range s.coord.GetNodes() {
-							if n.Metrics.NodeID == job.Placement.NodeID {
-								targetURL = fmt.Sprintf("%s/stream/%s", AgentBaseURL(n), job.Key)
-								break
-							}
-						}
-					}
-					// Preserve the opaque playback ticket on worker URL: never leak raw DB key.
-					if isTicket && strings.Contains(targetURL, "/stream/"+job.Key) {
-						targetURL = strings.Replace(targetURL, "/stream/"+job.Key, "/stream/"+baseKeyOrTicket, 1)
-					}
-					if hasMP4Suffix && len(parts) == 1 && !strings.HasSuffix(targetURL, ".mp4") {
-						targetURL += ".mp4"
-					}
-					if len(parts) > 1 {
-						targetURL += "/" + strings.Join(parts[1:], "/")
-					}
-				}
-				if targetURL != "" {
-					if r.URL.RawQuery != "" {
-						if strings.Contains(targetURL, "?") {
-							targetURL += "&" + r.URL.RawQuery
-						} else {
-							targetURL += "?" + r.URL.RawQuery
-						}
-					}
-					isPlay := len(parts) == 1 || strings.HasSuffix(cleanSubPath, ".mp4") || strings.HasSuffix(cleanSubPath, ".mkv")
-					if isPlay && s.engine != nil && s.deduper != nil {
-						clientIP := r.RemoteAddr
-						if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-							clientIP = host
-						}
-						if s.deduper.ShouldCount(clientIP, mediaID, time.Now()) {
-							s.engine.RecordHit(mediaID)
-						}
-					}
-
-					isHTTPS := r.TLS != nil ||
-						strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
-						r.Header.Get("CF-Ray") != "" ||
-						strings.Contains(r.Header.Get("CF-Visitor"), "https")
-
-					// Proxy is only required when HTTPS clients access unencrypted HTTP nodes to prevent mixed-content blocks,
-					// or when explicitly requested via ?proxy=1 / ?raw=1. External HTTPS CDN / R2 targets are redirected directly.
-					isProxy := (isHTTPS && !strings.HasPrefix(targetURL, "https://")) ||
-						r.URL.Query().Get("proxy") == "true" ||
-						r.URL.Query().Get("proxy") == "1" ||
-						r.URL.Query().Get("raw") == "1" ||
-						strings.EqualFold(r.Header.Get("X-Stream-Proxy"), "true")
-
-					nodeCORS := "*"
-					if job.Placement.NodeID != "" && s.store != nil {
-						if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
-							nodeCORS = cfg.CORSAllowedOrigins
-						}
-					}
-					allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
-					if allowed != "" {
-						w.Header().Set("Access-Control-Allow-Origin", allowed)
-						w.Header().Set("Access-Control-Allow-Credentials", "true")
-						w.Header().Set("Vary", "Origin")
-					}
-					w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-					w.Header().Set("Access-Control-Allow-Headers", "Range, Origin, Accept, Content-Type, Authorization")
-					w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
-
-					if isProxy {
-						s.proxyStream(w, r, targetURL, nodeCORS)
-						return
-					}
-					http.Redirect(w, r, targetURL, http.StatusTemporaryRedirect)
-					return
-				}
-			}
-		}
+	if s.files == nil || s.store == nil {
 		http.NotFound(w, r)
 		return
 	}
-	if stat.IsDir() {
-		entries, err := os.ReadDir(filePath)
-		if err != nil {
-			http.NotFound(w, r)
-			return
+	job, _ := s.store.GetFileJob(mediaID)
+	if job == nil || job.Placement.NodeID == "" {
+		http.NotFound(w, r)
+		return
+	}
+	targetURL := s.remoteStreamURL(job, keyOrTicket, isTicket, rest)
+	if targetURL == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.URL.RawQuery != "" {
+		sep := "?"
+		if strings.Contains(targetURL, "?") {
+			sep = "&"
 		}
-		found := false
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-				filePath = filepath.Join(filePath, e.Name())
-				found = true
+		targetURL += sep + r.URL.RawQuery
+	}
+	s.countPlay(r, mediaID, rest)
+
+	isHTTPS := r.TLS != nil ||
+		strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") ||
+		r.Header.Get("CF-Ray") != "" ||
+		strings.Contains(r.Header.Get("CF-Visitor"), "https")
+
+	// Proxy is only required when HTTPS clients access unencrypted HTTP nodes to prevent mixed-content blocks,
+	// or when explicitly requested via ?proxy=1. External HTTPS CDN / R2 targets are redirected directly.
+	isProxy := (isHTTPS && !strings.HasPrefix(targetURL, "https://")) ||
+		r.URL.Query().Get("proxy") == "true" ||
+		r.URL.Query().Get("proxy") == "1" ||
+		strings.EqualFold(r.Header.Get("X-Stream-Proxy"), "true")
+
+	nodeCORS := s.nodeCORS(job.Placement.NodeID)
+	s.setStreamCORS(w, r, nodeCORS, "Range, Origin, Accept, Content-Type, Authorization")
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if isProxy {
+		s.proxyStream(w, r, targetURL, nodeCORS)
+		return
+	}
+	http.Redirect(w, r, targetURL, http.StatusTemporaryRedirect)
+}
+
+// authorizeStream maps the first path element to the media key, failing closed. Authenticated
+// callers may use raw keys; everyone else needs a valid playback ticket or signed token. On
+// failure it writes the 403 response itself and returns false.
+func (s *Server) authorizeStream(w http.ResponseWriter, r *http.Request, keyOrTicket string, isTicket bool) (string, bool) {
+	secret := adminSecret(s)
+	deny := func(msg string) (string, bool) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
+		return "", false
+	}
+
+	if s.isCallerAuthenticated(r) {
+		if isTicket {
+			if key, _, err := cluster.ResolvePlaybackTicket(keyOrTicket, secret); err == nil {
+				return key, true
+			}
+		}
+		return keyOrTicket, true
+	}
+	if isTicket {
+		key, _, err := cluster.ResolvePlaybackTicket(keyOrTicket, secret)
+		if err != nil {
+			return deny("forbidden: invalid or expired stream ticket")
+		}
+		return key, true
+	}
+	if secret == "" {
+		return deny("forbidden: stream authentication required")
+	}
+	expStr := r.URL.Query().Get("exp")
+	if expStr == "" {
+		expStr = r.URL.Query().Get("expires")
+	}
+	if !ValidateStreamToken(keyOrTicket, r.URL.Query().Get("token"), expStr, secret) {
+		return deny("forbidden: invalid or expired stream token")
+	}
+	return keyOrTicket, true
+}
+
+// remoteStreamURL builds the node (or bucket) URL for one file of the media, keeping the opaque
+// playback ticket on worker URLs so the raw database key is never leaked.
+func (s *Server) remoteStreamURL(job *model.FileJob, keyOrTicket string, isTicket bool, rest []string) string {
+	targetURL := s.files.StreamURL(job)
+	file := strings.Join(rest, "/")
+	if strings.HasPrefix(job.Placement.NodeID, "bucket:") {
+		if idx := strings.LastIndex(targetURL, "/"); idx != -1 {
+			return targetURL[:idx] + "/" + file
+		}
+		return targetURL + "/" + file
+	}
+	if targetURL == "" && s.coord != nil {
+		// Even if the node looks offline because of a delayed heartbeat, try its recorded address.
+		for _, n := range s.coord.GetNodes() {
+			if n.Metrics.NodeID == job.Placement.NodeID {
+				targetURL = fmt.Sprintf("%s/stream/%s", AgentBaseURL(n), job.Key)
 				break
 			}
 		}
-		if !found {
-			for _, e := range entries {
-				if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
-					filePath = filepath.Join(filePath, e.Name())
-					found = true
-					break
-				}
-			}
-		}
-		if !found {
-			http.NotFound(w, r)
-			return
-		}
 	}
+	if targetURL == "" {
+		return ""
+	}
+	if isTicket && strings.Contains(targetURL, "/stream/"+job.Key) {
+		targetURL = strings.Replace(targetURL, "/stream/"+job.Key, "/stream/"+keyOrTicket, 1)
+	}
+	return targetURL + "/" + file
+}
 
-	nodeCORS := "*"
-	if parts := strings.Split(cleanSubPath, "/"); len(parts) > 0 && s.store != nil {
-		if job, _ := s.store.GetFileJob(parts[0]); job != nil && job.Placement.NodeID != "" {
-			if cfg, _ := s.store.GetNodeConfig(job.Placement.NodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
-				nodeCORS = cfg.CORSAllowedOrigins
-			}
+// countPlay raises the media's heat when a viewer fetches the master playlist (one play per
+// client, deduplicated); segment requests never count.
+func (s *Server) countPlay(r *http.Request, mediaID string, rest []string) {
+	if len(rest) != 1 || rest[0] != "master.m3u8" || s.engine == nil || s.deduper == nil {
+		return
+	}
+	clientIP := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		clientIP = host
+	}
+	if s.deduper.ShouldCount(clientIP, mediaID, time.Now()) {
+		s.engine.RecordHit(mediaID)
+	}
+}
+
+// nodeCORS returns the CORS allow-list configured for a node, or "*" when none is set.
+func (s *Server) nodeCORS(nodeID string) string {
+	if nodeID != "" && s.store != nil {
+		if cfg, _ := s.store.GetNodeConfig(nodeID); cfg != nil && cfg.CORSAllowedOrigins != "" {
+			return cfg.CORSAllowedOrigins
 		}
 	}
-	allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin"))
-	if allowed != "" {
+	return "*"
+}
+
+func (s *Server) setStreamCORS(w http.ResponseWriter, r *http.Request, nodeCORS, allowHeaders string) {
+	if allowed := cluster.MatchCORSOrigin(nodeCORS, r.Header.Get("Origin")); allowed != "" {
 		w.Header().Set("Access-Control-Allow-Origin", allowed)
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Vary", "Origin")
 	}
 	w.Header().Set("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Range, Accept-Encoding, Origin, Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
 	w.Header().Set("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges")
+}
+
+// serveLocalStreamFile serves a file stored on the coordinator itself.
+func (s *Server) serveLocalStreamFile(w http.ResponseWriter, r *http.Request, mediaID, filePath string) {
+	var nodeID string
+	if s.store != nil {
+		if job, _ := s.store.GetFileJob(mediaID); job != nil {
+			nodeID = job.Placement.NodeID
+		}
+	}
+	s.setStreamCORS(w, r, s.nodeCORS(nodeID), "Range, Accept-Encoding, Origin, Content-Type, Authorization")
 	w.Header().Set("Accept-Ranges", "bytes")
 	w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 
-	if strings.HasSuffix(filePath, ".m3u8") {
+	switch {
+	case strings.HasSuffix(filePath, ".m3u8"):
 		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
-	} else if strings.HasSuffix(filePath, ".mp4") {
-		w.Header().Set("Content-Type", "video/mp4")
-	} else if strings.HasSuffix(filePath, ".m4a") {
-		w.Header().Set("Content-Type", "audio/mp4")
-	} else if strings.HasSuffix(filePath, ".vtt") {
-		w.Header().Set("Content-Type", "text/vtt")
-	} else if strings.HasSuffix(filePath, ".json") {
-		w.Header().Set("Content-Type", "application/json")
-	} else if strings.HasSuffix(filePath, ".m4s") {
+	case strings.HasSuffix(filePath, ".m4s"):
 		w.Header().Set("Content-Type", "video/iso.segment")
+	case strings.HasSuffix(filePath, ".vtt"):
+		w.Header().Set("Content-Type", "text/vtt")
+	case strings.HasSuffix(filePath, ".json"):
+		w.Header().Set("Content-Type", "application/json")
 	}
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-
 	http.ServeFile(w, r, filePath)
 }
-

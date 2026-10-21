@@ -175,9 +175,8 @@ func ResolveTargetDir(dir string) string {
 	return a.resolveTargetDir(dir)
 }
 
-// resolveMediaPath maps a request sub-path onto the primary media dir first,
-// then any registered block roots. If the path targets a media directory,
-// it automatically serves the primary .mp4 video file inside it. Returns "" when nothing matches.
+// resolveMediaPath maps a request sub-path (<key>/<file>) onto the primary media dir first,
+// then any registered block roots. Returns "" when no regular file matches.
 func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 	if strings.Contains(cleanSubPath, "..") {
 		return ""
@@ -205,68 +204,9 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 
 	for _, root := range roots {
 		candidate := filepath.Join(root, cleanSubPath)
-		if stat, err := os.Stat(candidate); err == nil {
-			if !stat.IsDir() {
-				a.mediaCache.Store(cleanSubPath, candidate)
-				return candidate
-			}
-			// Folder requested: auto-locate primary video (master.m3u8, .mp4, or .mkv)
-			entries, err := os.ReadDir(candidate)
-			if err == nil {
-				for _, e := range entries {
-					if !e.IsDir() && e.Name() == "master.m3u8" {
-						resolved := filepath.Join(candidate, e.Name())
-						a.mediaCache.Store(cleanSubPath, resolved)
-						return resolved
-					}
-				}
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-						resolved := filepath.Join(candidate, e.Name())
-						a.mediaCache.Store(cleanSubPath, resolved)
-						return resolved
-					}
-				}
-				for _, e := range entries {
-					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
-						resolved := filepath.Join(candidate, e.Name())
-						a.mediaCache.Store(cleanSubPath, resolved)
-						return resolved
-					}
-				}
-			}
-		}
-
-		// If cleanSubPath ends with .mp4 or .m3u8 but corresponds to a media folder on disk
-		if strings.HasSuffix(cleanSubPath, ".mp4") || strings.HasSuffix(cleanSubPath, ".m3u8") {
-			trimmed := strings.TrimSuffix(strings.TrimSuffix(cleanSubPath, ".mp4"), ".m3u8")
-			folderCandidate := filepath.Join(root, trimmed)
-			if stat, err := os.Stat(folderCandidate); err == nil && stat.IsDir() {
-				entries, err := os.ReadDir(folderCandidate)
-				if err == nil {
-					for _, e := range entries {
-						if !e.IsDir() && e.Name() == "master.m3u8" {
-							resolved := filepath.Join(folderCandidate, e.Name())
-							a.mediaCache.Store(cleanSubPath, resolved)
-							return resolved
-						}
-					}
-					for _, e := range entries {
-						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
-							resolved := filepath.Join(folderCandidate, e.Name())
-							a.mediaCache.Store(cleanSubPath, resolved)
-							return resolved
-						}
-					}
-					for _, e := range entries {
-						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mkv") {
-							resolved := filepath.Join(folderCandidate, e.Name())
-							a.mediaCache.Store(cleanSubPath, resolved)
-							return resolved
-						}
-					}
-				}
-			}
+		if stat, err := os.Stat(candidate); err == nil && !stat.IsDir() {
+			a.mediaCache.Store(cleanSubPath, candidate)
+			return candidate
 		}
 	}
 	return ""

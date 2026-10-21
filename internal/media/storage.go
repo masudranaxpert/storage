@@ -5,23 +5,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // MediaFolderStructure defines the standardized isolated directory layout for any video.
 type MediaFolderStructure struct {
-	MediaID        string `json:"media_id"`
-	BaseDir        string `json:"base_dir"`
-	RawDir         string `json:"raw_dir"`
-	RawFilePath    string `json:"raw_file_path"`
-	TargetFilename string `json:"target_filename"`
-	VideoFilePath  string `json:"video_file_path"`
-	MetadataPath   string `json:"metadata_path"`
-	CMAFDir        string `json:"cmaf_dir,omitempty"` // Backwards compatibility alias to BaseDir
+	MediaID      string `json:"media_id"`
+	BaseDir      string `json:"base_dir"`
+	RawDir       string `json:"raw_dir"`
+	RawFilePath  string `json:"raw_file_path"`
+	MetadataPath string `json:"metadata_path"`
 }
 
 // PrepareMediaFolder creates a dedicated, isolated folder for a given media ID and filename.
-// The processed video file and metadata.json land directly at the root of <baseDir>.
+// The HLS package and metadata.json land directly at the root of <baseDir>.
 func PrepareMediaFolder(rootDataDir, mediaID, originalFilename string) (*MediaFolderStructure, error) {
 	if rootDataDir == "" {
 		rootDataDir = filepath.Join("data", "media")
@@ -31,9 +27,6 @@ func PrepareMediaFolder(rootDataDir, mediaID, originalFilename string) (*MediaFo
 	if cleanFilename == "" {
 		cleanFilename = "video.mp4"
 	}
-	ext := filepath.Ext(cleanFilename)
-	baseName := strings.TrimSuffix(cleanFilename, ext)
-	targetFilename := baseName + ".mp4"
 
 	baseDir := filepath.Join(rootDataDir, mediaID)
 	rawDir := filepath.Join(baseDir, "raw")
@@ -43,14 +36,11 @@ func PrepareMediaFolder(rootDataDir, mediaID, originalFilename string) (*MediaFo
 	}
 
 	return &MediaFolderStructure{
-		MediaID:        mediaID,
-		BaseDir:        baseDir,
-		RawDir:         rawDir,
-		RawFilePath:    filepath.Join(rawDir, cleanFilename),
-		TargetFilename: targetFilename,
-		VideoFilePath:  filepath.Join(baseDir, targetFilename),
-		MetadataPath:   filepath.Join(baseDir, "metadata.json"),
-		CMAFDir:        baseDir,
+		MediaID:      mediaID,
+		BaseDir:      baseDir,
+		RawDir:       rawDir,
+		RawFilePath:  filepath.Join(rawDir, cleanFilename),
+		MetadataPath: filepath.Join(baseDir, "metadata.json"),
 	}, nil
 }
 
