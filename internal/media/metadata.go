@@ -456,7 +456,30 @@ func runRemux(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []Audio
 		filepath.Join(dstDir, "stream_%v.m3u8"),
 	)
 
-	return exec.Command(ffmpegPath, args...).CombinedOutput()
+	out, err := exec.Command(ffmpegPath, args...).CombinedOutput()
+	if err != nil {
+		return out, err
+	}
+
+	// Safety check: ensure master.m3u8 explicitly includes the video playlist reference
+	masterPath := filepath.Join(dstDir, "master.m3u8")
+	if plan.Mode != VideoNone {
+		if content, rErr := os.ReadFile(masterPath); rErr == nil {
+			strContent := string(content)
+			if !strings.Contains(strContent, "stream_0.m3u8") {
+				// Inject the video stream entry if ffmpeg omitted it
+				var streamInf strings.Builder
+				streamInf.WriteString("\n#EXT-X-STREAM-INF:BANDWIDTH=1500000")
+				if len(tracks) > 0 {
+					streamInf.WriteString(`,AUDIO="group_audio"`)
+				}
+				streamInf.WriteString("\nstream_0.m3u8\n")
+				_ = os.WriteFile(masterPath, []byte(strContent+streamInf.String()), 0644)
+			}
+		}
+	}
+
+	return out, nil
 }
 
 // lastLines returns the tail of ffmpeg output, where the actual error lives.

@@ -615,6 +615,8 @@ type StreamURLResponse struct {
 	Token        string                `json:"token"`
 	ExpiresAt    int64                 `json:"expires_at"`
 	ExpiresInSec int64                 `json:"expires_in_sec"`
+	MasterURL    string                `json:"master_url"`
+	HLSURL       string                `json:"hls_url"`
 	VideoURL     string                `json:"video_url"`
 	PlayURL      string                `json:"play_url"`
 	AudioTracks  []StreamAudioTrack    `json:"audio_tracks"`
@@ -687,16 +689,23 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 			resp.Filename = rec.Filename
 		}
 		directBase := s.StreamURL(job)
+		var masterURL string
 		if directBase != "" {
 			if identifier != key {
 				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
 				baseClean := strings.TrimSuffix(directBase, ".mp4")
-				resp.PlayURL = baseClean
-				resp.VideoURL = baseClean + ".mp4"
+				masterURL = fmt.Sprintf("%s/master.m3u8", baseClean)
+				resp.PlayURL = masterURL
+				resp.VideoURL = masterURL
+				resp.MasterURL = masterURL
+				resp.HLSURL = masterURL
 			} else {
 				baseClean := strings.TrimSuffix(directBase, ".mp4")
-				resp.PlayURL = fmt.Sprintf("%s?token=%s&exp=%d", baseClean, token, exp)
-				resp.VideoURL = fmt.Sprintf("%s.mp4?token=%s&exp=%d", baseClean, token, exp)
+				masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", baseClean, token, exp)
+				resp.PlayURL = masterURL
+				resp.VideoURL = masterURL
+				resp.MasterURL = masterURL
+				resp.HLSURL = masterURL
 			}
 		} else {
 			scheme := "http"
@@ -705,11 +714,17 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 			}
 			coordBase := fmt.Sprintf("%s://%s", scheme, r.Host)
 			if identifier != key {
-				resp.PlayURL = fmt.Sprintf("%s/stream/%s", coordBase, identifier)
-				resp.VideoURL = fmt.Sprintf("%s/stream/%s.mp4", coordBase, identifier)
+				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8", coordBase, identifier)
+				resp.PlayURL = masterURL
+				resp.VideoURL = masterURL
+				resp.MasterURL = masterURL
+				resp.HLSURL = masterURL
 			} else {
-				resp.PlayURL = fmt.Sprintf("%s/stream/%s?token=%s&exp=%d", coordBase, key, token, exp)
-				resp.VideoURL = fmt.Sprintf("%s/stream/%s.mp4?token=%s&exp=%d", coordBase, key, token, exp)
+				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8?token=%s&exp=%d", coordBase, key, token, exp)
+				resp.PlayURL = masterURL
+				resp.VideoURL = masterURL
+				resp.MasterURL = masterURL
+				resp.HLSURL = masterURL
 			}
 		}
 
