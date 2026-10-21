@@ -1486,15 +1486,7 @@
 
         let activeStreamUrl = streamUrl;
         let baseDirUrl = resolveBaseDirUrl(activeStreamUrl, job);
-        if (meta && meta.master_m3u8) {
-            activeStreamUrl = `${baseDirUrl}/${meta.master_m3u8}`;
-        } else if (meta && meta.filename && meta.filename.includes('.mp4')) {
-            // File is progressive MP4, keep original stream ticket / URL
-            activeStreamUrl = streamUrl;
-        } else if (!activeStreamUrl.includes('.m3u8') && !activeStreamUrl.includes('.mp4')) {
-            // Default new packages to master.m3u8
-            activeStreamUrl = `${activeStreamUrl}/master.m3u8`;
-        }
+        activeStreamUrl = `${baseDirUrl}/master.m3u8`;
 
         if (directInput) directInput.value = activeStreamUrl;
 
@@ -1878,13 +1870,10 @@
                 crossOrigin: 'anonymous'
             };
 
-            const isM3U8 = streamUrl.includes('.m3u8') || (meta && !!meta.master_m3u8);
-            const streamType = isM3U8 ? 'm3u8' : 'mp4';
-
             const artOptions = {
                 container: '#artplayer-container',
                 url: streamUrl,
-                type: streamType,
+                type: 'm3u8',
                 title: filename,
                 volume: 0.8,
                 isLive: false,
@@ -2000,11 +1989,6 @@
             }
             clearTimeout(cinemaLoadTimer);
             cinemaLoadTimer = setTimeout(() => cinemaFail(job, 'Timed out while connecting to the storage node.'), 25000);
-
-            const isHLS = streamUrl.includes('.m3u8');
-            if (hasExternalAudio && !isHLS) {
-                setupExternalAudioSync(currentArtPlayer, meta.audio_tracks, baseDirUrl);
-            }
         } catch (err) {
             console.error('ArtPlayer init error:', err);
             mountFallbackVideo(container, streamUrl, job);
