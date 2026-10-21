@@ -616,9 +616,7 @@ type StreamURLResponse struct {
 	ExpiresAt    int64                 `json:"expires_at"`
 	ExpiresInSec int64                 `json:"expires_in_sec"`
 	MasterURL    string                `json:"master_url"`
-	HLSURL       string                `json:"hls_url"`
 	VideoURL     string                `json:"video_url"`
-	PlayURL      string                `json:"play_url"`
 	AudioTracks  []StreamAudioTrack    `json:"audio_tracks"`
 	Subtitles    []StreamSubtitleTrack `json:"subtitles"`
 }
@@ -660,11 +658,9 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		identifier = ticket
 	}
 
-	playURL := fmt.Sprintf("/stream/%s", identifier)
-	videoURL := fmt.Sprintf("/stream/%s.mp4", identifier)
+	playURL := fmt.Sprintf("/stream/%s/master.m3u8", identifier)
 	if identifier == key {
-		playURL = fmt.Sprintf("/stream/%s?token=%s&exp=%d", key, token, exp)
-		videoURL = fmt.Sprintf("/stream/%s.mp4?token=%s&exp=%d", key, token, exp)
+		playURL = fmt.Sprintf("/stream/%s/master.m3u8?token=%s&exp=%d", key, token, exp)
 	}
 
 	resp := StreamURLResponse{
@@ -673,8 +669,8 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 		Token:        token,
 		ExpiresAt:    exp,
 		ExpiresInSec: int64(duration.Seconds()),
-		PlayURL:      playURL,
-		VideoURL:     videoURL,
+		MasterURL:    playURL,
+		VideoURL:     playURL,
 		AudioTracks:  make([]StreamAudioTrack, 0),
 		Subtitles:    make([]StreamSubtitleTrack, 0),
 	}
@@ -695,17 +691,13 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
 				baseClean := strings.TrimSuffix(directBase, ".mp4")
 				masterURL = fmt.Sprintf("%s/master.m3u8", baseClean)
-				resp.PlayURL = masterURL
 				resp.VideoURL = masterURL
 				resp.MasterURL = masterURL
-				resp.HLSURL = masterURL
 			} else {
 				baseClean := strings.TrimSuffix(directBase, ".mp4")
 				masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", baseClean, token, exp)
-				resp.PlayURL = masterURL
 				resp.VideoURL = masterURL
 				resp.MasterURL = masterURL
-				resp.HLSURL = masterURL
 			}
 		} else {
 			scheme := "http"
@@ -715,16 +707,12 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 			coordBase := fmt.Sprintf("%s://%s", scheme, r.Host)
 			if identifier != key {
 				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8", coordBase, identifier)
-				resp.PlayURL = masterURL
 				resp.VideoURL = masterURL
 				resp.MasterURL = masterURL
-				resp.HLSURL = masterURL
 			} else {
 				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8?token=%s&exp=%d", coordBase, key, token, exp)
-				resp.PlayURL = masterURL
 				resp.VideoURL = masterURL
 				resp.MasterURL = masterURL
-				resp.HLSURL = masterURL
 			}
 		}
 
