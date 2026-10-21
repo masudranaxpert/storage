@@ -47,6 +47,7 @@ docker-compose.override.yml
 # Uploads / misc local junk
 uploads/
 assets/
+!docs/assets/
 public/
 agent-transcripts/
 terminals/
