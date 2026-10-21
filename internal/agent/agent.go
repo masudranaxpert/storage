@@ -214,6 +214,13 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			entries, err := os.ReadDir(candidate)
 			if err == nil {
 				for _, e := range entries {
+					if !e.IsDir() && e.Name() == "master.m3u8" {
+						resolved := filepath.Join(candidate, e.Name())
+						a.mediaCache.Store(cleanSubPath, resolved)
+						return resolved
+					}
+				}
+				for _, e := range entries {
 					if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
 						resolved := filepath.Join(candidate, e.Name())
 						a.mediaCache.Store(cleanSubPath, resolved)
@@ -230,12 +237,20 @@ func (a *Agent) resolveMediaPath(cleanSubPath string) string {
 			}
 		}
 
-		// If cleanSubPath ends with .mp4 but corresponds to a media folder on disk
-		if strings.HasSuffix(cleanSubPath, ".mp4") {
-			folderCandidate := filepath.Join(root, strings.TrimSuffix(cleanSubPath, ".mp4"))
+		// If cleanSubPath ends with .mp4 or .m3u8 but corresponds to a media folder on disk
+		if strings.HasSuffix(cleanSubPath, ".mp4") || strings.HasSuffix(cleanSubPath, ".m3u8") {
+			trimmed := strings.TrimSuffix(strings.TrimSuffix(cleanSubPath, ".mp4"), ".m3u8")
+			folderCandidate := filepath.Join(root, trimmed)
 			if stat, err := os.Stat(folderCandidate); err == nil && stat.IsDir() {
 				entries, err := os.ReadDir(folderCandidate)
 				if err == nil {
+					for _, e := range entries {
+						if !e.IsDir() && e.Name() == "master.m3u8" {
+							resolved := filepath.Join(folderCandidate, e.Name())
+							a.mediaCache.Store(cleanSubPath, resolved)
+							return resolved
+						}
+					}
 					for _, e := range entries {
 						if !e.IsDir() && strings.HasSuffix(e.Name(), ".mp4") {
 							resolved := filepath.Join(folderCandidate, e.Name())

@@ -133,6 +133,8 @@ func (a *Agent) handleMedia(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasSuffix(targetFilePath, ".mp4") {
 		w.Header().Set("Content-Type", "video/mp4")
+	} else if strings.HasSuffix(targetFilePath, ".m3u8") {
+		w.Header().Set("Content-Type", "application/vnd.apple.mpegurl")
 	} else if strings.HasSuffix(targetFilePath, ".json") {
 		w.Header().Set("Content-Type", "application/json")
 	} else if strings.HasSuffix(targetFilePath, ".vtt") {

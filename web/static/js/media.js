@@ -1920,9 +1920,39 @@
                             art.hls = hls;
                             art.on('destroy', () => hls.destroy());
 
+                            function syncHlsAudioTracks() {
+                                if (!hls.audioTracks || hls.audioTracks.length === 0) return;
+                                const audioSelector = hls.audioTracks.map((track, index) => {
+                                    const langLabel = track.lang === 'hin' ? 'Hindi (5.1)' :
+                                                      track.lang === 'tam' ? 'Tamil (5.1)' :
+                                                      track.lang === 'eng' ? 'English' :
+                                                      (track.name || `Audio ${index + 1}`);
+                                    return {
+                                        default: track.default || index === 0,
+                                        html: `<span style="display:inline-flex;align-items:center;gap:6px;">🎵 ${global.escapeHtml(langLabel)}</span>`,
+                                        index: index,
+                                        displayTitle: langLabel
+                                    };
+                                });
+
+                                if (art.setting) {
+                                    art.setting.update({
+                                        name: 'audio_track',
+                                        tooltip: audioSelector.find(t => t.default)?.displayTitle || audioSelector[0].displayTitle,
+                                        selector: audioSelector,
+                                        onSelect: function (item) {
+                                            hls.audioTrack = item.index;
+                                            return item.displayTitle;
+                                        }
+                                    });
+                                }
+                            }
+
                             hls.on(Hls.Events.MANIFEST_PARSED, () => {
+                                syncHlsAudioTracks();
                                 cinemaReady();
                             });
+                            hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, syncHlsAudioTracks);
 
                             hls.on(Hls.Events.ERROR, (event, data) => {
                                 if (data && data.fatal) {
