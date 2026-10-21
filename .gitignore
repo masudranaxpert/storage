@@ -38,7 +38,6 @@ Thumbs.db
 # Env / secrets
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 
@@ -48,6 +47,20 @@ docker-compose.override.yml
 # Uploads / misc local junk
 uploads/
 assets/
+public/
 agent-transcripts/
 terminals/
 .nd/
+
+# AI Studio / preview wrapper files
+.aistudio/
+.tempmediaStorage/
+node_modules/
+package.json
+package-lock.json
+bun.lock
+bun.lockb
+tsconfig.json
+server.ts
+metadata.json
+

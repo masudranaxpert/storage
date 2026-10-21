@@ -1,5 +1,0 @@
-{
-  "name": "Stream Mesh Coordinator",
-  "description": "Distributed VPS cluster manager, storage tier lifecycle engine, and byte-range media streaming coordinator.",
-  "requestFramePermissions": []
-}
