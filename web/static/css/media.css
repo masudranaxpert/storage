@@ -498,21 +498,22 @@
 }
 
 #media-data-table th.col-specs {
-    width: 18%;
-}
-
-#media-data-table th.col-location {
     width: 16%;
 }
 
+#media-data-table th.col-location {
+    width: 14%;
+}
+
 #media-data-table th.col-heat {
-    width: 12%;
+    width: 10%;
     cursor: pointer;
     user-select: none;
 }
 
 #media-data-table th.col-status {
-    width: 9%;
+    width: 18%;
+    min-width: 140px;
 }
 
 #media-data-table th.col-actions {

@@ -6,6 +6,7 @@
 - [Tier Data-Flow & Lifecycle Engine](plans/tier-lifecycle-flows.md): Flow canvas, promote/demote/expire rules, demand API ([agent prompts](plans/tier-lifecycle-prompts.md)).
 
 ## Research
+- [fMP4 Playback Research](research/fmp4-playback/research.md): Why single-file fMP4 stalls `<video src>` (RTT-bound fragment scan) and byte-range HLS fix options.
 - [Tier Lifecycle Research](research/tier-lifecycle/research.md): Codebase health check (2026-10-11) and gaps for tier data-flow.
 - [Brutal Architecture & Code Quality Audit](research/architecture-audit.md): Deep flaw analysis across security, correctness, and codebase design.
 - [Open-Source Alternatives & Modern System Redesign](research/open-source-alternatives-and-redesign.md): Comparative analysis of Garage S3, SeaweedFS, JuiceFS, PeerTube Runner, and Temporal.

@@ -806,21 +806,31 @@
                     </div>`;
             } else {
                 const pct = Math.min(100, Math.max(0, item.progress_percent || 0)).toFixed(1);
-                const stageLabel = item.stage_name || item.state.replace('_', ' ');
+                let stageLabel = item.stage_name || item.state.replace(/_/g, ' ');
+                // Make labels clear and clean
+                if (item.state === 'detected' || item.state === 'queued') {
+                    stageLabel = 'In Queue';
+                } else if (item.state === 'downloading' && !item.stage_name) {
+                    stageLabel = 'Downloading';
+                } else if (item.state === 'processing' && !item.stage_name) {
+                    stageLabel = 'Processing';
+                } else if (item.state === 'transferring' && !item.stage_name) {
+                    stageLabel = 'Transferring';
+                }
                 const speedDisplay = item.speed || '';
 
                 statusHtml = `
-                    <div style="width:100%;">
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11.5px;font-weight:600;margin-bottom:4px;">
-                            <span style="color:var(--orange-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize;" title="${global.escapeHtml(stageLabel)}">
+                    <div style="min-width:130px;max-width:180px;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:12px;font-weight:600;margin-bottom:5px;">
+                            <span style="color:var(--orange-primary);font-size:11.5px;letter-spacing:0.2px;white-space:nowrap;" title="${global.escapeHtml(stageLabel)}">
                                 ${global.escapeHtml(stageLabel)}
                             </span>
-                            <span class="tabular-num" style="color:var(--text-primary);font-size:11.5px;flex-shrink:0;">${pct}%</span>
+                            <span class="tabular-num" style="color:var(--text-primary);font-size:11.5px;font-weight:700;">${pct}%</span>
                         </div>
-                        <div class="gauge-track" style="height:6px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:4px;overflow:hidden;">
-                            <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;"></div>
+                        <div class="gauge-track" style="height:6px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:4px;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,0.06);">
+                            <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;border-radius:4px;"></div>
                         </div>
-                        ${speedDisplay ? `<div class="tabular-num" style="font-size:11px;color:var(--text-secondary);margin-top:3px;white-space:nowrap;">${global.escapeHtml(speedDisplay)}</div>` : ''}
+                        ${speedDisplay ? `<div class="tabular-num" style="font-size:10.5px;color:var(--text-secondary);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${global.escapeHtml(speedDisplay)}">${global.escapeHtml(speedDisplay)}</div>` : ''}
                     </div>`;
             }
 
