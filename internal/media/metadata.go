@@ -335,6 +335,8 @@ func RemuxToStreamableMP4(srcPath, dstPath, mediaID, originalFilename string) (*
 
 			sCmd := exec.Command(ffmpegPath,
 				"-y",
+				"-err_detect", "ignore_err",
+				"-fflags", "+genpts+discardcorrupt",
 				"-i", srcPath,
 				"-map", fmt.Sprintf("0:s:%d", idx),
 				vttOutPath,
@@ -367,12 +369,17 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 		return AudioArgs(codec)
 	}
 	mp4Opts := []string{
-		"-max_muxing_queue_size", "1024",
+		"-max_muxing_queue_size", "2048",
 		"-avoid_negative_ts", "make_zero",
 		"-movflags", "+faststart",
 	}
 
-	args := []string{"-y", "-fflags", "+genpts", "-i", srcPath}
+	args := []string{
+		"-y",
+		"-err_detect", "ignore_err",
+		"-fflags", "+genpts+discardcorrupt",
+		"-i", srcPath,
+	}
 	if plan.Mode != VideoNone {
 		args = append(args, "-map", "0:v:0?")
 		args = append(args, plan.Args...)
@@ -393,6 +400,8 @@ func runRemux(ffmpegPath, srcPath, dstPath string, plan VideoPlan, tracks []Audi
 		case len(tracks) == 1:
 			args = append(args, audioFor(tracks[0].Codec)...)
 		case !probed:
+			args = append(args, "-c:a", "aac", "-b:a", "192k")
+		default:
 			args = append(args, "-c:a", "aac", "-b:a", "192k")
 		}
 		args = append(args, "-sn", "-dn")

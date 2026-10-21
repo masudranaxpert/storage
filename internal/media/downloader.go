@@ -51,6 +51,9 @@ func DownloadFile(ctx context.Context, srcURL, dstPath string, onProgress Progre
 	if !strings.HasPrefix(srcURL, "http://") && !strings.HasPrefix(srcURL, "https://") {
 		srcURL = "https://" + srcURL
 	}
+	if strings.Contains(srcURL, " ") {
+		srcURL = strings.ReplaceAll(srcURL, " ", "%20")
+	}
 
 	if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 		return fmt.Errorf("create destination directory: %w", err)
@@ -62,6 +65,7 @@ func DownloadFile(ctx context.Context, srcURL, dstPath string, onProgress Progre
 			return nil
 		}
 		fmt.Printf("[Downloader] aria2c failed (%v), falling back to native streaming HTTP engine...\n", err)
+		_ = os.Remove(dstPath + ".aria2")
 	}
 
 	return downloadWithNativeGo(ctx, srcURL, dstPath, onProgress)
@@ -154,6 +158,12 @@ func downloadWithNativeGo(ctx context.Context, srcURL, dstPath string, onProgres
 	req.Header.Set("Accept", "*/*")
 	req.Header.Set("Connection", "keep-alive")
 
+	var startOffset int64
+	if stat, err := os.Stat(dstPath); err == nil && stat.Size() > 0 {
+		startOffset = stat.Size()
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", startOffset))
+	}
+
 	tr := &http.Transport{
 		TLSClientConfig: tlsConfig(),
 	}
@@ -177,10 +187,30 @@ func downloadWithNativeGo(ctx context.Context, srcURL, dstPath string, onProgres
 		}
 		return fmt.Errorf("network request failed: %w", err)
 	}
+
+	// If server rejected Range resume with 416 or 400, retry from byte 0
+	if startOffset > 0 && (resp.StatusCode == http.StatusRequestedRangeNotSatisfiable || resp.StatusCode == http.StatusBadRequest) {
+		_ = resp.Body.Close()
+		_ = os.Remove(dstPath)
+		_ = os.Remove(dstPath + ".aria2")
+		startOffset = 0
+
+		reqRetry, err := http.NewRequestWithContext(ctx, "GET", srcURL, nil)
+		if err == nil {
+			reqRetry.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+			reqRetry.Header.Set("Accept", "*/*")
+			reqRetry.Header.Set("Connection", "keep-alive")
+			if respRetry, errRetry := client.Do(reqRetry); errRetry == nil {
+				resp = respRetry
+			}
+		}
+	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		switch resp.StatusCode {
+		case http.StatusBadRequest:
+			return fmt.Errorf("HTTP 400 (Bad Request: source server rejected download or link expired)")
 		case http.StatusNotFound:
 			return fmt.Errorf("HTTP 404 (File not found / broken URL)")
 		case http.StatusForbidden:
@@ -194,10 +224,27 @@ func downloadWithNativeGo(ctx context.Context, srcURL, dstPath string, onProgres
 		}
 	}
 
-	totalBytes := resp.ContentLength
-	out, err := os.Create(dstPath)
-	if err != nil {
-		return fmt.Errorf("create output file: %w", err)
+	var out *os.File
+	var totalBytes int64
+	var downloaded int64
+
+	if resp.StatusCode == http.StatusPartialContent && startOffset > 0 {
+		// Server accepted Range: append to existing file
+		out, err = os.OpenFile(dstPath, os.O_WRONLY|os.O_APPEND, 0644)
+		if err != nil {
+			return fmt.Errorf("open output file for append: %w", err)
+		}
+		downloaded = startOffset
+		if resp.ContentLength > 0 {
+			totalBytes = startOffset + resp.ContentLength
+		}
+	} else {
+		// Fresh download: truncate or create
+		out, err = os.Create(dstPath)
+		if err != nil {
+			return fmt.Errorf("create output file: %w", err)
+		}
+		totalBytes = resp.ContentLength
 	}
 	defer out.Close()
 
@@ -205,7 +252,6 @@ func downloadWithNativeGo(ctx context.Context, srcURL, dstPath string, onProgres
 	defer downloadBufferPool.Put(bufPtr)
 	buf := *bufPtr
 
-	var downloaded int64
 	lastUpdate := time.Now()
 	var lastDownloaded int64
 
