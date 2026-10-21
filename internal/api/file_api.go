@@ -685,36 +685,22 @@ func (s *Service) handleToken(w http.ResponseWriter, r *http.Request, key string
 			resp.Filename = rec.Filename
 		}
 		directBase := s.StreamURL(job)
-		var masterURL string
-		if directBase != "" {
-			if identifier != key {
-				directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
-				baseClean := strings.TrimSuffix(directBase, ".mp4")
-				masterURL = fmt.Sprintf("%s/master.m3u8", baseClean)
-				resp.VideoURL = masterURL
-				resp.MasterURL = masterURL
-			} else {
-				baseClean := strings.TrimSuffix(directBase, ".mp4")
-				masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", baseClean, token, exp)
-				resp.VideoURL = masterURL
-				resp.MasterURL = masterURL
-			}
-		} else {
-			scheme := "http"
-			if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") || r.Header.Get("CF-Ray") != "" {
-				scheme = "https"
-			}
-			coordBase := fmt.Sprintf("%s://%s", scheme, r.Host)
-			if identifier != key {
-				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8", coordBase, identifier)
-				resp.VideoURL = masterURL
-				resp.MasterURL = masterURL
-			} else {
-				masterURL = fmt.Sprintf("%s/stream/%s/master.m3u8?token=%s&exp=%d", coordBase, key, token, exp)
-				resp.VideoURL = masterURL
-				resp.MasterURL = masterURL
-			}
+		if directBase == "" {
+			writeErr(w, http.StatusConflict, fmt.Errorf("media stream not ready or unavailable for key '%s' (state: %s)", key, job.State))
+			return
 		}
+
+		var masterURL string
+		if identifier != key {
+			directBase = strings.Replace(directBase, "/stream/"+key, "/stream/"+identifier, 1)
+			baseClean := strings.TrimSuffix(directBase, ".mp4")
+			masterURL = fmt.Sprintf("%s/master.m3u8", baseClean)
+		} else {
+			baseClean := strings.TrimSuffix(directBase, ".mp4")
+			masterURL = fmt.Sprintf("%s/master.m3u8?token=%s&exp=%d", baseClean, token, exp)
+		}
+		resp.VideoURL = masterURL
+		resp.MasterURL = masterURL
 
 			if len(job.MetadataJSON) > 0 {
 				var meta media.MediaMetadata
