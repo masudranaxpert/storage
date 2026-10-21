@@ -85,6 +85,14 @@
         const displayName = n.custom_label || m.node_id;
         const hasCustomLabel = !!n.custom_label && n.custom_label !== m.node_id;
 
+        const allocCapBytes = n.allocated_max_bytes || 0;
+        const allocCapGB = allocCapBytes > 0 ? Math.round(allocCapBytes / (1024 * 1024 * 1024)) : 0;
+        const rawCors = (n.cors_allowed_origins || '*').trim();
+        const corsList = rawCors.split(',').map(s => s.trim()).filter(Boolean);
+        const corsSummary = (rawCors === '*' || corsList.length === 0)
+            ? 'CORS: *'
+            : (corsList.length === 1 ? `CORS: ${corsList[0]}` : `CORS: ${corsList.length} origins`);
+
         return `
             <div class="node-item-card ${isExpanded ? 'expanded' : ''}" id="card-${global.escapeHtml(m.node_id)}">
                 <div class="node-card-head" onclick="toggleNodeExpand('${global.escapeHtml(m.node_id)}', event)">
@@ -110,21 +118,22 @@
                                 ${caps.version ? `<span class="node-version-badge" title="Stream Agent Version">${global.escapeHtml(caps.version)}</span>` : ''}
                             </div>
                             <div class="node-sub-row">
-                                <span class="meta-label">${global.escapeHtml(m.hostname || 'localhost')}</span>
-                                <span class="meta-divider">&bull;</span>
-                                <span>${global.escapeHtml(m.os || 'linux')} (${global.escapeHtml(m.platform || 'linux')})</span>
-                                <span class="meta-divider">&bull;</span>
                                 <span class="node-ip-copy" data-ip="${global.escapeHtml(primaryIP)}" onclick="event.stopPropagation(); copyNodeIP('${global.escapeHtml(primaryIP)}', this)" title="Click to copy IP">
                                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
                                     <span>${global.escapeHtml(primaryIP)}</span>
                                 </span>
                                 ${extraIPBadge}
+                                <span class="meta-divider">&bull;</span>
+                                <span class="meta-label">${global.escapeHtml(m.os || 'linux')}</span>
+                                <span class="meta-divider">&bull;</span>
+                                <span class="meta-label" title="Allowed CORS Origins: ${global.escapeHtml(rawCors)}">${global.escapeHtml(corsSummary)}</span>
+                                ${allocCapGB > 0 ? `<span class="meta-divider">&bull;</span><span class="node-id-chip" style="color:var(--orange-dark);border-color:var(--border-orange);background:var(--bg-orange-soft);">Cap: ${allocCapGB} GB</span>` : ''}
                             </div>
                         </div>
                     </div>
 
                     <div class="node-toolbar" onclick="event.stopPropagation()">
-                        <button class="node-btn-action" id="btn-edit-${global.escapeHtml(m.node_id)}" onclick="event.stopPropagation(); openNodeDetail('${global.escapeHtml(m.node_id)}')" title="Edit VPS Configuration & Quota">
+                        <button class="node-btn-action" id="btn-edit-${global.escapeHtml(m.node_id)}" onclick="event.stopPropagation(); openNodeDetail('${global.escapeHtml(m.node_id)}')" title="Edit Node Settings">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                                 <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
@@ -141,14 +150,14 @@
                         </button>
 
                         ${!m.node_id.includes('(master)') ? `
-                        <button class="node-btn-action node-btn-icon btn-restart" id="btn-restart-${global.escapeHtml(m.node_id)}" onclick="event.stopPropagation(); restartNodeAgent('${global.escapeHtml(m.node_id)}', this)" title="Restart stream-agent daemon via SSH" aria-label="Restart stream-agent">
+                        <button class="node-btn-action node-btn-icon btn-restart" id="btn-restart-${global.escapeHtml(m.node_id)}" onclick="event.stopPropagation(); restartNodeAgent('${global.escapeHtml(m.node_id)}', this)" title="Restart agent via SSH" aria-label="Restart agent">
                             <svg class="restart-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
                             </svg>
                         </button>` : ''}
 
                         ${!m.node_id.includes('(master)') ? `
-                        <button class="node-btn-action node-btn-icon danger" onclick="event.stopPropagation(); openDeleteNodeModal('${global.escapeHtml(m.node_id)}')" title="Remove node from cluster" aria-label="Remove node from cluster">
+                        <button class="node-btn-action node-btn-icon danger" onclick="event.stopPropagation(); openDeleteNodeModal('${global.escapeHtml(m.node_id)}')" title="Remove node" aria-label="Remove node">
                             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                 <polyline points="3 6 5 6 21 6"></polyline>
                                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -167,14 +176,14 @@
                 <div class="node-offline-recovery-bar" style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 16px;background:rgba(239,68,68,0.08);border-bottom:1px solid rgba(239,68,68,0.18);font-size:12px;">
                     <span style="color:var(--status-offline);font-weight:600;display:inline-flex;align-items:center;gap:6px;">
                         <span style="width:7px;height:7px;border-radius:50%;background:var(--status-offline);display:inline-block;"></span>
-                        Node is currently offline
+                        Node is offline
                     </span>
                     <div style="display:flex;align-items:center;gap:8px;">
                         <button class="btn btn-xs btn-secondary" onclick="event.stopPropagation(); restartNodeAgent('${global.escapeHtml(m.node_id)}', this)" style="height:26px;font-size:11.5px;padding:0 10px;border-radius:var(--radius-sm);cursor:pointer;">
                             Restart Agent
                         </button>
                         <button class="btn btn-xs btn-primary" onclick="event.stopPropagation(); redeployNodeAgent('${global.escapeHtml(m.node_id)}', this)" style="height:26px;font-size:11.5px;padding:0 10px;border-radius:var(--radius-sm);cursor:pointer;">
-                            Redeploy / Reconnect
+                            Redeploy
                         </button>
                     </div>
                 </div>` : ''}
@@ -184,7 +193,7 @@
                         <span class="cell-label">Drive Storage</span>
                         <div class="cell-value-wrap">
                             <span class="cell-value tabular-num">${global.formatBytes(freeDiskBytes)} Free</span>
-                            <span class="cell-sub tabular-num">${storagePct.toFixed(0)}% used</span>
+                            <span class="cell-sub tabular-num">${allocCapGB > 0 ? `Cap ${allocCapGB} GB · ` : ''}${storagePct.toFixed(0)}% used</span>
                         </div>
                         <div class="cell-progress">
                             <div class="cell-progress-fill ${storageFillClass}" style="width:${Math.min(100, Math.max(0, storagePct))}%"></div>
@@ -192,7 +201,7 @@
                     </div>
 
                     <div class="node-metric-cell">
-                        <span class="cell-label">Compute (CPU)</span>
+                        <span class="cell-label">CPU</span>
                         <div class="cell-value-wrap">
                             <span class="cell-value tabular-num">${cpuUsed.toFixed(1)}%</span>
                             <span class="cell-sub tabular-num">${cpuCores} ${cpuCores === 1 ? 'Core' : 'Cores'}</span>
@@ -203,7 +212,7 @@
                     </div>
 
                     <div class="node-metric-cell">
-                        <span class="cell-label">Memory (RAM)</span>
+                        <span class="cell-label">RAM</span>
                         <div class="cell-value-wrap">
                             <span class="cell-value tabular-num">${global.formatBytes(ramAvail)} Free</span>
                             <span class="cell-sub tabular-num">${ramUsedPct.toFixed(0)}% used</span>
@@ -217,10 +226,10 @@
                 <div class="node-drawer">
                     <div class="node-drawer-section">
                         <div class="drawer-section-head">
-                            <span class="drawer-title">Worker Bundles &amp; Capabilities</span>
+                            <span class="drawer-title">Capabilities</span>
                             <div style="display:inline-flex;align-items:center;gap:6px;">
-                                ${caps.version ? `<span class="node-version-badge" title="Stream Agent Binary Version">${global.escapeHtml(caps.version)}</span>` : ''}
-                                <span class="drawer-agent-tag">⚡ Stream Agent :${caps.agent_port || 2052}</span>
+                                ${caps.version ? `<span class="node-version-badge">${global.escapeHtml(caps.version)}</span>` : ''}
+                                <span class="drawer-agent-tag">⚡ Port :${caps.agent_port || 2052}</span>
                             </div>
                         </div>
                         <div class="drawer-tools-grid">
@@ -241,7 +250,7 @@
                             </div>
                         </div>
                         <div class="drawer-paths-row">
-                            ${caps.version ? `<div class="path-item"><span class="path-key">Version:</span> <span class="path-val" style="font-weight:700;font-family:'JetBrains Mono',monospace;">${global.escapeHtml(caps.version)}</span></div>` : ''}
+                            <div class="path-item"><span class="path-key">CORS:</span> <span class="path-val">${global.escapeHtml(rawCors)}</span></div>
                             <div class="path-item"><span class="path-key">Binaries:</span> <span class="path-val">/opt/stream/bin</span></div>
                             ${m.media_path ? `<div class="path-item"><span class="path-key">Media Root:</span> <span class="path-val">${global.escapeHtml(m.media_path)}</span></div>` : ''}
                         </div>
@@ -249,8 +258,8 @@
 
                     <div class="node-drawer-section">
                         <div class="drawer-section-head">
-                            <span class="drawer-title">Mounted Storage Partitions (${disks.length})</span>
-                            <span class="tabular-num" style="font-size:11px;color:var(--text-secondary);font-weight:600;">${global.formatBytes(freeDiskBytes)} Total Available</span>
+                            <span class="drawer-title">Storage Partitions (${disks.length})</span>
+                            <span class="tabular-num" style="font-size:11px;color:var(--text-secondary);font-weight:600;">${global.formatBytes(freeDiskBytes)} Available</span>
                         </div>
                         <div class="node-drives-list">
                             ${disks.length > 0 ? disks.map(renderDriveItem).join('') : '<div style="font-size:12px;color:var(--text-secondary);padding:8px;">No storage drives mounted</div>'}
@@ -983,6 +992,93 @@
         }
     }
 
+    let currentModalCorsList = ['*'];
+
+    function syncNodeCorsState(rawStr) {
+        const cleaned = (rawStr || '*').split(',').map(s => s.trim()).filter(Boolean);
+        if (cleaned.length === 0 || cleaned.includes('*')) {
+            currentModalCorsList = ['*'];
+        } else {
+            currentModalCorsList = Array.from(new Set(cleaned));
+        }
+        const hiddenEl = document.getElementById('modal-edit-cors-origins');
+        if (hiddenEl) {
+            hiddenEl.value = currentModalCorsList.join(', ');
+        }
+        renderNodeCorsChips();
+    }
+
+    function renderNodeCorsChips() {
+        const container = document.getElementById('modal-cors-chips-list');
+        if (!container) return;
+
+        container.innerHTML = currentModalCorsList.map((origin, idx) => {
+            const isWildcard = origin === '*';
+            const label = isWildcard ? '* (All Origins)' : origin;
+            return `
+                <span class="cors-chip ${isWildcard ? 'is-wildcard' : ''}">
+                    <span>${global.escapeHtml(label)}</span>
+                    ${!isWildcard ? `
+                        <button type="button" class="cors-chip-remove" onclick="removeNodeCorsOrigin(${idx})" title="Remove ${global.escapeHtml(origin)}" aria-label="Remove origin">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+                                <line x1="18" y1="6" x2="6" y2="18"></line>
+                                <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                        </button>
+                    ` : ''}
+                </span>
+            `;
+        }).join('');
+    }
+
+    function addNodeCorsOriginFromInput() {
+        const input = document.getElementById('modal-cors-add-input');
+        if (!input) return;
+        const raw = input.value.trim();
+        if (!raw) return;
+
+        const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+        if (parts.includes('*')) {
+            currentModalCorsList = ['*'];
+        } else {
+            const existing = currentModalCorsList.filter(x => x !== '*');
+            parts.forEach(p => {
+                if (!existing.includes(p)) existing.push(p);
+            });
+            currentModalCorsList = existing.length > 0 ? existing : ['*'];
+        }
+        input.value = '';
+        const hiddenEl = document.getElementById('modal-edit-cors-origins');
+        if (hiddenEl) hiddenEl.value = currentModalCorsList.join(', ');
+        renderNodeCorsChips();
+    }
+
+    function removeNodeCorsOrigin(idx) {
+        currentModalCorsList.splice(idx, 1);
+        if (currentModalCorsList.length === 0) {
+            currentModalCorsList = ['*'];
+        }
+        const hiddenEl = document.getElementById('modal-edit-cors-origins');
+        if (hiddenEl) hiddenEl.value = currentModalCorsList.join(', ');
+        renderNodeCorsChips();
+    }
+
+    function setNodeCorsAll() {
+        currentModalCorsList = ['*'];
+        const input = document.getElementById('modal-cors-add-input');
+        if (input) input.value = '';
+        const hiddenEl = document.getElementById('modal-edit-cors-origins');
+        if (hiddenEl) hiddenEl.value = '*';
+        renderNodeCorsChips();
+    }
+
+    function handleCorsInputKeydown(e) {
+        if (e.key === 'Enter' || e.key === ',') {
+            e.preventDefault();
+            addNodeCorsOriginFromInput();
+        }
+    }
+
     async function openNodeDetail(nodeID) {
         if (!global.cachedPoolData || !global.cachedPoolData.nodes) return;
         const node = global.cachedPoolData.nodes.find(n => n.metrics.node_id === nodeID);
@@ -999,22 +1095,24 @@
         if (titleEl) titleEl.innerText = `Edit Node: ${m.node_id}`;
         const cleanIPs = global.cleanNodeIPs(m.ips);
         const primaryIP = cleanIPs[0] || (m.ips && m.ips[0]) || '127.0.0.1';
-        const extraCount = cleanIPs.length - 1;
-        const extraBadge = extraCount > 0 ? ` <span class="badge-extra-ips" title="Other interfaces: ${global.escapeHtml(cleanIPs.slice(1).join(', '))}">+${extraCount} more</span>` : '';
         if (subEl) {
             subEl.innerHTML = `<span style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">` +
-                `<span>${global.escapeHtml(m.hostname)} (${global.escapeHtml(m.os)} &bull; ${global.escapeHtml(m.platform || 'linux')})</span>` +
-                `<span style="color:var(--text-muted);">&bull;</span>` +
-                `<span>IP: <code class="mono-code">${global.escapeHtml(primaryIP)}</code>${extraBadge}</span>` +
-                (m.capabilities?.version ? `<span style="color:var(--text-muted);">&bull;</span><span class="node-version-badge" style="font-size:10px;padding:1px 6px;">${global.escapeHtml(m.capabilities.version)}</span>` : '') +
+                `<span>${global.escapeHtml(primaryIP)}</span>` +
+                `<span style="color:var(--text-muted);">&middot;</span>` +
+                `<span>${global.escapeHtml(m.os || 'linux')}</span>` +
+                (m.capabilities?.version ? `<span style="color:var(--text-muted);">&middot;</span><span class="node-version-badge" style="font-size:10px;padding:1px 6px;">${global.escapeHtml(m.capabilities.version)}</span>` : '') +
                 `</span>`;
         }
-        if (cpuEl) cpuEl.innerText = `${m.cpu?.cores || 0} Cores • ${m.cpu?.model_name || 'Generic CPU'} • Load: ${(m.cpu?.used_percent || 0).toFixed(1)}%`;
-        if (ramEl) ramEl.innerText = `${global.formatBytes(m.memory?.available_bytes || 0)} Free of ${global.formatBytes(m.memory?.total_bytes || 0)}`;
+        if (cpuEl) cpuEl.innerText = `CPU: ${m.cpu?.cores || 1}C (${(m.cpu?.used_percent || 0).toFixed(0)}%)`;
+        if (ramEl) ramEl.innerText = `RAM: ${global.formatBytes(m.memory?.available_bytes || 0)} free`;
 
         const input = document.getElementById('modal-quota-input');
         const display = document.getElementById('modal-quota-display');
         const coordUrlInput = document.getElementById('modal-edit-coord-url');
+        const corsAddInput = document.getElementById('modal-cors-add-input');
+        if (corsAddInput) corsAddInput.value = '';
+
+        syncNodeCorsState(node.cors_allowed_origins || '*');
 
         try {
             const res = await fetch(`/api/nodes/${encodeURIComponent(nodeID)}/config`);
@@ -1022,15 +1120,14 @@
                 const cfg = await res.json();
                 const allocGB = cfg.allocated_max_bytes ? Math.round(cfg.allocated_max_bytes / (1024 * 1024 * 1024)) : 0;
                 if (input) input.value = allocGB > 0 ? allocGB : '';
-                if (display) display.innerText = allocGB === 0 ? 'Unlimited (Full Drive)' : `Capped at ${allocGB} GB`;
+                if (display) display.innerText = allocGB === 0 ? 'Unlimited' : `${allocGB} GB Cap`;
 
                 if (coordUrlInput) {
                     coordUrlInput.value = cfg.coordinator_url || `${window.location.protocol}//${window.location.host}`;
                     checkEditCoordUrlSafety(coordUrlInput.value);
                 }
 
-                const corsEl = document.getElementById('modal-edit-cors-origins');
-                if (corsEl) corsEl.value = cfg.cors_allowed_origins || '*';
+                syncNodeCorsState(cfg.cors_allowed_origins || '*');
 
                 const labelEl = document.getElementById('modal-edit-label');
                 if (labelEl) labelEl.value = cfg.custom_label || '';
@@ -1082,13 +1179,19 @@
         const numVal = Math.max(0, parseInt(val) || 0);
         const display = document.getElementById('modal-quota-display');
         if (display) {
-            display.innerText = numVal === 0 ? 'Unlimited (Full Drive)' : `Capped at ${numVal} GB`;
+            display.innerText = numVal === 0 ? 'Unlimited' : `${numVal} GB Cap`;
         }
     }
 
     async function handleSaveNodeConfig(e) {
         if (e) e.preventDefault();
         if (!activeSelectedNode) return;
+
+        // If the user typed a domain in the inline CORS input without clicking + Add, include it automatically
+        const pendingCorsInput = document.getElementById('modal-cors-add-input');
+        if (pendingCorsInput && pendingCorsInput.value.trim()) {
+            addNodeCorsOriginFromInput();
+        }
 
         const nodeID = activeSelectedNode.metrics.node_id;
         const submitBtn = document.getElementById('btn-save-node-config');
@@ -1132,6 +1235,9 @@
             if (res.ok) {
                 closeNodeDetailModal();
                 global.fetchClusterTelemetry();
+                if (global.showToast) {
+                    global.showToast('Node settings saved', 'success');
+                }
             } else {
                 const errText = await res.text();
                 alert(`Failed to save node settings: ${errText}`);
@@ -1159,9 +1265,9 @@
             badge.style.borderRadius = '4px';
             if (warning) warning.style.display = 'block';
         } else if (url.length > 4) {
-            badge.innerText = 'Public / Tunnel';
+            badge.innerText = 'Public';
             badge.style.color = '#059669';
-            badge.style.background = '#ecfdf5';
+            badge.style.background = 'rgba(16, 185, 129, 0.12)';
             badge.style.border = '1px solid rgba(16,185,129,0.3)';
             badge.style.padding = '2px 8px';
             badge.style.borderRadius = '4px';
@@ -1191,7 +1297,7 @@
             global.setModalOpen(true);
             document.getElementById('provision-log-box').style.display = 'none';
             document.getElementById('btn-submit-provision').disabled = false;
-            document.getElementById('btn-provision-text').innerText = 'Provision & Join Cluster';
+            document.getElementById('btn-provision-text').innerText = 'Connect & Add Node';
 
             const coordInput = document.getElementById('vps-input-coordinator-url');
             if (coordInput) {
@@ -1201,10 +1307,6 @@
                 checkCoordUrlSafety(coordInput.value);
             }
 
-            const portToggle = document.getElementById('toggle-custom-port');
-            if (portToggle) portToggle.checked = false;
-            const portWrap = document.getElementById('wrap-custom-port');
-            if (portWrap) portWrap.style.display = 'none';
             const portInput = document.getElementById('vps-input-port');
             if (portInput) portInput.value = '22';
 
@@ -1279,8 +1381,7 @@
         const password = document.getElementById('vps-input-password').value;
         const name = document.getElementById('vps-input-name').value.trim() || `vps-${host.replace(/\./g, '-')}`;
 
-        const isCustomPort = document.getElementById('toggle-custom-port')?.checked;
-        const port = isCustomPort ? (parseInt(document.getElementById('vps-input-port')?.value) || 22) : 22;
+        const port = parseInt(document.getElementById('vps-input-port')?.value) || 22;
         const useSudo = document.getElementById('toggle-use-sudo')?.checked || false;
 
         const coordUrlInput = document.getElementById('vps-input-coordinator-url')?.value?.trim();
@@ -1293,7 +1394,7 @@
 
         logBox.style.display = 'block';
         submitBtn.disabled = true;
-        submitText.innerText = 'Provisioning in progress...';
+        submitText.innerText = 'Connecting...';
         logContent.innerHTML = `
             <div style="color:var(--orange-primary);">SSH to ${global.escapeHtml(host)}:${port} as ${global.escapeHtml(user)}...</div>
             <div style="color:var(--text-secondary);margin-top:4px;">Deploying worker bundle &amp; configuring service. Keep this window open.</div>
@@ -1476,6 +1577,10 @@
     global.redeployNodeAgent = redeployNodeAgent;
     global.handleModalRestartAgent = handleModalRestartAgent;
     global.handleModalRedeployAgent = handleModalRedeployAgent;
+    global.addNodeCorsOriginFromInput = addNodeCorsOriginFromInput;
+    global.removeNodeCorsOrigin = removeNodeCorsOrigin;
+    global.setNodeCorsAll = setNodeCorsAll;
+    global.handleCorsInputKeydown = handleCorsInputKeydown;
 
     if (global.App && global.App.pages) {
         global.App.pages.nodes = { init, destroy, render: renderNodes };

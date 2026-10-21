@@ -53,10 +53,12 @@ func IsPoolVPS(m telemetry.NodeMetrics) bool {
 
 // NodeRecord stores current telemetry and connection metadata for a cluster node.
 type NodeRecord struct {
-	Metrics     telemetry.NodeMetrics `json:"metrics"`
-	Status      NodeStatus            `json:"status"`
-	LastSeen    time.Time             `json:"last_seen"`
-	CustomLabel string                `json:"custom_label,omitempty"`
+	Metrics            telemetry.NodeMetrics `json:"metrics"`
+	Status             NodeStatus            `json:"status"`
+	LastSeen           time.Time             `json:"last_seen"`
+	CustomLabel        string                `json:"custom_label,omitempty"`
+	AllocatedMaxBytes  uint64                `json:"allocated_max_bytes,omitempty"`
+	CORSAllowedOrigins string                `json:"cors_allowed_origins,omitempty"`
 }
 
 // MediumSummary holds aggregated metrics for a specific storage medium (NVMe, SSD, HDD).

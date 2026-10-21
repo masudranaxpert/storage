@@ -1,29 +1,32 @@
-<!-- Modal: Decommission / Remove VPS Node -->
+<!-- Modal: Remove VPS Node -->
 <div class="modal-overlay" id="modal-delete-node" style="display:none;">
-    <div class="modal-dialog" style="max-width:540px;">
-        <div class="modal-header">
+    <div class="modal-dialog" style="max-width:480px;">
+        <div class="modal-header" style="padding:16px 20px;">
             <div style="display:flex;align-items:center;gap:12px;">
-                <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-red-soft, rgba(239, 68, 68, 0.12));color:#dc2626;display:flex;align-items:center;justify-content:center;border:1px solid rgba(239, 68, 68, 0.25);flex-shrink:0;">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <div style="width:36px;height:36px;border-radius:var(--radius-md);background:rgba(239, 68, 68, 0.12);color:#dc2626;display:flex;align-items:center;justify-content:center;border:1px solid rgba(239, 68, 68, 0.25);flex-shrink:0;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline>
                         <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
                     </svg>
                 </div>
                 <div>
-                    <h3 class="modal-title" style="font-size:16px;margin:0;">Remove Node</h3>
+                    <h3 class="modal-title" style="font-size:16px;font-weight:700;margin:0;">Remove Node</h3>
                 </div>
             </div>
-            <button class="modal-close-btn" type="button" onclick="closeDeleteNodeModal()">&times;</button>
+            <button class="modal-close-btn" type="button" onclick="closeDeleteNodeModal()" title="Close" aria-label="Close modal">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
         </div>
 
-        <div class="modal-body" style="padding:18px 22px;display:flex;flex-direction:column;gap:14px;">
+        <div class="modal-body" style="padding:18px 20px;display:flex;flex-direction:column;gap:14px;">
             <!-- Target Summary -->
             <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
                 <div>
-                    <div id="del-modal-node-id" style="font-weight:700;font-size:13.5px;color:var(--text-primary);font-family:'JetBrains Mono',monospace;">—</div>
-                    <div id="del-modal-host" style="font-size:12px;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;margin-top:2px;">—</div>
+                    <div id="del-modal-node-id" style="font-weight:700;font-size:13.5px;color:var(--text-primary);">—</div>
+                    <div id="del-modal-host" style="font-size:12px;color:var(--text-secondary);margin-top:2px;">—</div>
                 </div>
                 <span id="del-modal-cred-badge" style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;">Checking...</span>
             </div>
@@ -34,7 +37,7 @@
                     <input type="radio" name="del-node-mode" value="stop_remote" checked onchange="toggleDeleteNodeMode()">
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);">Stop remote agent (SSH)</div>
-                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Stops and removes systemd service on the server.</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Stops and removes service on the server.</div>
                     </div>
                 </label>
 
@@ -42,15 +45,15 @@
                     <input type="radio" name="del-node-mode" value="cluster_only" onchange="toggleDeleteNodeMode()">
                     <div>
                         <div style="font-size:13px;font-weight:600;color:var(--text-primary);">Unregister only</div>
-                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Removes from database. Keeps remote agent running.</div>
+                        <div style="font-size:11.5px;color:var(--text-secondary);margin-top:2px;">Removes from cluster, keeps remote agent running.</div>
                     </div>
                 </label>
             </div>
 
-            <!-- Optional/Manual SSH Credentials (shown when no credentials stored in DB) -->
-            <div id="del-modal-manual-ssh-wrap" style="display:none;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:14px;">
-                <div style="font-size:12px;font-weight:700;color:var(--text-primary);margin-bottom:8px;">
-                    SSH Authentication Required (Not saved in DB):
+            <!-- Optional/Manual SSH Credentials -->
+            <div id="del-modal-manual-ssh-wrap" style="display:none;background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:12px 14px;">
+                <div style="font-size:12px;font-weight:600;color:var(--text-primary);margin-bottom:8px;">
+                    SSH Credentials
                 </div>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
                     <div>
@@ -59,32 +62,32 @@
                     </div>
                     <div>
                         <label class="form-label" style="font-size:11.5px;">SSH Password</label>
-                        <input type="password" id="del-modal-ssh-pass" class="form-input" placeholder="Root/SSH Password">
+                        <input type="password" id="del-modal-ssh-pass" class="form-input" placeholder="Password">
                     </div>
                 </div>
             </div>
 
             <!-- Error Banner -->
             <div id="del-modal-error-box" style="display:none;background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.25);border-radius:var(--radius-md);padding:10px 14px;color:#dc2626;font-size:12.5px;line-height:1.4;">
-                <span id="del-modal-error-text">Failed to decommission node.</span>
+                <span id="del-modal-error-text">Failed to remove node.</span>
             </div>
 
             <!-- Loading State -->
-            <div id="del-modal-loading" style="display:none;text-align:center;padding:12px 0;">
+            <div id="del-modal-loading" style="display:none;text-align:center;padding:10px 0;">
                 <div style="display:inline-flex;align-items:center;gap:10px;color:var(--text-primary);font-size:13px;font-weight:600;">
                     <svg class="spin-fast" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <polyline points="23 4 23 10 17 10"></polyline>
                         <polyline points="1 20 1 14 7 14"></polyline>
                         <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
                     </svg>
-                    <span id="del-modal-loading-text">Decommissioning remote agent over SSH...</span>
+                    <span id="del-modal-loading-text">Removing node...</span>
                 </div>
             </div>
         </div>
 
-        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:10px;padding:16px 24px;border-top:1px solid var(--border-light);">
+        <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:10px;padding:14px 20px;border-top:1px solid var(--border-light);">
             <button type="button" class="btn btn-secondary" id="del-modal-cancel-btn" onclick="closeDeleteNodeModal()">Cancel</button>
-            <button type="button" class="btn" id="del-modal-submit-btn" onclick="executeDecommissionNode()" style="background:#dc2626;color:#ffffff;border:none;display:inline-flex;align-items:center;gap:8px;">
+            <button type="button" class="btn" id="del-modal-submit-btn" onclick="executeDecommissionNode()" style="background:#dc2626;color:#ffffff;border:none;display:inline-flex;align-items:center;gap:7px;">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
                     <polyline points="3 6 5 6 21 6"></polyline>
                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>

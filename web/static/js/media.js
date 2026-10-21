@@ -10,6 +10,7 @@
     let mediaFilterNode = '';
     let mediaFilterTier = '';
     let mediaSortMode = 'newest';
+    let mediaViewMode = 'table'; // 'table' | 'grid'
     let selectedMediaKeys = new Set();
     let mediaPollInterval = null;
     let selectedUploadFile = null;
@@ -18,6 +19,13 @@
     let hasFetchedMediaOnce = false;
     let activeLifecycleTasks = {}; // key -> task object
     let mediaHotMap = {}; // key -> hot file state { score, pinned_tier, pin_until, last_hit_at }
+
+    try {
+        const savedView = localStorage.getItem('stream_media_view_mode');
+        if (savedView === 'grid' || savedView === 'table') {
+            mediaViewMode = savedView;
+        }
+    } catch (_) {}
 
     // Instant Hydration: restore cached media files from sessionStorage
     try {
@@ -195,8 +203,6 @@
                 err: f.error,
                 tb: f.transferred_bytes,
                 hs: mediaHotMap[f.key] ? mediaHotMap[f.key].score : 0,
-                av: mediaHotMap[f.key] ? mediaHotMap[f.key].active_viewers : 0,
-                th: mediaHotMap[f.key] ? mediaHotMap[f.key].total_hits : 0,
                 lct: activeLifecycleTasks[f.key] ? activeLifecycleTasks[f.key].state + activeLifecycleTasks[f.key].progress : ''
             })));
 
@@ -263,6 +269,73 @@
                 btn.classList.remove('active');
             }
         });
+        updateResetFiltersVisibility();
+        renderMediaTable();
+    }
+
+    function setMediaViewMode(mode) {
+        mediaViewMode = mode === 'grid' ? 'grid' : 'table';
+        try {
+            localStorage.setItem('stream_media_view_mode', mediaViewMode);
+        } catch (_) {}
+        syncMediaViewModeUI();
+        renderMediaTable();
+    }
+
+    function syncMediaViewModeUI() {
+        const btnTable = document.getElementById('media-view-btn-table');
+        const btnGrid = document.getElementById('media-view-btn-grid');
+        const tableWrap = document.getElementById('media-table-container');
+        const gridWrap = document.getElementById('media-grid-container');
+        if (btnTable) btnTable.classList.toggle('active', mediaViewMode === 'table');
+        if (btnGrid) btnGrid.classList.toggle('active', mediaViewMode === 'grid');
+        if (tableWrap) tableWrap.style.display = mediaViewMode === 'table' ? '' : 'none';
+        if (gridWrap) gridWrap.style.display = mediaViewMode === 'grid' ? 'grid' : 'none';
+    }
+
+    function updateResetFiltersVisibility() {
+        const clearBtn = document.getElementById('media-search-clear');
+        if (clearBtn) {
+            clearBtn.style.display = mediaSearchQuery ? 'inline-flex' : 'none';
+        }
+        const resetBtn = document.getElementById('btn-reset-media-filters');
+        if (resetBtn) {
+            const hasFilter = (mediaFilterStatus !== 'all') || !!mediaSearchQuery || !!mediaFilterNode || !!mediaFilterTier || (mediaSortMode !== 'newest');
+            resetBtn.style.display = hasFilter ? 'inline-flex' : 'none';
+        }
+    }
+
+    function clearMediaSearch() {
+        const input = document.getElementById('media-search-input');
+        if (input) input.value = '';
+        mediaSearchQuery = '';
+        mediaCurrentPage = 1;
+        updateResetFiltersVisibility();
+        renderMediaTable();
+    }
+
+    function resetMediaFilters() {
+        mediaFilterStatus = 'all';
+        mediaSearchQuery = '';
+        mediaFilterNode = '';
+        mediaFilterTier = '';
+        mediaSortMode = 'newest';
+        mediaCurrentPage = 1;
+
+        const searchEl = document.getElementById('media-search-input');
+        if (searchEl) searchEl.value = '';
+        const nodeEl = document.getElementById('media-node-filter');
+        if (nodeEl) nodeEl.value = '';
+        const tierEl = document.getElementById('media-tier-filter');
+        if (tierEl) tierEl.value = '';
+        const sortEl = document.getElementById('media-sort-filter');
+        if (sortEl) sortEl.value = 'newest';
+
+        document.querySelectorAll('.filter-btn[data-media-filter]').forEach(btn => {
+            btn.classList.toggle('active', btn.getAttribute('data-media-filter') === 'all');
+        });
+        updateHeatSortIndicator();
+        updateResetFiltersVisibility();
         renderMediaTable();
     }
 
@@ -270,6 +343,7 @@
         const input = document.getElementById('media-search-input');
         mediaSearchQuery = (input ? input.value : '').toLowerCase().trim();
         mediaCurrentPage = 1;
+        updateResetFiltersVisibility();
         renderMediaTable();
     }
 
@@ -335,46 +409,41 @@
 
     function renderMediaSpecs(meta) {
         if (!meta || (!meta.video && (!meta.audio_tracks || meta.audio_tracks.length === 0))) {
-            return `<span class="badge-video">MP4 Stream</span>`;
+            return `<span style="color:var(--text-muted);font-size:12px;">—</span>`;
         }
         const v = meta.video || {};
         const resLabel = v.height ? `${v.height}p` : (v.width ? `${v.width}x${v.height}` : '');
-        const fpsLabel = v.fps ? `${Math.round(v.fps)}fps` : '';
         const durLabel = meta.duration_sec ? global.formatDuration(meta.duration_sec) : '';
 
-        let audioPills = '';
+        let audioPill = '';
         if (meta.audio_tracks && meta.audio_tracks.length > 0) {
-            audioPills = meta.audio_tracks.map((t, idx) => {
-                const label = (t.language || '').trim().toUpperCase() || `A${idx + 1}`;
-                const fullTitle = formatTrackTitle(t, `Audio Track ${idx + 1}`);
-                return `<span class="badge-audio" title="${global.escapeHtml(fullTitle)} (${global.escapeHtml(t.codec || 'aac')})">${global.escapeHtml(label)}</span>`;
-            }).join(' ');
+            const count = meta.audio_tracks.length;
+            const langs = meta.audio_tracks.map((t, idx) => (t.language || '').trim().toUpperCase() || `A${idx + 1}`);
+            const fullTooltip = meta.audio_tracks.map((t, idx) => formatTrackTitle(t, `Audio ${idx + 1}`)).join(', ');
+            const shortText = count <= 2 ? `Audio: ${langs.join(', ')}` : `${count} Audio (${langs.slice(0, 2).join(', ')} +${count - 2})`;
+            audioPill = `<span class="badge-audio" title="${global.escapeHtml(fullTooltip)}">${global.escapeHtml(shortText)}</span>`;
         }
 
-        let subPills = '';
+        let subPill = '';
         if (meta.subtitles && meta.subtitles.length > 0) {
-            // Deduplicate sub labels or append track index if repeated
-            const seenSubLangs = {};
-            subPills = meta.subtitles.map((s, idx) => {
-                const rawLang = (s.language || '').trim().toUpperCase() || 'SUB';
-                seenSubLangs[rawLang] = (seenSubLangs[rawLang] || 0) + 1;
-                const displayLang = seenSubLangs[rawLang] > 1 ? `${rawLang} ${seenSubLangs[rawLang]}` : rawLang;
-                const fullTitle = formatTrackTitle(s, `Subtitle ${idx + 1}`);
-                return `<span class="badge-sub" title="${global.escapeHtml(fullTitle)} (WebVTT)">${global.escapeHtml(displayLang)}</span>`;
-            }).join(' ');
+            const count = meta.subtitles.length;
+            const langs = meta.subtitles.map((s) => (s.language || '').trim().toUpperCase() || 'SUB');
+            const uniqueLangs = Array.from(new Set(langs));
+            const fullTooltip = meta.subtitles.map((s, idx) => formatTrackTitle(s, `Subtitle ${idx + 1}`)).join(', ');
+            const shortText = count <= 2 ? `Sub: ${uniqueLangs.join(', ')}` : `${count} Subs`;
+            subPill = `<span class="badge-sub" title="${global.escapeHtml(fullTooltip)}">${global.escapeHtml(shortText)}</span>`;
         }
 
         return `
-            <div style="display:flex; flex-direction:column; gap:4px;">
-                <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+            <div style="display:flex; flex-direction:column; gap:5px;">
+                <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
                     ${resLabel ? `<span class="badge-spec">${global.escapeHtml(resLabel)}</span>` : ''}
-                    ${fpsLabel ? `<span class="badge-spec">${global.escapeHtml(fpsLabel)}</span>` : ''}
-                    ${durLabel ? `<span style="font-size:11px; color:var(--text-secondary); font-weight:700; font-family:'JetBrains Mono',monospace; margin-left:2px;">${global.escapeHtml(durLabel)}</span>` : ''}
+                    ${durLabel ? `<span class="tabular-num" style="font-size:12.5px; color:var(--text-primary); font-weight:600; white-space:nowrap;">${global.escapeHtml(durLabel)}</span>` : ''}
                 </div>
-                ${(audioPills || subPills) ? `
-                    <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap; margin-top:2px;">
-                        ${audioPills}
-                        ${subPills}
+                ${(audioPill || subPill) ? `
+                    <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
+                        ${audioPill}
+                        ${subPill}
                     </div>
                 ` : ''}
             </div>
@@ -383,12 +452,17 @@
 
     function renderPaginationButtons(totalPages) {
         const container = document.getElementById('media-pagination-buttons');
+        const counterEl = document.getElementById('media-page-counter');
+        if (counterEl) {
+            counterEl.textContent = `Page ${mediaCurrentPage} of ${Math.max(1, totalPages)}`;
+        }
         if (!container) return;
 
         if (global.UI && typeof global.UI.pagination === 'function') {
             global.UI.pagination(container, {
                 currentPage: mediaCurrentPage,
-                totalPages: totalPages,
+                totalPages: Math.max(1, totalPages),
+                alwaysShow: true,
                 onPageChange: (newPage) => {
                     goToMediaPage(newPage);
                 }
@@ -396,23 +470,19 @@
             return;
         }
 
-        if (totalPages <= 1) {
-            container.innerHTML = '';
-            return;
-        }
-
+        const safeTotal = Math.max(1, totalPages);
         let html = '';
-        html += `<button class="page-btn" ${mediaCurrentPage === 1 ? 'disabled' : ''} onclick="goToMediaPage(${mediaCurrentPage - 1})">&laquo; Prev</button>`;
+        html += `<button class="page-btn" ${mediaCurrentPage <= 1 ? 'disabled' : ''} onclick="goToMediaPage(${mediaCurrentPage - 1})">&lsaquo;</button>`;
 
-        for (let i = 1; i <= totalPages; i++) {
-            if (i === 1 || i === totalPages || (i >= mediaCurrentPage - 1 && i <= mediaCurrentPage + 1)) {
+        for (let i = 1; i <= safeTotal; i++) {
+            if (i === 1 || i === safeTotal || (i >= mediaCurrentPage - 1 && i <= mediaCurrentPage + 1)) {
                 html += `<button class="page-btn ${i === mediaCurrentPage ? 'active' : ''}" onclick="goToMediaPage(${i})">${i}</button>`;
             } else if (i === mediaCurrentPage - 2 || i === mediaCurrentPage + 2) {
-                html += `<span style="padding:0 4px;color:var(--text-muted);display:inline-flex;align-items:center;">...</span>`;
+                html += `<span style="padding:0 4px;color:var(--text-muted);display:inline-flex;align-items:center;">&hellip;</span>`;
             }
         }
 
-        html += `<button class="page-btn" ${mediaCurrentPage === totalPages ? 'disabled' : ''} onclick="goToMediaPage(${mediaCurrentPage + 1})">Next &raquo;</button>`;
+        html += `<button class="page-btn" ${mediaCurrentPage >= safeTotal ? 'disabled' : ''} onclick="goToMediaPage(${mediaCurrentPage + 1})">&rsaquo;</button>`;
         container.innerHTML = html;
     }
 
@@ -421,40 +491,30 @@
             <tr class="skeleton-media-row">
                 <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
                 <td>
-                    <div style="display:flex;align-items:center;gap:12px;">
-                        <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
-                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
-                            <div class="skeleton-shimmer skeleton-text" style="width:75%;height:14px;"></div>
-                            <div class="skeleton-shimmer skeleton-text" style="width:40%;height:11px;"></div>
-                        </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <div class="skeleton-shimmer skeleton-text" style="width:72%;height:14px;"></div>
+                        <div class="skeleton-shimmer skeleton-text" style="width:45%;height:11px;"></div>
                     </div>
                 </td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
                 <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
-                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:105px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:50px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:68px;height:16px;border-radius:8px;"></div></td>
+                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:64px;height:28px;border-radius:6px;display:inline-block;"></div></td>
             </tr>
             <tr class="skeleton-media-row">
                 <td style="text-align:center;"><div class="skeleton-shimmer" style="width:16px;height:16px;margin:0 auto;border-radius:4px;"></div></td>
                 <td>
-                    <div style="display:flex;align-items:center;gap:12px;">
-                        <div class="skeleton-shimmer" style="width:42px;height:42px;border-radius:8px;flex-shrink:0;"></div>
-                        <div style="flex:1;display:flex;flex-direction:column;gap:6px;">
-                            <div class="skeleton-shimmer skeleton-text" style="width:65%;height:14px;"></div>
-                            <div class="skeleton-shimmer skeleton-text" style="width:35%;height:11px;"></div>
-                        </div>
+                    <div style="display:flex;flex-direction:column;gap:6px;">
+                        <div class="skeleton-shimmer skeleton-text" style="width:65%;height:14px;"></div>
+                        <div class="skeleton-shimmer skeleton-text" style="width:40%;height:11px;"></div>
                     </div>
                 </td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:90px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:110px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:55px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:85px;height:12px;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:100px;height:12px;"></div></td>
                 <td><div class="skeleton-shimmer skeleton-text" style="width:45px;height:12px;"></div></td>
-                <td><div class="skeleton-shimmer skeleton-text" style="width:80px;height:16px;border-radius:10px;"></div></td>
-                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:28px;height:28px;border-radius:6px;display:inline-block;"></div></td>
+                <td><div class="skeleton-shimmer skeleton-text" style="width:68px;height:16px;border-radius:8px;"></div></td>
+                <td style="text-align:right;"><div class="skeleton-shimmer" style="width:64px;height:28px;border-radius:6px;display:inline-block;"></div></td>
             </tr>
         `;
     }
@@ -466,41 +526,64 @@
 
     function renderMediaTable() {
         const tbody = document.getElementById('media-table-body');
+        const gridContainer = document.getElementById('media-grid-container');
         if (!tbody) return;
+
+        syncMediaViewModeUI();
+        updateResetFiltersVisibility();
 
         const totalCount = mediaList.length;
         let totalBytes = 0;
         let readyCount = 0;
         let activeTasksCount = 0;
+        let failedCount = 0;
 
         mediaList.forEach(m => {
             if (m.size_bytes) totalBytes += m.size_bytes;
             if (m.state === 'completed') readyCount++;
-            if (m.state === 'downloading' || m.state === 'processing' || m.state === 'transferring' || m.state === 'detected' || m.state === 'awaiting_upload') activeTasksCount++;
+            else if (m.state === 'failed' || m.state === 'missing') failedCount++;
+            else if (['downloading', 'processing', 'transferring', 'detected', 'awaiting_upload'].includes(m.state)) activeTasksCount++;
         });
+
+        let activeRelocationsCount = Object.values(activeLifecycleTasks).filter(
+            t => t && !['done', 'failed', 'cancelled'].includes(t.state)
+        ).length;
 
         let liveTotal = 0;
         Object.values(mediaHotMap).forEach(h => {
             if (h && h.active_viewers) liveTotal += Number(h.active_viewers);
         });
 
+        // Update tab counters
+        global.safeSetText('media-tab-count-all', totalCount);
+        global.safeSetText('media-tab-count-completed', readyCount);
+        global.safeSetText('media-tab-count-downloading', activeTasksCount);
+        global.safeSetText('media-tab-count-failed', failedCount);
+
         if (hasFetchedMediaOnce || totalCount > 0) {
             global.safeSetText('media-stat-count', totalCount);
             global.safeSetText('media-stat-size', global.formatBytes(totalBytes));
             global.safeSetText('media-stat-ready', readyCount);
-            const readySub = document.querySelector('#media-stat-ready + .bui-stat-sub');
-            if (readySub) {
-                readySub.innerHTML = liveTotal > 0
-                    ? `<span style="color:#10b981;font-weight:700;display:inline-flex;align-items:center;gap:4px;"><span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;box-shadow:0 0 6px #10b981;"></span> ${liveTotal} watching live</span>`
-                    : `Available for HTTP playback`;
+            global.safeSetText('media-stat-tasks', activeTasksCount + activeRelocationsCount);
+
+            const readyLiveEl = document.getElementById('media-stat-ready-live');
+            if (readyLiveEl) {
+                if (liveTotal > 0) {
+                    readyLiveEl.style.display = 'inline-flex';
+                    readyLiveEl.innerHTML = `<span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;"></span> ${liveTotal} live`;
+                } else {
+                    readyLiveEl.style.display = 'none';
+                    readyLiveEl.innerHTML = '';
+                }
             }
-            global.safeSetText('media-stat-tasks', activeTasksCount);
         }
 
         const filtered = mediaList.filter(item => {
             if (mediaFilterStatus !== 'all') {
                 if (mediaFilterStatus === 'downloading') {
                     if (!['downloading', 'processing', 'transferring', 'detected', 'awaiting_upload'].includes(item.state)) return false;
+                } else if (mediaFilterStatus === 'failed') {
+                    if (!['failed', 'missing'].includes(item.state)) return false;
                 } else if (item.state !== mediaFilterStatus) {
                     return false;
                 }
@@ -522,18 +605,15 @@
                 const path = (item.placement?.path || '').toLowerCase();
                 const state = (item.state || '').toLowerCase();
                 
-                // Inspect nested video/audio/sub specs if present
                 const meta = item.metadata || {};
-                const res = (meta.video?.resolution || meta.video?.quality || '').toLowerCase();
+                const res = (meta.video?.resolution || meta.video?.quality || (meta.video?.height ? `${meta.video.height}p` : '')).toLowerCase();
                 const codec = (meta.video?.codec || '').toLowerCase();
-                const audioLangs = (meta.audio_tracks || []).map(a => (a.language || a.title || '').toLowerCase()).join(' ');
-                const subLangs = (meta.subtitles || []).map(s => (s.language || s.title || '').toLowerCase()).join(' ');
+                const audioLangs = (meta.audio_tracks || []).map(a => `${a.language || ''} ${a.title || ''} ${resolveLanguageName(a.language || '')}`.toLowerCase()).join(' ');
+                const subLangs = (meta.subtitles || []).map(s => `${s.language || ''} ${s.title || ''} ${resolveLanguageName(s.language || '')}`.toLowerCase()).join(' ');
 
-                // Full-text document compilation
                 const creator = (item.created_by || 'Dashboard').toLowerCase();
                 const doc = `${name} ${id} ${creator} ${node} ${tier} ${path} ${state} ${res} ${codec} ${audioLangs} ${subLangs}`;
                 
-                // Support multi-term queries where each term must match
                 const terms = q.split(/\s+/).filter(Boolean);
                 const allMatch = terms.every(t => doc.includes(t));
                 if (!allMatch) {
@@ -575,36 +655,40 @@
             return (b.key || '').localeCompare(a.key || '');
         });
 
-        let paginatedItems = [];
-        if (global.UI && typeof global.UI.tablePagination === 'function') {
-            const pg = global.UI.tablePagination({
-                items: filtered,
-                currentPage: mediaCurrentPage,
-                pageSize: mediaPageSize,
-                infoEl: 'media-pagination-info',
-                buttonsEl: 'media-pagination-buttons',
-                onPageChange: goToMediaPage
-            });
-            mediaCurrentPage = pg.currentPage;
-            paginatedItems = pg.pageItems;
-        } else {
-            const totalItems = filtered.length;
-            const totalPages = Math.max(1, Math.ceil(totalItems / mediaPageSize));
-            if (mediaCurrentPage > totalPages) mediaCurrentPage = totalPages;
-            const startIndex = (mediaCurrentPage - 1) * mediaPageSize;
-            const endIndex = Math.min(startIndex + mediaPageSize, totalItems);
-            paginatedItems = filtered.slice(startIndex, endIndex);
-            renderPaginationButtons(totalPages);
+        const totalItems = filtered.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / mediaPageSize));
+        if (mediaCurrentPage > totalPages) mediaCurrentPage = totalPages;
+        if (mediaCurrentPage < 1) mediaCurrentPage = 1;
+        const startIndex = (mediaCurrentPage - 1) * mediaPageSize;
+        const endIndex = Math.min(startIndex + mediaPageSize, totalItems);
+        const paginatedItems = filtered.slice(startIndex, endIndex);
+
+        const infoEl = document.getElementById('media-pagination-info');
+        if (infoEl) {
+            infoEl.innerHTML = totalItems === 0
+                ? 'Showing <strong>0</strong> videos'
+                : `Showing <strong>${startIndex + 1}&ndash;${endIndex}</strong> of <strong>${totalItems}</strong> ${totalItems === 1 ? 'video' : 'videos'}`;
         }
+        renderPaginationButtons(totalPages);
 
         if (paginatedItems.length === 0) {
             if (!hasFetchedMediaOnce && mediaList.length === 0) {
                 tbody.innerHTML = renderSkeletonMediaRows();
+                if (gridContainer) gridContainer.innerHTML = '';
                 return;
             }
+            const emptyMsg = 'No videos found.';
             tbody.innerHTML = (global.UI && typeof global.UI.emptyState === 'function')
-                ? global.UI.emptyState({ colspan: 9, padding: '40px', color: 'var(--text-muted)', message: 'No media items match your search or filter.' })
-                : `<tr><td colspan="9" style="text-align: center; padding: 40px; color: var(--text-muted);">No media items match your search or filter.</td></tr>`;
+                ? global.UI.emptyState({ colspan: 7, padding: '44px', color: 'var(--text-muted)', message: emptyMsg })
+                : `<tr><td colspan="7" style="text-align: center; padding: 44px; color: var(--text-muted);">${emptyMsg}</td></tr>`;
+            if (gridContainer) {
+                gridContainer.innerHTML = `
+                    <div style="grid-column: 1 / -1; text-align: center; padding: 48px 20px; color: var(--text-muted); font-size: 13.5px;">
+                        ${emptyMsg}
+                    </div>
+                `;
+            }
+            updateBatchDeleteUI();
             return;
         }
 
@@ -617,6 +701,7 @@
             const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
             const meta = item.metadata;
             const specsHtml = renderMediaSpecs(meta);
+            const creator = item.created_by || 'Dashboard';
 
             if (isReady && (!meta || !meta.video) && !item._fetchingMeta) {
                 item._fetchingMeta = true;
@@ -630,6 +715,10 @@
                             if (el) {
                                 el.innerHTML = renderMediaSpecs(m);
                             }
+                            const elGrid = document.getElementById(`specs-grid-${item.key}`);
+                            if (elGrid) {
+                                elGrid.innerHTML = renderMediaSpecs(m);
+                            }
                         }
                     })
                     .catch(() => {});
@@ -638,31 +727,25 @@
             const placement = item.placement || {};
             const storageNode = placement.node_id || item.worker_node_id || item.node_id || 'Auto';
             const computeNode = item.node_id || item.worker_node_id || '';
-            const tierLabel = placement.tier_label || (placement.tier_id === 2 ? 'tier2' : (placement.tier_id === 1 ? 'tier1' : 'storage'));
+            const rawTier = placement.tier_label || (placement.tier_id === 2 ? 'tier2' : (placement.tier_id === 1 ? 'tier1' : 'tier0'));
+            const tierLabel = rawTier.replace(/^tier(\d+)$/i, 'Tier $1');
             const drivePath = placement.path || '/';
             const isDecoupled = computeNode && storageNode && computeNode !== storageNode;
-            const hasCustomHost = !!placement.public_host;
 
             const locationHtml = `
-                <div style="display:flex; flex-direction:column; gap:4px;">
+                <div style="display:flex; flex-direction:column; gap:4px;" title="Mount path: ${global.escapeHtml(drivePath)}">
                     ${isDecoupled ? `
                         <div style="display:inline-flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                            <span class="badge-compute" title="Processing Worker: Ingest & Remux performed here">${global.escapeHtml(computeNode)}</span>
-                            <span style="display:inline-flex; align-items:center; gap:5px; white-space:nowrap;">
-                                <span style="color:var(--text-muted);font-size:11px;font-weight:700;">&rarr;</span>
-                                <span class="badge-location" title="Final Storage Node: Stored here">${global.escapeHtml(storageNode)}</span>
-                            </span>
+                            <span class="badge-compute" title="Processing Node">${global.escapeHtml(computeNode)}</span>
+                            <span style="color:var(--text-muted);font-size:11px;">&rarr;</span>
+                            <span class="badge-location" title="Storage Node">${global.escapeHtml(storageNode)}</span>
                         </div>
                     ` : `
-                        <div style="display:inline-flex; align-items:center; gap:5px;">
-                            <span class="badge-location" title="Direct Compute & Storage Node">${global.escapeHtml(storageNode)}</span>
+                        <div style="display:inline-flex; align-items:center; gap:6px; flex-wrap:wrap;">
+                            <span class="badge-location" title="Storage Node: ${global.escapeHtml(storageNode)}">${global.escapeHtml(storageNode)}</span>
+                            <span class="badge-tier" title="Storage Tier (${global.escapeHtml(drivePath)})">${global.escapeHtml(tierLabel)}</span>
                         </div>
                     `}
-                    <div style="font-size:11px; color:var(--text-secondary); display:flex; align-items:center; gap:5px; flex-wrap:wrap;">
-                        <span class="badge-drive" title="Disk mount point">${global.escapeHtml(drivePath)}</span>
-                        <span class="badge-tier" title="Storage Tier">${global.escapeHtml(tierLabel)}</span>
-                    </div>
-                    ${hasCustomHost ? `<div style="font-size:10px; font-weight:700; color:var(--orange-primary);">Custom CDN / Host</div>` : ''}
                 </div>
             `;
 
@@ -672,30 +755,18 @@
             const totalHitsVal = hotInfo && hotInfo.total_hits ? Number(hotInfo.total_hits) : 0;
             const activeViewersVal = hotInfo && hotInfo.active_viewers ? Number(hotInfo.active_viewers) : 0;
             const isPinned = hotInfo && hotInfo.pinned_tier !== undefined && hotInfo.pinned_tier !== null;
-            const lastHitRel = hotInfo && hotInfo.last_hit_at ? formatRelativeTime(hotInfo.last_hit_at) : '—';
 
             const heatHtml = `
-                <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
-                    <div style="display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;">
-                        <span class="fl-score-pill tabular-num" style="font-size:12.5px;padding:2px 8px;" title="Real-time decayed heat score">${heatScoreVal}</span>
-                        ${activeViewersVal > 0 ? `
-                            <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4.5px;font-size:11px;font-weight:700;color:#10b981;background:rgba(16,185,129,0.14);border:1px solid rgba(16,185,129,0.35);padding:1.5px 8px;border-radius:9999px;" title="${activeViewersVal} live viewer(s) actively watching right now">
-                                <span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;box-shadow:0 0 6px #10b981;"></span>
-                                ${activeViewersVal} watching now
-                            </span>
-                        ` : ''}
-                        ${isPinned ? `<span class="badge-tier orange" style="font-size:9.5px;padding:1px 5px;" title="Pinned to Tier ${hotInfo.pinned_tier}">PINNED</span>` : ''}
-                    </div>
-                    <div style="display:flex;align-items:center;gap:4px;font-size:10.5px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
-                        ${activeViewersVal > 0 ? `
-                            <span style="color:#10b981;font-weight:700;display:inline-flex;align-items:center;gap:3px;" title="${activeViewersVal} active concurrent stream(s)">
-                                <span>🟢</span> ${activeViewersVal} watching now
-                            </span>
-                            <span style="opacity:0.4;">•</span>
-                        ` : ''}
-                        <span title="Total unique viewers (30m window)">👁 ${totalHitsVal} ${totalHitsVal === 1 ? 'view' : 'views'}</span>
-                        ${lastHitRel !== '—' ? `<span style="opacity:0.4;">•</span><span title="Last playback">${lastHitRel}</span>` : ''}
-                    </div>
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                    <span class="fl-score-pill tabular-num" style="font-size:12px;padding:2px 8px;font-weight:600;" title="Heat score">${heatScoreVal}</span>
+                    <span class="tabular-num" style="font-size:12px;color:var(--text-secondary);font-weight:500;white-space:nowrap;">${totalHitsVal} ${totalHitsVal === 1 ? 'view' : 'views'}</span>
+                    ${activeViewersVal > 0 ? `
+                        <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;color:#10b981;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.3);padding:1px 7px;border-radius:9999px;white-space:nowrap;" title="${activeViewersVal} live viewer(s)">
+                            <span style="width:6px;height:6px;background:#10b981;border-radius:50%;display:inline-block;"></span>
+                            ${activeViewersVal} live
+                        </span>
+                    ` : ''}
+                    ${isPinned ? `<span class="badge-tier orange" style="font-size:10.5px;padding:1px 6px;" title="Pinned to Tier ${hotInfo.pinned_tier}">Pinned</span>` : ''}
                 </div>
             `;
 
@@ -705,9 +776,9 @@
                 const targetTier = activeTask.to ? (activeTask.to.tier_label || 'Tier ' + activeTask.to.tier_id) : 'Target';
                 const pPct = activeTask.progress ? activeTask.progress.toFixed(0) + '%' : (activeTask.state || 'moving');
                 relocationBadgeHtml = `
-                    <div style="margin-top:6px;display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:9999px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);font-size:11px;font-weight:700;color:var(--orange-dark);">
+                    <div style="margin-top:5px;display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:9999px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);font-size:11px;font-weight:600;color:var(--orange-dark);white-space:nowrap;">
                         <span class="drawer-pulse-dot" style="width:6px;height:6px;background:var(--orange-primary);border-radius:50%;display:inline-block;"></span>
-                        <span>Relocating &rarr; ${global.escapeHtml(targetTier)} (${pPct})</span>
+                        <span>&rarr; ${global.escapeHtml(targetTier)} (${pPct})</span>
                     </div>
                 `;
             }
@@ -715,23 +786,21 @@
             let statusHtml = '';
             if (isMissing) {
                 statusHtml = `
-                    <div class="media-failed-alert" style="background:#fee2e2;border:1px solid #fca5a5;padding:6px 10px;border-radius:var(--radius-sm);">
-                        <span style="color:#b91c1c;font-weight:700;font-size:11.5px;display:inline-flex;align-items:center;gap:4px;">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
-                            File Missing on Node
+                    <div class="media-failed-alert" style="background:#fee2e2;border:1px solid #fca5a5;padding:5px 9px;border-radius:var(--radius-sm);">
+                        <span style="color:#b91c1c;font-weight:600;font-size:11.5px;display:inline-flex;align-items:center;gap:4px;">
+                            Missing
                         </span>
-                        <div style="font-size:10.5px;color:#b91c1c;margin-top:2px;">File removed from storage disk</div>
                     </div>`;
             } else if (isReady) {
-                statusHtml = `<span class="badge-cmaf">✓ Ready Stream</span>${relocationBadgeHtml}`;
+                statusHtml = `<span class="badge-cmaf">✓ Ready</span>${relocationBadgeHtml}`;
             } else if (isFailed) {
                 statusHtml = `
                     <div class="media-failed-alert">
-                        <span class="media-failed-title" style="color:var(--status-offline);font-weight:700;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
+                        <span class="media-failed-title" style="color:var(--status-offline);font-weight:600;font-size:12px;display:inline-flex;align-items:center;gap:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line></svg>
                             Failed
                         </span>
-                        <div class="media-failed-msg" style="font-size:11px;color:var(--status-offline);margin-top:3px;line-height:1.35;word-break:break-word;font-family:system-ui,sans-serif;" title="${global.escapeHtml(item.error || 'Download or packaging error')}">
+                        <div class="media-failed-msg" style="font-size:11px;color:var(--status-offline);margin-top:2px;line-height:1.35;word-break:break-word;" title="${global.escapeHtml(item.error || 'Download error')}">
                             ${global.escapeHtml(item.error || 'Download error')}
                         </div>
                     </div>`;
@@ -739,122 +808,211 @@
                 const pct = Math.min(100, Math.max(0, item.progress_percent || 0)).toFixed(1);
                 const stageLabel = item.stage_name || item.state.replace('_', ' ');
                 const speedDisplay = item.speed || '';
-                let byteProgress = '';
-                if (item.transferred_bytes && item.total_bytes && item.total_bytes > 0) {
-                    byteProgress = `${global.formatBytes(item.transferred_bytes)} / ${global.formatBytes(item.total_bytes)}`;
-                }
 
                 statusHtml = `
-                    <div style="width:100%;max-width:300px;">
-                        ${renderPipelineStepper(item)}
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:11px;font-weight:700;margin-bottom:4px;">
+                    <div style="width:100%;">
+                        <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:11.5px;font-weight:600;margin-bottom:4px;">
                             <span style="color:var(--orange-primary);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize;" title="${global.escapeHtml(stageLabel)}">
-                                <svg class="spin-fast" style="vertical-align:-2px;" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><path d="M12 2a10 10 0 0 1 10 10"></path></svg>
                                 ${global.escapeHtml(stageLabel)}
                             </span>
-                            <span style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;flex-shrink:0;">${pct}%</span>
+                            <span class="tabular-num" style="color:var(--text-primary);font-size:11.5px;flex-shrink:0;">${pct}%</span>
                         </div>
-                        <div class="gauge-track" style="height:7px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:5px;overflow:hidden;">
-                            <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;box-shadow:0 0 8px rgba(255,122,24,0.4);"></div>
+                        <div class="gauge-track" style="height:6px;background:var(--bg-body);border:1px solid var(--border-light);border-radius:4px;overflow:hidden;">
+                            <div class="gauge-fill" style="width:${pct}%;background:linear-gradient(90deg, var(--orange-primary), #ff9f43);height:100%;transition:width 0.4s ease;"></div>
                         </div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:10.5px;color:var(--text-secondary);margin-top:4px;font-family:'JetBrains Mono',monospace;">
-                            ${speedDisplay ? `<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${global.escapeHtml(speedDisplay)}</span>` : `<span></span>`}
-                            ${byteProgress ? `<span style="font-weight:600;flex-shrink:0;">${global.escapeHtml(byteProgress)}</span>` : ''}
-                        </div>
-                        ${item.details ? `<div style="font-size:9.5px;color:var(--text-muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${global.escapeHtml(item.details)}">${global.escapeHtml(item.details)}</div>` : ''}
+                        ${speedDisplay ? `<div class="tabular-num" style="font-size:11px;color:var(--text-secondary);margin-top:3px;white-space:nowrap;">${global.escapeHtml(speedDisplay)}</div>` : ''}
                     </div>`;
             }
 
-            const creator = item.created_by || 'Dashboard';
-            const isAPIKey = creator !== 'Dashboard';
-            const createdByHtml = `
-                <div style="display:inline-flex;align-items:center;gap:5px;">
-                    ${isAPIKey ? `
-                        <span class="ui-badge ui-badge-orange ui-badge-pill" style="font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;" title="Created via API Key: ${global.escapeHtml(creator)}">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M21 2l-2 2m-1.5 1.5L16 7l-1.5-1.5M7 11a5 5 0 1 0 7.07 7.07L22 10l-3-3L11 15z"></path></svg>
-                            <span>${global.escapeHtml(creator)}</span>
-                        </span>
-                    ` : `
-                        <span class="ui-badge ui-badge-neutral ui-badge-pill" style="font-size:11px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;" title="Created via Dashboard UI">
-                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-                            <span>Dashboard</span>
-                        </span>
-                    `}
-                </div>
-            `;
-
             const isChecked = selectedMediaKeys.has(item.key);
+            const escKey = global.escapeHtml(item.key);
+            const clickAction = isReady
+                ? `openStreamDetailsModal('${escKey}')`
+                : `openFileLifecycleDrawer('${escKey}')`;
+
             return `
                 <tr class="media-row-card ${isChecked ? 'row-selected' : ''}">
-                    <td style="text-align:center;width:36px;vertical-align:middle;">
-                        <input type="checkbox" class="media-row-checkbox" value="${global.escapeHtml(item.key)}" ${isChecked ? 'checked' : ''} onchange="onMediaRowCheckChange('${global.escapeHtml(item.key)}', this.checked)">
+                    <td class="media-cell-check">
+                        <input type="checkbox" class="media-row-checkbox" value="${escKey}" ${isChecked ? 'checked' : ''} onchange="onMediaRowCheckChange('${escKey}', this.checked)" aria-label="Select ${global.escapeHtml(filename)}">
                     </td>
-                    <td data-label="Media Asset" class="media-cell-asset">
-                        <div>
-                            <div class="media-card-title" title="${global.escapeHtml(filename)}">
+                    <td data-label="Video" class="media-cell-asset">
+                        <div class="media-asset-body">
+                            <div class="media-card-title" onclick="${clickAction}" title="${global.escapeHtml(filename)}">
                                 ${global.escapeHtml(filename)}
                             </div>
                             <div class="media-card-meta">
-                                <span class="media-card-id" style="cursor:pointer;" onclick="copyToClipboard('${global.escapeHtml(item.key)}', 'File key copied!')" title="Click to copy file key">${global.escapeHtml(item.key)} <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;vertical-align:-1px;display:inline-block;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>
-                                <span class="media-card-meta-dot">&bull;</span>
+                                <span class="media-meta-size">${sizeStr}</span>
+                                <span class="media-card-meta-dot">&middot;</span>
                                 <span class="media-card-date">${dateStr}</span>
-                                <span class="media-card-meta-dot mob-only">&bull;</span>
-                                <span class="media-card-size-badge mob-only">${sizeStr}</span>
+                                <span class="media-card-meta-dot">&middot;</span>
+                                <span class="media-card-id" onclick="copyToClipboard('${escKey}', 'File key copied!')" title="Click to copy file key">${escKey} <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.75;vertical-align:-1px;display:inline-block;"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></span>
                             </div>
                         </div>
                     </td>
-                    <td data-label="Created By" class="media-cell-creator">
-                        ${createdByHtml}
-                    </td>
-                    <td data-label="Specs &amp; Tracks" class="media-cell-specs" id="specs-cell-${global.escapeHtml(item.key)}">
+                    <td data-label="Specs &amp; Tracks" class="media-cell-specs" id="specs-cell-${escKey}">
                         ${specsHtml}
                     </td>
-                    <td data-label="Storage Location" class="media-cell-location">
+                    <td data-label="Node &amp; Tier" class="media-cell-location">
                         ${locationHtml}
                     </td>
-                    <td data-label="Size" class="media-cell-size">
-                        <strong style="color:var(--text-primary);font-family:'JetBrains Mono',monospace;font-size:12px;">${sizeStr}</strong>
-                    </td>
-                    <td data-label="Heat Score" class="media-cell-heat">
+                    <td data-label="Heat" class="media-cell-heat">
                         ${heatHtml}
                     </td>
-                    <td data-label="Status &amp; Pipeline" class="media-cell-status">
+                    <td data-label="Status" class="media-cell-status">
                         ${statusHtml}
                     </td>
                     <td data-label="Actions" class="media-cell-actions">
                         <div class="media-actions-inner">
                             ${isReady ? `
-                                <button type="button" class="tbl-icon-btn" onclick="openFileLifecycleDrawer('${global.escapeHtml(item.key)}')" title="Inspect tier lifecycle &amp; placement" aria-label="Lifecycle">
-                                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                        <circle cx="12" cy="12" r="10"></circle>
-                                        <polyline points="12 6 12 12 16 14"></polyline>
+                                <button type="button" class="media-play-btn" onclick="openStreamDetailsModal('${escKey}')" title="Play Video">
+                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    <span>Play</span>
+                                </button>
+                            ` : (isFailed ? `
+                                <button type="button" class="tbl-icon-btn is-warning" onclick="retryMediaJob('${escKey}')" title="Retry Job" style="width:auto;padding:0 10px;gap:5px;font-size:12px;font-weight:600;">
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                    <span>Retry</span>
+                                </button>
+                            ` : '')}
+
+                            <div class="media-action-menu-wrap">
+                                <button type="button" class="media-dots-btn" onclick="toggleMediaRowMenu(event, '${escKey}')" title="More actions" aria-label="More actions" aria-haspopup="true">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                        <circle cx="12" cy="5" r="1.2"></circle>
+                                        <circle cx="12" cy="12" r="1.2"></circle>
+                                        <circle cx="12" cy="19" r="1.2"></circle>
                                     </svg>
                                 </button>
-                                <button type="button" class="tbl-icon-btn is-primary" onclick="openStreamDetailsModal('${global.escapeHtml(item.key)}')" title="Stream &amp; Play Video" aria-label="Play">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" style="margin-left:1px;">
-                                        <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                                    </svg>
-                                </button>
-                            ` : ''}
-                            ${isFailed ? `
-                                <button type="button" class="tbl-icon-btn is-warning" onclick="retryMediaJob('${global.escapeHtml(item.key)}')" title="Retry failed transfer" aria-label="Retry">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                        <polyline points="23 4 23 10 17 10"></polyline>
-                                        <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
-                                    </svg>
-                                </button>
-                            ` : ''}
-                            <button type="button" class="tbl-icon-btn is-danger" onclick="deleteMediaConfirm('${global.escapeHtml(item.key)}')" title="Delete from disk and database" aria-label="Delete">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="3 6 5 6 21 6"></polyline>
-                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                </svg>
-                            </button>
+                                <div class="media-dropdown-menu" id="media-row-menu-${escKey}" role="menu">
+                                    ${isReady ? `
+                                        <button type="button" class="media-dropdown-item" onclick="closeAllMediaRowMenus(); openStreamDetailsModal('${escKey}')">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                            <span>Play Stream</span>
+                                        </button>
+                                        <button type="button" class="media-dropdown-item" onclick="closeAllMediaRowMenus(); copyMediaStreamUrl('${escKey}')">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+                                            <span>Copy Stream URL</span>
+                                        </button>
+                                    ` : ''}
+                                    <button type="button" class="media-dropdown-item" onclick="closeAllMediaRowMenus(); openFileLifecycleDrawer('${escKey}')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                        <span>Storage &amp; Lifecycle</span>
+                                    </button>
+                                    <button type="button" class="media-dropdown-item" onclick="closeAllMediaRowMenus(); copyToClipboard('${escKey}', 'File key copied!')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                        <span>Copy File Key</span>
+                                    </button>
+                                    ${isFailed ? `
+                                        <button type="button" class="media-dropdown-item" onclick="closeAllMediaRowMenus(); retryMediaJob('${escKey}')">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                            <span>Retry Job</span>
+                                        </button>
+                                    ` : ''}
+                                    <div class="media-dropdown-divider"></div>
+                                    <button type="button" class="media-dropdown-item is-danger" onclick="closeAllMediaRowMenus(); deleteMediaConfirm('${escKey}')">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                        <span>Delete Video</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </td>
                 </tr>
             `;
         }).join('');
+
+        // Also render Studio Card Grid View when gridContainer exists
+        if (gridContainer) {
+            gridContainer.innerHTML = paginatedItems.map(item => {
+                const isReady = item.state === 'completed';
+                const isFailed = item.state === 'failed' || item.state === 'missing';
+                const filename = item.filename || item.key;
+                const sizeStr = item.size_bytes ? global.formatBytes(item.size_bytes) : '-';
+                const dateStr = item.created_at ? new Date(item.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }) : '-';
+                const meta = item.metadata || {};
+                const v = meta.video || {};
+                const resBadge = v.height ? `${v.height}p` : '';
+                const durBadge = meta.duration_sec ? global.formatDuration(meta.duration_sec) : sizeStr;
+                const placement = item.placement || {};
+                const storageNode = placement.node_id || item.worker_node_id || item.node_id || 'Auto';
+                const tierLabel = placement.tier_label || (placement.tier_id === 2 ? 'tier2' : (placement.tier_id === 1 ? 'tier1' : 'tier0'));
+                const hotInfo = mediaHotMap[item.key];
+                const heatScoreVal = hotInfo ? (Number(hotInfo.score) || 0).toFixed(1) : (isReady ? '0.0' : '—');
+                const activeViewersVal = hotInfo && hotInfo.active_viewers ? Number(hotInfo.active_viewers) : 0;
+                const isChecked = selectedMediaKeys.has(item.key);
+                const stageClick = isReady ? `openStreamDetailsModal('${global.escapeHtml(item.key)}')` : `openFileLifecycleDrawer('${global.escapeHtml(item.key)}')`;
+
+                return `
+                    <article class="media-grid-card ${isChecked ? 'row-selected' : ''}">
+                        <div class="media-grid-stage" onclick="${stageClick}">
+                            <div class="media-grid-stage-top">
+                                <label class="media-grid-check-wrap" onclick="event.stopPropagation()">
+                                    <input type="checkbox" class="media-row-checkbox" value="${global.escapeHtml(item.key)}" ${isChecked ? 'checked' : ''} onchange="onMediaRowCheckChange('${global.escapeHtml(item.key)}', this.checked)">
+                                    <span>${global.escapeHtml(item.key)}</span>
+                                </label>
+                                ${activeViewersVal > 0 ? `
+                                    <span class="badge-live-now" style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:#34d399;background:rgba(6,78,59,0.85);border:1px solid rgba(52,211,153,0.45);padding:2px 8px;border-radius:9999px;">
+                                        <span style="width:6px;height:6px;background:#34d399;border-radius:50%;display:inline-block;"></span>
+                                        ${activeViewersVal} live
+                                    </span>
+                                ` : (resBadge ? `
+                                    <span class="media-grid-overlay-pill">${global.escapeHtml(resBadge)}</span>
+                                ` : '')}
+                            </div>
+                            ${isReady ? `
+                                <div class="media-grid-play-orb">
+                                    <div class="media-grid-play-circle">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" style="margin-left:2px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    </div>
+                                </div>
+                            ` : ''}
+                            <div class="media-grid-stage-bottom">
+                                <span class="media-grid-overlay-pill">${isReady ? '✓ Ready' : global.escapeHtml(item.state)}</span>
+                                <span class="media-grid-overlay-pill tabular-num">${global.escapeHtml(durBadge)}</span>
+                            </div>
+                        </div>
+
+                        <div class="media-grid-body">
+                            <div class="media-grid-title" title="${global.escapeHtml(filename)}">${global.escapeHtml(filename)}</div>
+                            <div id="specs-grid-${global.escapeHtml(item.key)}">${renderMediaSpecs(meta)}</div>
+                            <div class="media-grid-props">
+                                <div class="media-grid-prop">
+                                    <span class="media-grid-prop-k">Node &amp; Tier</span>
+                                    <span class="media-grid-prop-v">${global.escapeHtml(storageNode)} &middot; ${global.escapeHtml(tierLabel)}</span>
+                                </div>
+                                <div class="media-grid-prop">
+                                    <span class="media-grid-prop-k">Heat &amp; Size</span>
+                                    <span class="media-grid-prop-v tabular-num">${heatScoreVal} pts &middot; ${sizeStr}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="media-grid-footer">
+                            <span style="font-size:11.5px;color:var(--text-muted);">${dateStr}</span>
+                            <div style="display:inline-flex;align-items:center;gap:6px;">
+                                ${isReady ? `
+                                    <button type="button" class="tbl-icon-btn" onclick="openFileLifecycleDrawer('${global.escapeHtml(item.key)}')" title="Lifecycle">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                                    </button>
+                                    <button type="button" class="tbl-icon-btn is-primary" onclick="openStreamDetailsModal('${global.escapeHtml(item.key)}')" title="Play Video">
+                                        <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="margin-left:1px;"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    </button>
+                                ` : ''}
+                                ${isFailed ? `
+                                    <button type="button" class="tbl-icon-btn is-warning" onclick="retryMediaJob('${global.escapeHtml(item.key)}')" title="Retry">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                    </button>
+                                ` : ''}
+                                <button type="button" class="tbl-icon-btn is-danger" onclick="deleteMediaConfirm('${global.escapeHtml(item.key)}')" title="Delete">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                                </button>
+                            </div>
+                        </div>
+                    </article>
+                `;
+            }).join('');
+        }
+
         updateBatchDeleteUI();
     }
 
@@ -868,7 +1026,7 @@
             if (n) nodes.add(n);
         });
         const sorted = Array.from(nodes).sort();
-        let html = '<option value="">All VPS Nodes</option>';
+        let html = '<option value="">All Nodes</option>';
         sorted.forEach(n => {
             html += `<option value="${global.escapeHtml(n)}" ${n === currentVal ? 'selected' : ''}>${global.escapeHtml(n)}</option>`;
         });
@@ -879,6 +1037,7 @@
         const sel = document.getElementById('media-node-filter');
         mediaFilterNode = sel ? sel.value : '';
         mediaCurrentPage = 1;
+        updateResetFiltersVisibility();
         renderMediaTable();
     }
 
@@ -886,6 +1045,7 @@
         const sel = document.getElementById('media-tier-filter');
         mediaFilterTier = sel ? sel.value : '';
         mediaCurrentPage = 1;
+        updateResetFiltersVisibility();
         renderMediaTable();
     }
 
@@ -893,6 +1053,7 @@
         const sel = document.getElementById('media-sort-filter');
         mediaSortMode = sel ? sel.value : 'newest';
         updateHeatSortIndicator();
+        updateResetFiltersVisibility();
         mediaCurrentPage = 1;
         renderMediaTable();
     }
@@ -906,6 +1067,7 @@
         const sel = document.getElementById('media-sort-filter');
         if (sel) sel.value = mediaSortMode;
         updateHeatSortIndicator();
+        updateResetFiltersVisibility();
         mediaCurrentPage = 1;
         renderMediaTable();
     }
@@ -929,17 +1091,26 @@
     }
 
     function updateBatchDeleteUI() {
+        const batchBar = document.getElementById('media-batch-bar');
+        const countPill = document.getElementById('media-batch-count-pill');
         const btn = document.getElementById('btn-batch-delete');
         const txt = document.getElementById('text-batch-delete');
         const selectAll = document.getElementById('media-select-all');
-        if (!btn || !txt) return;
         const count = selectedMediaKeys.size;
-        if (count > 0) {
-            btn.style.display = 'inline-flex';
+        if (batchBar) {
+            batchBar.style.display = count > 0 ? 'flex' : 'none';
+        }
+        if (countPill) {
+            countPill.textContent = `${count} selected`;
+        }
+        if (txt) {
             txt.textContent = `Delete Selected (${count})`;
-        } else {
-            btn.style.display = 'none';
-            if (selectAll) selectAll.checked = false;
+        }
+        if (btn) {
+            btn.style.display = count > 0 ? 'inline-flex' : 'none';
+        }
+        if (count === 0 && selectAll) {
+            selectAll.checked = false;
         }
     }
 
@@ -949,18 +1120,28 @@
         } else {
             selectedMediaKeys.delete(key);
         }
+        document.querySelectorAll(`.media-row-checkbox[value="${key}"]`).forEach(cb => {
+            cb.checked = checked;
+            const row = cb.closest('.media-row-card, .media-grid-card');
+            if (row) row.classList.toggle('row-selected', checked);
+        });
         updateBatchDeleteUI();
     }
 
     function toggleSelectAllMedia(checked) {
+        const selectAll = document.getElementById('media-select-all');
+        if (selectAll) selectAll.checked = checked;
+        if (!checked) {
+            selectedMediaKeys.clear();
+        }
         const checkboxes = document.querySelectorAll('.media-row-checkbox');
         checkboxes.forEach(cb => {
             cb.checked = checked;
             if (checked) {
                 selectedMediaKeys.add(cb.value);
-            } else {
-                selectedMediaKeys.delete(cb.value);
             }
+            const row = cb.closest('.media-row-card, .media-grid-card');
+            if (row) row.classList.toggle('row-selected', checked);
         });
         updateBatchDeleteUI();
     }
@@ -2531,9 +2712,48 @@
         closeFileLifecycleDrawer();
     }
 
+    function closeAllMediaRowMenus() {
+        document.querySelectorAll('.media-dropdown-menu.is-open').forEach(el => el.classList.remove('is-open'));
+        document.querySelectorAll('.media-dots-btn.is-open').forEach(el => el.classList.remove('is-open'));
+    }
+
+    function toggleMediaRowMenu(event, key) {
+        if (event) {
+            event.stopPropagation();
+            event.preventDefault();
+        }
+        const menu = document.getElementById(`media-row-menu-${key}`);
+        const btn = event && event.currentTarget ? event.currentTarget : null;
+        if (!menu) return;
+        const wasOpen = menu.classList.contains('is-open');
+        closeAllMediaRowMenus();
+        if (!wasOpen) {
+            menu.classList.add('is-open');
+            if (btn) btn.classList.add('is-open');
+        }
+    }
+
+    function copyMediaStreamUrl(key) {
+        const job = mediaList.find(m => m.key === key);
+        const baseUrl = resolveBaseDirUrl(job ? job.stream_url : '', job || { key });
+        const url = `${baseUrl}/video.mp4`;
+        if (typeof global.copyToClipboard === 'function') {
+            global.copyToClipboard(url, 'Stream URL copied!');
+        }
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.media-action-menu-wrap')) {
+            closeAllMediaRowMenus();
+        }
+    });
+
     global.fetchMediaList = fetchMediaList;
     global.scheduleNextMediaPoll = scheduleNextMediaPoll;
     global.setMediaFilter = setMediaFilter;
+    global.setMediaViewMode = setMediaViewMode;
+    global.clearMediaSearch = clearMediaSearch;
+    global.resetMediaFilters = resetMediaFilters;
     global.onMediaNodeFilterChange = onMediaNodeFilterChange;
     global.onMediaTierFilterChange = onMediaTierFilterChange;
     global.onMediaSortChange = onMediaSortChange;
@@ -2572,6 +2792,9 @@
     global.closeFileLifecycleDrawer = closeFileLifecycleDrawer;
     global.submitDrawerMove = submitDrawerMove;
     global.setDrawerDemand = setDrawerDemand;
+    global.toggleMediaRowMenu = toggleMediaRowMenu;
+    global.closeAllMediaRowMenus = closeAllMediaRowMenus;
+    global.copyMediaStreamUrl = copyMediaStreamUrl;
 
     if (global.App && global.App.pages) {
         global.App.pages.media = { init, destroy };

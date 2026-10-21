@@ -103,9 +103,18 @@ html, body {
     --shadow-modal: 0 20px 40px -10px rgba(0,0,0,0.85);
 }
 
-/* Universal Form Controls & Dropdown Menu Theming */
+/* Universal Form Controls & Standard Web Typography */
+:root {
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+html, body, button, input, select, textarea {
+    font-family: var(--font-sans);
+    letter-spacing: normal;
+}
+
 select, input, textarea {
-    font-family: inherit;
+    font-family: var(--font-sans);
     color: var(--text-primary);
     background-color: var(--bg-surface);
 }
@@ -257,12 +266,15 @@ select option {
 body {
     background-color: var(--bg-body);
     color: var(--text-primary);
-    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
     height: 100vh;
     max-height: 100vh;
     display: flex;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 /* Sidebar Navigation (Pinned Fixed Height) */
@@ -669,8 +681,11 @@ body {
     border: 1px solid #bfdbfe;
 }
 
-.ui-badge-mono {
-    font-family: 'JetBrains Mono', monospace;
+.ui-badge-mono,
+.mono,
+.mono-code {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
 }
 
 .ui-badge-dot {

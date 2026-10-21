@@ -1,150 +1,149 @@
-<!-- Modal: Edit VPS Configuration & Quota -->
+<!-- Modal: Edit VPS Node -->
 <div class="modal-overlay" id="node-detail-modal" role="dialog" aria-modal="true" aria-labelledby="modal-node-title">
-    <div class="modal-dialog" style="max-width:620px;">
-        <form id="form-edit-node" onsubmit="handleSaveNodeConfig(event)" style="display:flex;flex-direction:column;max-height:88vh;overflow:hidden;">
+    <div class="modal-dialog" style="max-width:600px;">
+        <form id="form-edit-node" onsubmit="handleSaveNodeConfig(event)" style="display:flex;flex-direction:column;max-height:90vh;overflow:hidden;">
             <!-- Header -->
-            <div class="modal-header">
-                <div style="display:flex;align-items:center;gap:12px;">
-                    <div style="width:38px;height:38px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <div class="modal-header" style="padding:16px 20px;">
+                <div style="display:flex;align-items:center;gap:12px;min-width:0;">
+                    <div style="width:36px;height:36px;border-radius:var(--radius-md);background:var(--bg-orange-soft);color:var(--orange-dark);display:flex;align-items:center;justify-content:center;border:1px solid var(--border-orange);flex-shrink:0;">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
                             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
                         </svg>
                     </div>
-                    <div>
-                        <h3 class="modal-title" id="modal-node-title" style="font-size:18px;">Edit VPS Node</h3>
-                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;" id="modal-node-sub">Node Configuration &amp; Storage Quota</div>
+                    <div style="min-width:0;">
+                        <h3 class="modal-title" id="modal-node-title" style="font-size:16px;font-weight:700;margin:0;line-height:1.25;">Edit Node</h3>
+                        <div style="font-size:12px;color:var(--text-secondary);margin-top:2px;" id="modal-node-sub">—</div>
                     </div>
                 </div>
-                <button type="button" class="modal-close-btn" onclick="closeNodeDetailModal()" aria-label="Close modal">&times;</button>
+                <button type="button" class="modal-close-btn" onclick="closeNodeDetailModal()" title="Close" aria-label="Close modal">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
             </div>
 
             <!-- Body -->
-            <div class="modal-body" style="display:flex;flex-direction:column;gap:18px;overflow-y:auto;flex:1;padding:22px 24px;">
-                <!-- Group 1: Identity & Status -->
-                <div style="display:flex;flex-direction:column;gap:8px;">
-                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);">Node Identity &amp; State</span>
-                    <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;align-items:start;">
-                        <div>
-                            <label class="form-label" for="modal-edit-label">Node Alias / Friendly Name</label>
-                            <input type="text" id="modal-edit-label" class="form-input" placeholder="e.g. Frankfurt NVMe Storage">
-                        </div>
-                        <div>
-                            <label class="form-label">Cluster Status</label>
-                            <label style="display:flex;align-items:center;gap:8px;height:38px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-primary);padding:0 8px;border:1px solid var(--border-light);border-radius:var(--radius-sm);background:var(--bg-body);">
-                                <input type="checkbox" id="modal-edit-enabled" style="accent-color:var(--orange-primary);cursor:pointer;" checked>
-                                <span>Active in Pool</span>
-                            </label>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Group 2: Storage Quota & Peering URL -->
-                <div style="display:flex;flex-direction:column;gap:14px;">
-                    <!-- Storage Allocation Cap -->
+            <div class="modal-body" style="display:flex;flex-direction:column;gap:14px;overflow-y:auto;flex:1;padding:18px 20px;">
+                <!-- Row 1: Node Name & Active Toggle -->
+                <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 1.8fr 1fr;gap:12px;align-items:end;">
                     <div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
-                            <label class="form-label" for="modal-quota-input" style="margin-bottom:0;font-weight:600;">Storage Allocation Cap</label>
-                            <span id="modal-quota-display" style="font-size:11px;font-weight:600;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;background:var(--bg-subtle);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">Unlimited (Full Drive)</span>
-                        </div>
-                        <div style="position:relative;display:flex;align-items:center;">
-                            <input type="number" id="modal-quota-input" class="form-input" min="0" placeholder="0" oninput="onQuotaNumberChange(this.value)" style="padding-right:48px;">
-                            <span style="position:absolute;right:14px;font-size:12px;font-weight:600;color:var(--text-muted);pointer-events:none;">GB</span>
-                        </div>
-                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Leave 0 for full drive capacity (unmetered pooling).</span>
-                    </div>
-
-                    <!-- Coordinator Peering URL -->
-                    <div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
-                            <label class="form-label" for="modal-edit-coord-url" style="margin-bottom:0;font-weight:600;">Coordinator Peering URL (Agent Callback) *</label>
-                            <span id="modal-edit-coord-badge" style="font-size:11px;font-weight:600;"></span>
-                        </div>
-                        <input type="text" id="modal-edit-coord-url" class="form-input" placeholder="e.g. https://xxxx.trycloudflare.com or http://public-ip:1212" oninput="checkEditCoordUrlSafety(this.value)" required>
-                        <div id="modal-edit-coord-warning" style="display:none;margin-top:6px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);border-radius:var(--radius-sm);padding:8px 10px;font-size:11.5px;color:var(--orange-dark);line-height:1.4;">
-                            ⚠️ <strong>Private Address Detected:</strong> Remote VPS nodes cannot reach RFC 1918 private IPs or localhost. Use a public IP, domain, or Cloudflare Tunnel URL.
-                        </div>
-                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Public address the remote agent dials to send heartbeats and connect to the cluster.</span>
-                    </div>
-
-                    <!-- CORS Allowed Origins -->
-                    <div>
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
-                            <label class="form-label" for="modal-edit-cors-origins" style="margin-bottom:0;font-weight:600;">CORS Allowed Origins (Cross-Origin Access)</label>
-                            <span style="font-size:11px;font-weight:600;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;background:var(--bg-subtle);padding:2px 8px;border-radius:var(--radius-sm);border:1px solid var(--border-light);">Default: *</span>
-                        </div>
-                        <input type="text" id="modal-edit-cors-origins" class="form-input" placeholder="e.g. * or https://example.com, https://player.mydomain.com">
-                        <span style="font-size:11.5px;color:var(--text-secondary);margin-top:4px;display:block;">Allow external websites and players to stream from this VPS node. Use <code>*</code> to allow all origins, or enter comma-separated domains.</span>
-                    </div>
-                </div>
-
-                <!-- Group 3: SSH Peering & Credentials -->
-                <div style="display:flex;flex-direction:column;gap:8px;">
-                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);">SSH Access &amp; Remote Management</span>
-                    <div class="modal-grid-2-1" style="display:grid;grid-template-columns: 2fr 1fr;gap:12px;">
-                        <div>
-                            <label class="form-label" for="modal-edit-ssh-host">SSH Host / IP</label>
-                            <input type="text" id="modal-edit-ssh-host" class="form-input" placeholder="e.g. 204.136.10.31">
-                        </div>
-                        <div>
-                            <label class="form-label" for="modal-edit-ssh-port">SSH Port</label>
-                            <input type="number" id="modal-edit-ssh-port" class="form-input" placeholder="22" min="1" max="65535">
-                        </div>
-                    </div>
-                    <div class="modal-grid-1-1" style="display:grid;grid-template-columns: 1fr 1fr;gap:12px;">
-                        <div>
-                            <label class="form-label" for="modal-edit-ssh-user">SSH User</label>
-                            <input type="text" id="modal-edit-ssh-user" class="form-input" placeholder="root">
-                        </div>
-                        <div>
-                            <label class="form-label" for="modal-edit-ssh-password">SSH Password</label>
-                            <input type="password" id="modal-edit-ssh-password" class="form-input" placeholder="Leave blank to keep current">
-                        </div>
+                        <label class="form-label" for="modal-edit-label" style="margin-bottom:5px;font-size:12.5px;">Node Name</label>
+                        <input type="text" id="modal-edit-label" class="form-input" placeholder="e.g. Amsterdam SSD 02" style="padding:8px 12px;font-size:13.5px;">
                     </div>
                     <div>
-                        <label style="display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12.5px;color:var(--text-primary);margin-top:2px;">
-                            <input type="checkbox" id="modal-edit-ssh-sudo" style="accent-color:var(--orange-primary);cursor:pointer;">
-                            <span>Use Sudo Elevation (for non-root SSH user)</span>
+                        <label class="form-label" style="margin-bottom:5px;font-size:12.5px;">Status</label>
+                        <label style="display:flex;align-items:center;gap:8px;height:37px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-primary);padding:0 12px;border:1px solid var(--border-light);border-radius:var(--radius-sm);background:var(--bg-body);user-select:none;">
+                            <input type="checkbox" id="modal-edit-enabled" style="accent-color:var(--orange-primary);cursor:pointer;width:15px;height:15px;" checked>
+                            <span>Active in Pool</span>
                         </label>
                     </div>
-                    <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap;align-items:center;">
-                        <button type="button" id="btn-modal-restart-agent" class="btn btn-secondary" onclick="handleModalRestartAgent()" style="font-size:12px;height:34px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
-                            </svg>
-                            <span id="btn-modal-restart-text">Restart Agent</span>
-                        </button>
-                        <button type="button" id="btn-modal-redeploy-agent" class="btn btn-secondary" onclick="handleModalRedeployAgent()" style="font-size:12px;height:34px;display:inline-flex;align-items:center;gap:6px;border-radius:var(--radius-sm);">
-                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
-                                <path d="M12 12v9"/>
-                                <path d="m16 16-4-4-4 4"/>
-                            </svg>
-                            <span id="btn-modal-redeploy-text">Redeploy / Reconnect</span>
-                        </button>
+                </div>
+
+                <!-- Row 2: Storage Limit & Coordinator URL -->
+                <div class="modal-grid-1-2" style="display:grid;grid-template-columns: 1fr 1.8fr;gap:12px;align-items:start;">
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:4px;">
+                            <label class="form-label" for="modal-quota-input" style="margin-bottom:0;font-size:12.5px;">Storage Cap</label>
+                            <span id="modal-quota-display" style="font-size:11px;font-weight:600;color:var(--text-secondary);background:var(--bg-subtle);padding:1px 6px;border-radius:4px;border:1px solid var(--border-light);">Unlimited</span>
+                        </div>
+                        <div style="position:relative;display:flex;align-items:center;">
+                            <input type="number" id="modal-quota-input" class="form-input" min="0" placeholder="0 (Full)" oninput="onQuotaNumberChange(this.value)" style="padding:8px 36px 8px 12px;font-size:13.5px;">
+                            <span style="position:absolute;right:10px;font-size:11.5px;font-weight:600;color:var(--text-muted);pointer-events:none;">GB</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:6px;">
+                            <label class="form-label" for="modal-edit-coord-url" style="margin-bottom:0;font-size:12.5px;">Coordinator URL *</label>
+                            <span id="modal-edit-coord-badge" style="font-size:11px;font-weight:600;"></span>
+                        </div>
+                        <input type="text" id="modal-edit-coord-url" class="form-input" placeholder="https://stream.example.com" oninput="checkEditCoordUrlSafety(this.value)" required style="padding:8px 12px;font-size:13.5px;">
+                        <div id="modal-edit-coord-warning" style="display:none;margin-top:6px;background:var(--bg-orange-soft);border:1px solid var(--border-orange);border-radius:var(--radius-sm);padding:6px 10px;font-size:11.5px;color:var(--orange-dark);line-height:1.35;">
+                            ⚠️ Remote VPS cannot reach localhost/LAN IPs. Use a public IP or domain.
+                        </div>
                     </div>
                 </div>
 
-                <!-- Group 4: Hardware Specs (Read-Only Reference) -->
-                <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-sm);padding:12px 14px;">
-                    <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-secondary);display:block;margin-bottom:6px;">Hardware Telemetry</span>
-                    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-primary);">
-                        <div><strong>CPU:</strong> <span id="modal-cpu-info">Loading...</span></div>
-                        <div><strong>RAM:</strong> <span id="modal-ram-info">Loading...</span></div>
+                <!-- Row 3: Allowed Origins (CORS) with Tag Chips & Visible Cross -->
+                <div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;gap:6px;">
+                        <label class="form-label" for="modal-cors-add-input" style="margin-bottom:0;font-size:12.5px;">Allowed Origins (CORS)</label>
+                        <button type="button" class="cors-reset-all-btn" onclick="setNodeCorsAll()" title="Allow all websites (*)">Allow All (*)</button>
+                    </div>
+                    <input type="hidden" id="modal-edit-cors-origins" value="*">
+                    <div class="cors-tag-box">
+                        <div id="modal-cors-chips-list" class="cors-chips-list"></div>
+                        <div class="cors-add-row">
+                            <input type="text" id="modal-cors-add-input" class="cors-inline-input" placeholder="Add domain (e.g. https://player.site.com) & press Enter..." onkeydown="handleCorsInputKeydown(event)">
+                            <button type="button" class="cors-add-btn" onclick="addNodeCorsOriginFromInput()">+ Add</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Row 4: SSH & Agent Control Card -->
+                <div style="background:var(--bg-body);border:1px solid var(--border-light);border-radius:var(--radius-md);padding:12px 14px;display:flex;flex-direction:column;gap:10px;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <span style="font-size:12px;font-weight:700;color:var(--text-primary);">SSH &amp; Remote Agent</span>
+                        <div style="display:inline-flex;gap:6px;align-items:center;">
+                            <button type="button" id="btn-modal-restart-agent" class="btn btn-secondary" onclick="handleModalRestartAgent()" style="font-size:11.5px;height:28px;padding:0 10px;display:inline-flex;align-items:center;gap:5px;border-radius:6px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+                                </svg>
+                                <span id="btn-modal-restart-text">Restart Agent</span>
+                            </button>
+                            <button type="button" id="btn-modal-redeploy-agent" class="btn btn-secondary" onclick="handleModalRedeployAgent()" style="font-size:11.5px;height:28px;padding:0 10px;display:inline-flex;align-items:center;gap:5px;border-radius:6px;">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/>
+                                    <path d="M12 12v9"/>
+                                    <path d="m16 16-4-4-4 4"/>
+                                </svg>
+                                <span id="btn-modal-redeploy-text">Redeploy</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="modal-ssh-grid" style="display:grid;grid-template-columns: 1.6fr 0.7fr 0.9fr 1.4fr;gap:8px;">
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-host" style="margin-bottom:4px;font-size:11.5px;color:var(--text-secondary);">Host / IP</label>
+                            <input type="text" id="modal-edit-ssh-host" class="form-input" placeholder="198.51.100.28" style="padding:7px 10px;font-size:13px;background:var(--bg-surface);">
+                        </div>
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-port" style="margin-bottom:4px;font-size:11.5px;color:var(--text-secondary);">Port</label>
+                            <input type="number" id="modal-edit-ssh-port" class="form-input" placeholder="22" min="1" max="65535" style="padding:7px 8px;font-size:13px;background:var(--bg-surface);">
+                        </div>
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-user" style="margin-bottom:4px;font-size:11.5px;color:var(--text-secondary);">User</label>
+                            <input type="text" id="modal-edit-ssh-user" class="form-input" placeholder="root" style="padding:7px 10px;font-size:13px;background:var(--bg-surface);">
+                        </div>
+                        <div>
+                            <label class="form-label" for="modal-edit-ssh-password" style="margin-bottom:4px;font-size:11.5px;color:var(--text-secondary);">Password</label>
+                            <input type="password" id="modal-edit-ssh-password" class="form-input" placeholder="Blank = keep saved" style="padding:7px 10px;font-size:13px;background:var(--bg-surface);">
+                        </div>
+                    </div>
+
+                    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;padding-top:2px;">
+                        <label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;font-size:12px;color:var(--text-secondary);user-select:none;">
+                            <input type="checkbox" id="modal-edit-ssh-sudo" style="accent-color:var(--orange-primary);cursor:pointer;">
+                            <span>Use sudo (non-root user)</span>
+                        </label>
+                        <div style="font-size:11.5px;color:var(--text-muted);display:inline-flex;gap:10px;">
+                            <span id="modal-cpu-info"></span>
+                            <span id="modal-ram-info"></span>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Footer -->
-            <div class="modal-footer" style="display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-top:1px solid var(--border-light);background:var(--bg-surface);">
-                <button type="button" class="btn btn-secondary" onclick="closeNodeDetailModal()">Cancel</button>
-                <button type="submit" id="btn-save-node-config" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                        <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                        <polyline points="7 3 7 8 15 8"></polyline>
+            <div class="modal-footer" style="display:flex;justify-content:flex-end;align-items:center;gap:10px;padding:14px 20px;border-top:1px solid var(--border-light);background:var(--bg-surface);">
+                <button type="button" class="btn btn-secondary" onclick="closeNodeDetailModal()" style="padding:8px 16px;font-size:13px;">Cancel</button>
+                <button type="submit" id="btn-save-node-config" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:7px;padding:8px 18px;font-size:13px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="20 6 9 17 4 12"></polyline>
                     </svg>
-                    <span>Save Node Settings</span>
+                    <span>Save Changes</span>
                 </button>
             </div>
         </form>

@@ -101,20 +101,42 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+func (s *Server) enrichNodeRecords(nodes []*cluster.NodeRecord) {
+	if s.store == nil {
+		return
+	}
+	for _, n := range nodes {
+		if n == nil {
+			continue
+		}
+		if cfg, err := s.store.GetNodeConfig(n.Metrics.NodeID); err == nil && cfg != nil {
+			if cfg.CustomLabel != "" {
+				n.CustomLabel = cfg.CustomLabel
+			}
+			n.AllocatedMaxBytes = cfg.AllocatedMaxBytes
+			n.CORSAllowedOrigins = cfg.CORSAllowedOrigins
+		}
+	}
+}
+
 func (s *Server) handleGetNodes(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
 	}
+	nodes := s.coord.GetNodes()
+	s.enrichNodeRecords(nodes)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.coord.GetNodes())
+	json.NewEncoder(w).Encode(nodes)
 }
 
 func (s *Server) handleGetPool(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdmin(w, r) {
 		return
 	}
+	pool := s.coord.GetPoolSummary()
+	s.enrichNodeRecords(pool.Nodes)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(s.coord.GetPoolSummary())
+	json.NewEncoder(w).Encode(pool)
 }
 
 
