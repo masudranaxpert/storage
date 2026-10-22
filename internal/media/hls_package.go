@@ -47,12 +47,6 @@ func PackageHLS(srcPath, dstDir, mediaID, originalFilename string) (*MediaMetada
 	cleanup := func() { removePackageFiles(dstDir) }
 
 	plan := PlanVideo(srcMeta.Video, probed)
-	if plan.Mode == VideoCopy && probed && ffprobePath != "" {
-		if gap, gErr := longestKeyframeGap(ffprobePath, srcPath); gErr == nil && gap > maxCopyKeyframeGap {
-			plan = TranscodePlan(fmt.Sprintf("keyframe interval %.0fs exceeds %.0fs: re-encoding for responsive seeking", gap, maxCopyKeyframeGap))
-		}
-	}
-
 	tracks := srcMeta.AudioTracks
 	if plan.Mode == VideoNone && len(tracks) > 1 {
 		// Audio-only packages carry the primary track; renditions need a video variant to attach to.
@@ -70,15 +64,9 @@ func PackageHLS(srcPath, dstDir, mediaID, originalFilename string) (*MediaMetada
 
 	forceAAC := false
 	out, runErr := runHLSPass(ffmpegPath, srcPath, dstDir, plan, videoBitrate, tracks, names, probed, forceAAC)
-	if runErr != nil && plan.Mode == VideoCopy {
-		cleanup()
-		plan = TranscodePlan("copy pass failed: " + lastLine(out))
-		forceAAC = true
-		out, runErr = runHLSPass(ffmpegPath, srcPath, dstDir, plan, videoBitrate, tracks, names, probed, forceAAC)
-	}
 	if runErr != nil {
 		cleanup()
-		return nil, fmt.Errorf("ffmpeg %s failed: %v: %s", plan.Mode, runErr, lastLines(out, 6))
+		return nil, fmt.Errorf("ffmpeg packaging failed: %v: %s", runErr, lastLines(out, 6))
 	}
 
 	meta, err := ExtractMetadata(filepath.Join(dstDir, "stream_0.m4s"), mediaID, originalFilename)

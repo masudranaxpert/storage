@@ -43,8 +43,6 @@ var transcodeH264 = []string{
 }
 
 // PlanVideo picks copy or transcode for the source's primary video stream.
-// An unknown stream (probe failed) is optimistically copied; the caller
-// retries with TranscodePlan if the copy pass fails.
 func PlanVideo(v *VideoStreamInfo, probed bool) VideoPlan {
 	if !probed {
 		return VideoPlan{Mode: VideoCopy, Args: []string{"-c:v", "copy"}, Reason: "source not probed; trying copy"}
@@ -88,7 +86,7 @@ func PlanVideo(v *VideoStreamInfo, probed bool) VideoPlan {
 	return transcodePlan(codec + " is not decodable by browsers")
 }
 
-// TranscodePlan forces an H.264 encode (used after a failed copy pass).
+// TranscodePlan forces an H.264 encode when explicitly needed.
 func TranscodePlan(reason string) VideoPlan {
 	return transcodePlan(reason)
 }

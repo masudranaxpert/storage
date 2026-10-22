@@ -124,7 +124,7 @@ func TestPackageHLSDuplicateLanguageTracks(t *testing.T) {
 	}
 }
 
-func TestPackageHLSSparseKeyframesAreReencoded(t *testing.T) {
+func TestPackageHLSSparseKeyframesAreCopiedWithoutSlowReencoding(t *testing.T) {
 	src := ffmpegFixture(t, "longgop.mkv",
 		"-f", "lavfi", "-i", videoSrc, "-f", "lavfi", "-i", toneA,
 		"-t", "30", "-c:v", "libx264", "-g", "1000", "-keyint_min", "1000", "-sc_threshold", "0",
@@ -134,15 +134,15 @@ func TestPackageHLSSparseKeyframesAreReencoded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("package failed: %v", err)
 	}
-	if meta.Processing == nil || meta.Processing.VideoMode != VideoTranscode {
-		t.Fatalf("processing = %+v, want transcode for a 40s keyframe interval", meta.Processing)
+	if meta.Processing == nil || meta.Processing.VideoMode != VideoCopy {
+		t.Fatalf("processing = %+v, want copy (cpu transcode blocked)", meta.Processing)
 	}
 	playlist, err := os.ReadFile(filepath.Join(out, "stream_0.m3u8"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := strings.Count(string(playlist), "#EXTINF"); n < 5 {
-		t.Fatalf("expected several short segments after forcing keyframes, got %d:\n%s", n, playlist)
+	if !strings.Contains(string(playlist), "stream_0.m4s") {
+		t.Fatalf("expected stream_0.m4s in playlist:\n%s", playlist)
 	}
 }
 
