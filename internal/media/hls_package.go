@@ -61,6 +61,16 @@ func PackageHLS(srcPath, dstDir, mediaID, originalFilename string) (*MediaMetada
 	if videoBitrate <= 0 {
 		videoBitrate = srcMeta.BitrateBps
 	}
+	// Fallback calculation using exact file size / duration if container bitrate is omitted.
+	if videoBitrate <= 0 && srcMeta.DurationSec > 0 {
+		if fi, sErr := os.Stat(srcPath); sErr == nil && fi.Size() > 0 {
+			videoBitrate = int64(float64(fi.Size()*8) / srcMeta.DurationSec)
+		}
+	}
+	// Industry standard default buffer for 1080p/720p streams if entirely unprobed (2.5 Mbps).
+	if videoBitrate <= 0 {
+		videoBitrate = 2500000
+	}
 
 	forceAAC := false
 	out, runErr := runHLSPass(ffmpegPath, srcPath, dstDir, plan, videoBitrate, tracks, names, probed, forceAAC)
@@ -222,7 +232,7 @@ func runHLSPass(ffmpegPath, srcPath, dstDir string, plan VideoPlan, videoBitrate
 		"-f", "hls",
 		"-hls_time", strconv.Itoa(hlsSegmentSeconds),
 		"-hls_playlist_type", "vod",
-		"-hls_flags", "single_file",
+		"-hls_flags", "single_file+independent_segments",
 		"-hls_segment_type", "fmp4",
 		"-var_stream_map", strings.Join(varMap, " "),
 		"-master_pl_name", "master.m3u8",
