@@ -60,13 +60,21 @@ func PackageHLS(srcPath, dstDir, mediaID, originalFilename string) (*MediaMetada
 	}
 	names := audioStreamNames(tracks)
 
+	videoBitrate := int64(0)
+	if srcMeta.Video != nil {
+		videoBitrate = srcMeta.Video.BitrateBps
+	}
+	if videoBitrate <= 0 {
+		videoBitrate = srcMeta.BitrateBps
+	}
+
 	forceAAC := false
-	out, runErr := runHLSPass(ffmpegPath, srcPath, dstDir, plan, tracks, names, probed, forceAAC)
+	out, runErr := runHLSPass(ffmpegPath, srcPath, dstDir, plan, videoBitrate, tracks, names, probed, forceAAC)
 	if runErr != nil && plan.Mode == VideoCopy {
 		cleanup()
 		plan = TranscodePlan("copy pass failed: " + lastLine(out))
 		forceAAC = true
-		out, runErr = runHLSPass(ffmpegPath, srcPath, dstDir, plan, tracks, names, probed, forceAAC)
+		out, runErr = runHLSPass(ffmpegPath, srcPath, dstDir, plan, videoBitrate, tracks, names, probed, forceAAC)
 	}
 	if runErr != nil {
 		cleanup()
@@ -161,7 +169,7 @@ func sanitizeStreamLang(idx int, lang string) string {
 }
 
 // runHLSPass executes one ffmpeg pass producing the HLS package described on PackageHLS.
-func runHLSPass(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []AudioTrackInfo,
+func runHLSPass(ffmpegPath, srcPath, dstDir string, plan VideoPlan, videoBitrate int64, tracks []AudioTrackInfo,
 	names []string, probed, forceAAC bool) ([]byte, error) {
 	audioFor := func(codec string) []string {
 		if forceAAC {
@@ -182,6 +190,15 @@ func runHLSPass(ffmpegPath, srcPath, dstDir string, plan VideoPlan, tracks []Aud
 	if hasVideo {
 		args = append(args, "-map", "0:v:0?")
 		args = append(args, plan.Args...)
+		// When copying video, if the container does not specify bitrate, FFmpeg omits
+		// #EXT-X-STREAM-INF from master.m3u8 unless -b:v is explicitly supplied.
+		if plan.Mode == VideoCopy {
+			vb := videoBitrate
+			if vb <= 0 {
+				vb = 2000000
+			}
+			args = append(args, "-b:v", strconv.FormatInt(vb, 10))
+		}
 	}
 
 	switch {

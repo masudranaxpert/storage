@@ -210,9 +210,9 @@ func (a *Agent) RunFileJob(key, srcURL, filename, targetDir string, final *Trans
 		return
 	}
 
-	report("processing", 100, "HLS Packaging & AAC Audio Normalization...", "", nil, map[string]interface{}{
+	report("processing", 65, "HLS Packaging & Stream Preparation...", "", nil, map[string]interface{}{
 		"stage":         "process",
-		"stage_name":    "HLS Packaging & Audio Normalization",
+		"stage_name":    "HLS Packaging & Stream Preparation",
 		"stage_percent": 65.0,
 	})
 	meta, err := media.PackageHLS(folder.RawFilePath, folder.BaseDir, key, filename)
